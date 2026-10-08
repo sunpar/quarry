@@ -53,7 +53,7 @@ Checked against the generic default: no cream background, no serif display, no c
 ## Review Focus
 
 1. A generated component imports a module outside the allowlist. Expected: the runtime posts `error` with the message naming the module and the allowed list, the host shows it in the view slot with a "Fix this view" button, nothing hangs. Pinned in Task 4 and Task 12.
-2. The runtime's CSP `'self'` under an opaque sandbox origin. Expected: Chromium resolves `'self'` from the document URL, so the runtime's chunks and CSS load. Pinned by the Playwright test in Task 12; if it fails, the fallback is to serve `runtime.html` with the same policy as a response header from `create_app`, not to loosen the policy.
+2. The runtime's CSP `'self'` under an opaque sandbox origin. Expected: Chromium resolves `'self'` from the document URL, so the runtime's chunks and CSS load. Pinned by the Playwright test in Task 12. If chunks fail to load, the fallback is an explicit loopback host-source with a port wildcard, `script-src 'self' http://127.0.0.1:* http://localhost:*` (same for `style-src` and `font-src`); a response header resolves `'self'` exactly as the meta tag does, so that is not a fallback. The wildcard stays loopback-only and does not loosen the jail.
 3. A query returns `truncated: true`. Expected: the data table shows a banner with the row count and the cap. Pinned in Task 8.
 4. Status reports the kernel dead. Expected: the step column shows a banner with "Restart kernel"; restart replays and the banner clears. Pinned in Task 11.
 5. The page is reloaded while a step is running. Expected: the token survives, the session reloads with the running step in place, polling resumes, the prompt box stays disabled until the step finishes. Pinned in Task 10.
@@ -2313,6 +2313,8 @@ export const ViewFrame = forwardRef<HTMLIFrameElement, ViewFrameProps>(
 
 React 19 accepts `ref` as a plain prop; `forwardRef` is still fine and keeps the type explicit. Either is acceptable.
 
+The `ready` handshake has a narrow race: the host attaches its listener in an effect after the iframe element exists, and the runtime posts `ready` when its module script runs. The effect wins in practice because the iframe document has not loaded yet. If the Playwright test ever flakes on mount, add a `load` listener on the iframe that calls a public `flushMount()` on the bridge; module scripts run before `load`, so by then `ready` has been sent and a second `mount` is harmless.
+
 - [ ] **Step 3: Verify and commit**
 
 ```bash
@@ -3810,17 +3812,22 @@ export function ViewFrameContainer({
   const viewRef = useRef(step.view);
   viewRef.current = step.view;
   const contentHash = step.view?.content_hash ?? null;
+  const ownDatasets = step.datasets;
 
   // One bridge per iframe for its lifetime; the window listener is the effect's only job.
   useEffect(() => {
     const frame = frameRef.current;
     const view = viewRef.current;
     if (frame === null || view === null || contentHash === null) return;
+    // The step already carries the schema of everything it wrote; only datasets from earlier
+    // steps need the API, fetched fresh so a view never sees a list from before its step ran.
     const schemaFor = async (dataset: string): Promise<Column[]> => {
+      const own = ownDatasets.find((d) => d.name === dataset);
+      if (own !== undefined) return own.schema;
       const datasets = await queryClient.fetchQuery({
         queryKey: keys.datasets(sessionId),
         queryFn: () => api.datasets(sessionId),
-        staleTime: 10_000,
+        staleTime: 0,
       });
       const match = datasets.find((d) => d.name === dataset);
       if (match === undefined) throw new Error(`unknown dataset ${dataset}`);
@@ -3847,7 +3854,7 @@ export function ViewFrameContainer({
       datasets: view.datasets,
     });
     return stop;
-  }, [api, queryClient, sessionId, step.id, contentHash]);
+  }, [api, queryClient, sessionId, step.id, contentHash, ownDatasets]);
 
   if (step.view === null) return null;
   return (
@@ -4122,7 +4129,7 @@ def test_refused_import_offers_fix(serve: Callable[[list[AssistantTurn]], Runnin
     expect(page.get_by_text("Its source:")).to_be_visible()
 ```
 
-If the first test fails because the iframe never renders (CSP blocking chunks), apply Review Focus item 2's fallback before touching the policy itself.
+If the first test fails because the iframe never renders (CSP blocking chunks), apply Review Focus item 2's loopback host-source fallback in `runtime.html`; do not drop `connect-src 'none'` or the sandbox.
 
 - [ ] **Step 4: CI**
 
