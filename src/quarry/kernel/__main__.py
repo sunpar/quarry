@@ -16,11 +16,10 @@ from pathlib import Path
 from types import FrameType
 from typing import NoReturn
 
-import duckdb
-import polars as pl
 from pydantic import ValidationError
 
 from quarry.config import load_config
+from quarry.data.namespace import build_namespace
 from quarry.kernel.executor import Executor
 from quarry.kernel.protocol import (
     InterruptResult,
@@ -45,7 +44,7 @@ def main() -> None:
     config = load_config(Path(args.root))
     if config.data.kernel_memory_mb > 0:
         apply_memory_cap(config.data.kernel_memory_mb)
-    namespace: dict[str, object] = {"pl": pl, "duckdb": duckdb}
+    namespace = build_namespace(config)
     executor = Executor(namespace, row_cap=config.data.row_cap)
     conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     conn.connect(args.socket)
