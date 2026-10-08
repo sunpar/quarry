@@ -21,6 +21,7 @@ STOP_MAP: Final[dict[str, StopReason]] = {
     "stop_sequence": "end",
     "tool_use": "tool_use",
     "max_tokens": "max_tokens",
+    "model_context_window_exceeded": "max_tokens",
     "refusal": "refusal",
 }
 

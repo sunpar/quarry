@@ -88,6 +88,13 @@ def test_from_api_response_refusal() -> None:
     assert turn.refusal_reason == "declined"
 
 
+def test_from_api_response_context_window_exceeded_is_truncation() -> None:
+    response = SimpleNamespace(
+        stop_reason="model_context_window_exceeded", stop_details=None, content=[]
+    )
+    assert from_api_response(response).stop == "max_tokens"
+
+
 def test_complete_passes_required_parameters() -> None:
     captured: dict[str, object] = {}
 
