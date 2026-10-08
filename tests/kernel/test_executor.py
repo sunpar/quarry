@@ -162,7 +162,7 @@ def test_describe_failure_after_exec_is_structured_error() -> None:
     assert meta.backing == "polars_lazy"
     assert (meta.schema_, meta.rows, meta.preview) == ([], None, [])
     assert meta.error is not None
-    assert meta.error.startswith("lf: ColumnNotFoundError: ")
+    assert meta.error.startswith("ColumnNotFoundError: ")
 
 
 def test_list_datasets_reports_an_undescribable_dataset_with_its_error() -> None:
@@ -173,7 +173,7 @@ def test_list_datasets_reports_an_undescribable_dataset_with_its_error() -> None
     assert (good.name, good.error, good.rows) == ("good", None, 1)
     assert bad.name == "lf"
     assert bad.error is not None
-    assert bad.error.startswith("lf: ColumnNotFoundError: ")
+    assert bad.error.startswith("ColumnNotFoundError: ")
     with pytest.raises(ColumnNotFoundError):
         ex.describe("lf")
 

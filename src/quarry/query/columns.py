@@ -32,7 +32,7 @@ def _input_columns(spec: QuerySpec) -> list[str]:
     if spec.group_by is not None:
         names += [*spec.group_by, *(a.col for a in spec.aggs)]
     if spec.pivot is not None:
-        names += [*spec.pivot.index, spec.pivot.columns, spec.pivot.values]
+        names += spec.pivot.inputs
     return names
 
 

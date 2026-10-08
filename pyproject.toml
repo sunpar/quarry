@@ -47,5 +47,5 @@ packages = ["quarry"]
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = ["duckdb", "duckdb.*", "arrow_odbc", "pyarrow", "pyarrow.*"]
+module = ["arrow_odbc", "pyarrow", "pyarrow.*"]
 ignore_missing_imports = true

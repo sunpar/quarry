@@ -88,6 +88,11 @@ class Pivot(BaseModel):
     values: str
     agg: AggFn
 
+    @property
+    def inputs(self) -> list[str]:
+        """The columns the pivot reads, each once; no other column reaches its output."""
+        return list(dict.fromkeys([*self.index, self.columns, self.values]))
+
 
 class Sort(BaseModel):
     model_config = ConfigDict(extra="forbid")

@@ -165,6 +165,20 @@ def test_duckdb_pivot_runs_filters_in_sql_and_the_pivot_in_polars() -> None:
 
 
 @pytest.mark.parametrize("backing", BACKINGS)
+def test_pivot_collects_only_its_input_columns(backing: Backing) -> None:
+    spec = QuerySpec(
+        dataset="trades",
+        pivot=Pivot(index=["date"], columns="ticker", values="volume", agg="sum"),
+    )
+    lines = to_source(spec, backing).splitlines()
+    if backing == "duckdb":
+        assert 'SELECT \\"date\\", \\"ticker\\", \\"volume\\" FROM' in lines[1]
+    else:
+        collect = lines.index("    .collect()")
+        assert lines[collect - 1] == '    .select(["date", "ticker", "volume"])'
+
+
+@pytest.mark.parametrize("backing", BACKINGS)
 @pytest.mark.parametrize("pivoted", [False, True], ids=["filter", "pivot"])
 @pytest.mark.parametrize("ch", ["\u2028", "\x85"], ids=["U+2028", "U+0085"])
 def test_line_break_characters_stay_inside_literals(

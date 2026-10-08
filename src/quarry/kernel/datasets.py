@@ -47,7 +47,8 @@ class DatasetMeta(BaseModel):
     schema_: list[Column] = Field(alias="schema")
     rows: int | None
     preview: list[dict[str, Json]]
-    # Set, with schema and preview empty, when the dataset exists but could not be described.
+    # "<ExcType>: <message>", with schema and preview empty, when the dataset exists but could
+    # not be described.
     error: str | None = None
 
 

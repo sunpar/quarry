@@ -90,11 +90,11 @@ def test_dataset_names_ignores_non_string_keys() -> None:
 
 
 def test_undescribed_meta_carries_error_and_round_trips() -> None:
-    meta = undescribed("lf", frame().lazy(), error="lf: ColumnNotFoundError: nope")
+    meta = undescribed("lf", frame().lazy(), error="ColumnNotFoundError: nope")
     assert (meta.backing, meta.schema_, meta.rows, meta.preview) == ("polars_lazy", [], None, [])
     wire = json.loads(json.dumps(meta.model_dump(by_alias=True, mode="json")))
     assert wire["schema"] == []
-    assert wire["error"] == "lf: ColumnNotFoundError: nope"
+    assert wire["error"] == "ColumnNotFoundError: nope"
     assert DatasetMeta.model_validate(wire) == meta
     assert describe("f", frame(), count_rows=False).error is None
 

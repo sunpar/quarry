@@ -152,11 +152,16 @@ def _aggregate(fn: AggFn, values: pl.Expr) -> pl.Expr:
 
 
 def _pivot(lf: pl.LazyFrame, pivot: Pivot) -> pl.LazyFrame:
-    wide = lf.collect().pivot(
-        on=pivot.columns,
-        index=pivot.index,
-        values=pivot.values,
-        aggregate_function=_aggregate(pivot.agg, pl.element()),
-        sort_columns=True,
+    # pivot is eager: without the select, every column of every filtered row is collected.
+    wide = (
+        lf.select(pivot.inputs)
+        .collect()
+        .pivot(
+            on=pivot.columns,
+            index=pivot.index,
+            values=pivot.values,
+            aggregate_function=_aggregate(pivot.agg, pl.element()),
+            sort_columns=True,
+        )
     )
     return wide.lazy()

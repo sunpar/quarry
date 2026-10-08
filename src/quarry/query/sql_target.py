@@ -1,4 +1,4 @@
-"""Compile a QuerySpec to a single DuckDB SQL statement."""
+"""Compile a QuerySpec to a single DuckDB SQL statement, for a connection or a relation."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ SQL_AGG: Final[dict[AggFn, str]] = {
 }
 
 
-def to_sql(spec: QuerySpec, relation: str, columns: Sequence[str] | None = None) -> str:
+def to_sql(spec: QuerySpec, relation: str, *, columns: Sequence[str] | None = None) -> str:
     """Render `spec` as one DuckDB statement reading from the identifier `relation`.
 
     When `columns` is given, unknown column references raise QueryError before rendering.
@@ -51,6 +51,30 @@ def to_sql(spec: QuerySpec, relation: str, columns: Sequence[str] | None = None)
     if spec.offset:
         outer += f" OFFSET {spec.offset}"
     return outer
+
+
+def relation_view(dataset: str) -> str:
+    """The name a DuckDB relation's `query` gives `dataset` in its SQL.
+
+    Under the dataset's own name, a relation over a same-named table would read itself, and
+    the view would shadow that table afterwards.
+    """
+    return f"_quarry_{dataset}"
+
+
+def split_for_relation(spec: QuerySpec) -> tuple[QuerySpec, QuerySpec | None]:
+    """`spec` as the part a relation's `query` runs as SQL, and the part, if any, left for polars.
+
+    DuckDB plans PIVOT without an IN list as a MULTI statement, which `relation.query` cannot
+    run: a pivot spec's SQL only filters and selects the pivot's inputs, and the pivot onward
+    runs in polars on its result.
+    """
+    if spec.pivot is None:
+        return spec, None
+    pre_pivot = spec.model_copy(
+        update={"pivot": None, "sort": [], "limit": None, "offset": 0, "select": spec.pivot.inputs}
+    )
+    return pre_pivot, spec.model_copy(update={"filters": []})
 
 
 def filter_sql(f: Filter) -> str:

@@ -21,7 +21,7 @@ class ParquetCatalog:
 
     def pq(self, relative_glob: str) -> duckdb.DuckDBPyRelation:
         if self._root is None:
-            raise RuntimeError("parquet_root is not configured")
+            raise RuntimeError("parquet cache not configured: set data.parquet_root")
         pattern = str(self._root / relative_glob).replace("'", "''")
         return self._conn.sql(f"SELECT * FROM read_parquet('{pattern}', hive_partitioning = true)")
 

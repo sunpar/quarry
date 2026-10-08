@@ -30,7 +30,7 @@ from quarry.kernel.datasets import describe as describe_dataset
 from quarry.kernel.lineage import CodeNames, analyze, dataset_reads, dataset_writes
 from quarry.query.polars_target import to_polars
 from quarry.query.spec import Json, QuerySpec
-from quarry.query.sql_target import to_sql
+from quarry.query.sql_target import relation_view, split_for_relation, to_sql
 
 TAIL_BYTES: Final = 4096
 # Kernel-level exits and interrupts: a guard that turns failures into results lets these through.
@@ -128,8 +128,9 @@ class Executor:
         truncated = frame.height > self._row_cap
         frame = frame.head(self._row_cap)
         arrow = spec.format == "arrow"
-        return QueryResult(
-            schema=[Column(name=n, dtype=str(t)) for n, t in frame.schema.items()],
+        # The rows come from json.loads, so validating them would only walk every value again.
+        return QueryResult.model_construct(
+            schema_=[Column(name=n, dtype=str(t)) for n, t in frame.schema.items()],
             rows=None if arrow else to_json_rows(frame),
             arrow_base64=_arrow_base64(frame) if arrow else None,
             row_count=frame.height,
@@ -171,7 +172,7 @@ class Executor:
             raise
         except BaseException as exc:  # polars panics are BaseException, not Exception
             error = _exec_error(exc)
-            meta = undescribed(name, obj, error=f"{name}: {error.type}: {error.message}")
+            meta = undescribed(name, obj, error=f"{error.type}: {error.message}")
             return meta, error.model_copy(update={"message": f"{name}: {error.message}"})
 
     def _capped(self, limit: int | None) -> int:
@@ -211,22 +212,10 @@ def _identity_check(obj: object) -> _IsSame:
 def _run_query(spec: QuerySpec, obj: Dataset) -> pl.DataFrame:
     if not isinstance(obj, duckdb.DuckDBPyRelation):
         return to_polars(spec, obj).collect()
-    if spec.pivot is None:
-        return _relation_sql(spec, obj)
-    # DuckDB plans PIVOT without an IN list as a MULTI statement, which `relation.query`
-    # cannot run: the filters run as SQL and the pivot onward in polars, as `to_source` does.
-    pre_pivot = spec.model_copy(
-        update={"pivot": None, "sort": [], "limit": None, "offset": 0, "select": None}
-    )
-    pivoted = to_polars(spec.model_copy(update={"filters": []}), _relation_sql(pre_pivot, obj))
-    return pivoted.collect()
-
-
-def _relation_sql(spec: QuerySpec, rel: duckdb.DuckDBPyRelation) -> pl.DataFrame:
-    # `to_source`'s view name: under the dataset's own name, a relation over a same-named
-    # table would read itself.
-    view = f"_quarry_{spec.dataset}"
-    return relation_frame(rel.query(view, to_sql(spec, view, columns=rel.columns)))
+    sql_part, polars_part = split_for_relation(spec)
+    view = relation_view(spec.dataset)
+    frame = relation_frame(obj.query(view, to_sql(sql_part, view, columns=obj.columns)))
+    return frame if polars_part is None else to_polars(polars_part, frame).collect()
 
 
 def _materialize(obj: Dataset) -> pl.DataFrame:

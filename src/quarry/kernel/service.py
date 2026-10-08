@@ -24,7 +24,8 @@ class KernelService:
         """The response to `request`; every failure, a polars panic included, is an error."""
         try:
             result = _jsonable(self._dispatch(request.method, request.params))
-            return Response(id=request.id, result=result)
+            # Already JSON from model_dump; validating it again walks every row of a result.
+            return Response.model_construct(id=request.id, result=result)
         except NOT_FAILURES:
             raise
         # Unknown methods, KeyError, QueryError, ValidationError, polars and DuckDB errors,

@@ -14,7 +14,7 @@ from concurrent.futures import Future
 from pathlib import Path
 from typing import Final
 
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from quarry.kernel.datasets import DatasetMeta
 from quarry.kernel.executor import ExecResult, QueryResult
@@ -33,6 +33,7 @@ from quarry.query.spec import Json, QuerySpec
 _LIVENESS_POLL_SECONDS: Final = 0.5
 # How often spawn checks, while waiting for the kernel to connect, that it has not exited.
 _ACCEPT_POLL_SECONDS: Final = 0.1
+_DATASET_LIST: Final = TypeAdapter(list[DatasetMeta])
 
 
 class KernelDead(Exception):
@@ -107,10 +108,7 @@ class KernelClient:
         return DatasetMeta.model_validate(self._call("describe", {"name": name}))
 
     def list_datasets(self) -> list[DatasetMeta]:
-        result = self._call("list_datasets", {})
-        if not isinstance(result, list):
-            raise RpcFailure("BadResult", "list_datasets did not return a list")
-        return [DatasetMeta.model_validate(item) for item in result]
+        return _DATASET_LIST.validate_python(self._call("list_datasets", {}))
 
     def query(self, spec: QuerySpec) -> QueryResult:
         return QueryResult.model_validate(

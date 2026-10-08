@@ -3,11 +3,9 @@
 The source assumes `pl` and the dataset variable are in scope, and imports `date` or
 `datetime` itself only when a literal needs one. The polars rendering mirrors
 `polars_target` method for method. A DuckDB relation runs `to_sql` through
-`relation.query`, so the dataset is read by its Python name, on its own connection. The
-query's view is named `_quarry_<dataset>`: a relation over a table named like the dataset
-would otherwise bind to itself, and the view would shadow that table afterwards.
-DuckDB cannot plan PIVOT through `relation.query`, so a relation's pivot spec is split:
-its filters run as SQL, and the pivot onward runs as the polars chain.
+`relation.query`, so the dataset is read by its Python name, on its own connection, and a
+pivot spec is split as the executor splits it (`split_for_relation`): its filters run as
+SQL, and the pivot onward runs as the polars chain.
 
 Filter literals depend on `schema`. When it is given, they are coerced exactly as
 `to_polars` coerces them against the frame's dtypes. Without it, ISO-date-shaped strings
@@ -31,7 +29,7 @@ import polars as pl
 from quarry.query.columns import check_columns
 from quarry.query.polars_target import CoercedLiteral, CompareOp, coerce_literal
 from quarry.query.spec import NULL_OPS, TEXT_OPS, Agg, AggFn, Backing, Filter, Json, QuerySpec
-from quarry.query.sql_target import to_sql
+from quarry.query.sql_target import relation_view, split_for_relation, to_sql
 
 DATE_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATETIME_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
@@ -50,6 +48,7 @@ Schema = Mapping[str, pl.DataType]
 def to_source(
     spec: QuerySpec,
     backing: Backing,
+    *,
     result_name: str = "result",
     schema: Schema | None = None,
 ) -> str:
@@ -66,17 +65,13 @@ def to_source(
             head=f"{spec.dataset}.lazy()",
             head_is_lazy=True,
         )
-    if spec.pivot is None:
-        return f"{result_name} = {_relation_query(spec)}\n"
-    pre_pivot = spec.model_copy(
-        update={"pivot": None, "sort": [], "limit": None, "offset": 0, "select": None}
-    )
+    sql_part, polars_part = split_for_relation(spec)
+    view = relation_view(spec.dataset)
+    head = f"{spec.dataset}.query({py_literal(view)}, {py_literal(to_sql(sql_part, view))}).pl()"
+    if polars_part is None:
+        return f"{result_name} = {head}\n"
     return _chain_source(
-        spec.model_copy(update={"filters": []}),
-        result_name=result_name,
-        schema=schema,
-        head=_relation_query(pre_pivot),
-        head_is_lazy=False,
+        polars_part, result_name=result_name, schema=schema, head=head, head_is_lazy=False
     )
 
 
@@ -168,7 +163,9 @@ def _reshape_steps(spec: QuerySpec, head_is_lazy: bool) -> list[str]:
             "sort_columns=True",
         ],
     )
-    return [".collect()", pivot, ".lazy()"] if head_is_lazy else [pivot, ".lazy()"]
+    if not head_is_lazy:  # the relation's SQL already selected the pivot's inputs
+        return [pivot, ".lazy()"]
+    return [f".select({py_literal(spec.pivot.inputs)})", ".collect()", pivot, ".lazy()"]
 
 
 def _tail_steps(spec: QuerySpec) -> list[str]:
@@ -250,12 +247,6 @@ def _temporal_names(value: object) -> set[str]:
             return {"date"}
         case _:
             return set()
-
-
-def _relation_query(spec: QuerySpec) -> str:
-    view = f"_quarry_{spec.dataset}"
-    sql = to_sql(spec, view)
-    return f"{spec.dataset}.query({py_literal(view)}, {py_literal(sql)}).pl()"
 
 
 def _dtype(schema: Schema | None, col: str) -> pl.DataType | None:
