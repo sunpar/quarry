@@ -21,5 +21,5 @@ tiers = ["full"]
 
 [[step]]
 name = "prettier (markdown)"
-run = "npx --yes prettier --check README.md"
+run = "npx --yes prettier --check README.md AGENTS.md docs/*.md docs/context/*.md"
 tiers = ["full"]
