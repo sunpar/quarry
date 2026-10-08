@@ -5,7 +5,8 @@ The source assumes `pl` and the dataset variable are in scope, and imports `date
 `polars_target` method for method. A DuckDB relation runs `to_sql` through
 `relation.query`, so the dataset is read by its Python name, on its own connection, and a
 pivot spec is split as the executor splits it (`split_for_relation`): its filters run as
-SQL, and the pivot onward runs as the polars chain.
+SQL, and the pivot onward runs as the polars chain. The source then drops the view
+`relation.query` registered, through the relation again, as the executor does.
 
 Filter literals depend on `schema`. When it is given, they are coerced exactly as
 `to_polars` coerces them against the frame's dtypes. Without it, a string that is a whole
@@ -30,7 +31,7 @@ import polars as pl
 from quarry.query.columns import check_columns
 from quarry.query.polars_target import CoercedLiteral, CompareOp, coerce_literal
 from quarry.query.spec import NULL_OPS, TEXT_OPS, Agg, AggFn, Backing, Filter, Json, QuerySpec
-from quarry.query.sql_target import relation_view, split_for_relation, to_sql
+from quarry.query.sql_target import quote_ident, relation_view, split_for_relation, to_sql
 
 DATE_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATETIME_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
@@ -66,14 +67,21 @@ def to_source(
             head=f"{spec.dataset}.lazy()",
             head_is_lazy=True,
         )
+    if result_name == spec.dataset:
+        # The view is dropped through the dataset after the result is assigned.
+        raise ValueError(f"result_name {result_name!r} must differ from the dataset for a relation")
     sql_part, polars_part = split_for_relation(spec)
     view = relation_view(spec.dataset)
     head = f"{spec.dataset}.query({py_literal(view)}, {py_literal(to_sql(sql_part, view))}).pl()"
+    # The view stays on the relation's connection, pinning its data, until something drops it.
+    drop_sql = py_literal(f"DROP VIEW {quote_ident(view)}")
+    drop = f"# release the temporary view\n{spec.dataset}.query({py_literal(view)}, {drop_sql})\n"
     if polars_part is None:
-        return f"{result_name} = {head}\n"
-    return _chain_source(
+        return f"{result_name} = {head}\n{drop}"
+    chain = _chain_source(
         polars_part, result_name=result_name, schema=schema, head=head, head_is_lazy=False
     )
+    return chain + drop
 
 
 def filter_source(f: Filter, dtype: pl.DataType | None = None) -> str:

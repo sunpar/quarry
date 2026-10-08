@@ -45,7 +45,7 @@ class DataConfig(BaseModel):
     parquet_root: OptionalPath = None
     mssql_dsn: str = ""
     row_cap: int = Field(default=50000, ge=1)
-    kernel_memory_mb: int = 0
+    kernel_memory_mb: int = Field(default=0, ge=0)  # 0 = unlimited
 
 
 class LibrariesConfig(BaseModel):

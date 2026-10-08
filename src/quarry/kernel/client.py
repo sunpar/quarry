@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import itertools
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -136,9 +137,8 @@ class KernelClient:
         return not self._dead and self._process.poll() is None
 
     def close(self) -> None:
-        """Kill the kernel if it still runs, and release its socket and socket directory."""
-        if self._process.poll() is None:
-            self._process.kill()
+        """Kill the kernel and what its steps started, and release its socket and directory."""
+        _kill_group(self._process)
         self._process.wait(timeout=5)
         with contextlib.suppress(OSError):  # the peer may already be gone
             # Wakes the reader thread even if a child the kernel forked holds the socket open.
@@ -210,9 +210,21 @@ def _accept(
         except TimeoutError:
             if time.monotonic() < deadline:
                 continue
-            process.kill()
+            _kill_group(process)
             process.wait()
             raise KernelDead(f"kernel did not connect within {timeout} seconds") from None
         conn.settimeout(None)
         return conn
     raise KernelDead(f"kernel exited with code {code} before connecting")
+
+
+def _kill_group(process: subprocess.Popen[bytes]) -> None:
+    """SIGKILL the kernel and every process its steps started: the group the kernel leads.
+
+    Callers kill before they reap where they can: once the kernel is reaped and its group is
+    empty, another process can take its pid, which is the group's id.
+    """
+    # ProcessLookupError: the group is empty. macOS raises PermissionError instead when only
+    # zombies are left in it, as when the kernel exited and nothing has reaped it yet.
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(process.pid, signal.SIGKILL)

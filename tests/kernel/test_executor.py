@@ -269,6 +269,30 @@ def test_failed_step_does_not_define_helpers_it_never_reached() -> None:
     assert later.reads == []
 
 
+def test_failed_step_does_not_define_a_helper_that_already_existed() -> None:
+    # In the namespace without a step defining it, as the kernel's loaders are.
+    ex = Executor({"helper": lambda: 1}, conn=duckdb.connect(), row_cap=3)
+    failed = ex.execute("raise RuntimeError\ndef helper():\n    return 2\n")
+    assert failed.status == "error"
+    assert failed.defines == []
+    assert "helper" not in ex._defined
+
+
+def test_redefining_a_helper_is_a_define() -> None:
+    ex = make()
+    ex.execute("def helper():\n    return 1\n")
+    result = ex.execute("def helper():\n    return 2\n")
+    assert result.defines == ["helper"]
+
+
+def test_def_that_never_runs_does_not_define_an_existing_name() -> None:
+    ex = make()
+    ex.execute("def f():\n    return 1\n")
+    result = ex.execute("if False:\n    def f():\n        return 2\n")
+    assert result.status == "ok"
+    assert result.defines == []
+
+
 def test_describe_failure_after_exec_is_structured_error() -> None:
     ex = make()
     result = ex.execute(BAD_PLAN)

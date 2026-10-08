@@ -21,6 +21,7 @@ from quarry.query import (
     to_source,
 )
 from quarry.query.source_target import py_literal
+from quarry.query.sql_target import relation_view
 from tests.query.fixtures import SPECS, trades, utc_connection
 
 BACKINGS: list[Backing] = ["polars", "polars_lazy", "duckdb"]
@@ -55,6 +56,11 @@ FIRST_LAST_SPECS: list[QuerySpec] = [
     ),
 ]
 FIRST_LAST_IDS = ["first", "pivot_last"]
+# How relation source ends: it drops the view `relation.query` registered.
+DROP_LINES = [
+    "# release the temporary view",
+    'trades.query("_quarry_trades", "DROP VIEW \\"_quarry_trades\\"")',
+]
 
 
 def bind(frame: pl.DataFrame, backing: Backing) -> object:
@@ -155,7 +161,7 @@ def test_duckdb_source_uses_sql() -> None:
     src = to_source(QuerySpec(dataset="trades", limit=1), "duckdb")
     assert 'trades.query("_quarry_trades", ' in src
     assert ".pl()" in src
-    assert src.count("\n") == 1
+    assert src.splitlines()[1:] == DROP_LINES
 
 
 def test_duckdb_source_runs_over_a_table_of_the_same_name() -> None:
@@ -179,6 +185,25 @@ def test_duckdb_source_runs_over_a_table_of_the_same_name() -> None:
     assert con.sql("SELECT count(*) FROM trades").fetchone() == (5,)
 
 
+@pytest.mark.parametrize(
+    "spec",
+    [
+        QuerySpec(dataset="trades", filters=[Filter(col="volume", op="gt", value=250)]),
+        QuerySpec(
+            dataset="trades",
+            pivot=Pivot(index=["date"], columns="ticker", values="volume", agg="sum"),
+        ),
+    ],
+    ids=["plain", "pivot"],
+)
+def test_duckdb_source_drops_its_view(spec: QuerySpec) -> None:
+    con = utc_connection()
+    con.register("fixture", trades())
+    execute(to_source(spec, "duckdb"), {"trades": con.sql("SELECT * FROM fixture")})
+    views = "SELECT view_name FROM duckdb_views() WHERE view_name = ?"
+    assert con.execute(views, [relation_view("trades")]).fetchall() == []
+
+
 def test_duckdb_pivot_runs_filters_in_sql_and_the_pivot_in_polars() -> None:
     spec = QuerySpec(
         dataset="trades",
@@ -194,7 +219,7 @@ def test_duckdb_pivot_runs_filters_in_sql_and_the_pivot_in_polars() -> None:
     assert "    .pivot(" in lines
     assert "        sort_columns=True," in lines
     assert not any("PIVOT" in line or ".filter(" in line for line in lines)
-    assert lines[-2:] == ["    .collect()", ")"]
+    assert lines[-4:] == ["    .collect()", ")", *DROP_LINES]
 
 
 @pytest.mark.parametrize("spec", FIRST_LAST_SPECS, ids=FIRST_LAST_IDS)
@@ -268,6 +293,14 @@ def test_unknown_column_raises_when_schema_given() -> None:
 def test_names_must_be_python_identifiers(dataset: str, result_name: str) -> None:
     with pytest.raises(ValueError, match="is not a Python identifier"):
         to_source(QuerySpec(dataset=dataset), "polars", result_name=result_name)
+
+
+def test_relation_source_needs_a_result_name_other_than_the_dataset() -> None:
+    # The generated code drops its view through the dataset after assigning the result.
+    with pytest.raises(ValueError, match="must differ from the dataset"):
+        to_source(QuerySpec(dataset="trades"), "duckdb", result_name="trades")
+    source = to_source(QuerySpec(dataset="trades"), "polars", result_name="trades")
+    assert source.startswith("trades = (\n    trades.lazy()")
 
 
 @pytest.mark.parametrize(

@@ -118,7 +118,7 @@ class Executor:
         self._interrupted = False
         before = {name: _identity_check(self._ns[name]) for name in dataset_names(self._ns)}
         out, err = _TailWriter(self._tail), _TailWriter(self._tail)
-        status, error, names = self._exec(code, out, err)
+        status, error, names, prior = self._exec(code, out, err)
         # On error or interrupt a store in the code may never have run, so only the namespace
         # itself can say what changed.
         stored = names if names is not None and status == "ok" else _NOTHING_STORED
@@ -131,7 +131,7 @@ class Executor:
             status, error = "interrupted", None
         elif status == "ok" and describe_errors:
             status, error = "error", describe_errors[0]
-        defines = [] if names is None else sorted(n for n in names.defines if n in self._ns)
+        defines = [] if names is None else _newly_bound(names.defines, prior, self._ns)
         reads = [] if names is None else dataset_reads(names, set(before), self._defined)
         self._defined.update(defines)
         return ExecResult(
@@ -190,11 +190,15 @@ class Executor:
 
     def _exec(
         self, code: str, out: _TailWriter, err: _TailWriter
-    ) -> tuple[Status, ExecError | None, CodeNames | None]:
+    ) -> tuple[Status, ExecError | None, CodeNames | None, dict[str, _IsSame]]:
+        """Run `code`; also its names, once it parses, and what the names it defines held."""
         names: CodeNames | None = None
+        prior: dict[str, _IsSame] = {}
         try:
             names = analyze(code)
             compiled = compile(code, "<step>", "exec")
+            # A def that never ran leaves its name as it was, which only identity can tell.
+            prior = {n: _identity_check(self._ns[n]) for n in names.defines if n in self._ns}
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 self._running = True
                 try:
@@ -202,11 +206,11 @@ class Executor:
                 finally:
                     self._running = False
         except KeyboardInterrupt:
-            return "interrupted", None, names
+            return "interrupted", None, names, prior
         # SystemExit included: a step calling exit() must not end the kernel.
         except BaseException as exc:
-            return "error", _exec_error(exc), names
-        return "ok", None, names
+            return "error", _exec_error(exc), names, prior
+        return "ok", None, names, prior
 
     def _describe_write(self, name: str) -> tuple[DatasetMeta, ExecError | None]:
         """`_describe_guarded`, open to the step's interrupt; once the step is interrupted, its
@@ -285,6 +289,15 @@ def _written(
     after = dataset_names(namespace)
     rebound = {name for name in after & before.keys() if not before[name](namespace[name])}
     return sorted({*dataset_writes(stored, set(before), after), *rebound})
+
+
+def _newly_bound(
+    names: frozenset[str], prior: Mapping[str, _IsSame], namespace: Mapping[str, object]
+) -> list[str]:
+    """`names` the step bound: new to the namespace, or holding another object than before."""
+    return sorted(
+        n for n in names if n in namespace and not (n in prior and prior[n](namespace[n]))
+    )
 
 
 def _identity_check(obj: object) -> _IsSame:

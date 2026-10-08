@@ -48,6 +48,17 @@ def test_row_cap_of_one_is_accepted(tmp_path: Path) -> None:
     assert load_config(tmp_path, env={}).data.row_cap == 1
 
 
+def test_negative_kernel_memory_mb_is_rejected(tmp_path: Path) -> None:
+    (tmp_path / "config.toml").write_text("[data]\nkernel_memory_mb = -1\n")
+    with pytest.raises(ValidationError, match="kernel_memory_mb"):
+        load_config(tmp_path, env={})
+
+
+def test_kernel_memory_mb_of_zero_is_accepted(tmp_path: Path) -> None:
+    (tmp_path / "config.toml").write_text("[data]\nkernel_memory_mb = 0\n")
+    assert load_config(tmp_path, env={}).data.kernel_memory_mb == 0
+
+
 def test_env_overrides_mssql_dsn(tmp_path: Path) -> None:
     write_dsn_config(tmp_path, "file-dsn", 0o600)
     cfg = load_config(tmp_path, env={"QUARRY_MSSQL_DSN": "env-dsn"})

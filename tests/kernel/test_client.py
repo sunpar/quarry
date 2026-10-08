@@ -1,3 +1,4 @@
+import os
 import socket
 import stat
 import subprocess
@@ -12,7 +13,7 @@ import polars as pl
 import pytest
 
 from quarry.config import ENV_API_KEY
-from quarry.kernel.client import KernelClient, KernelDead, RpcFailure
+from quarry.kernel.client import KernelClient, KernelDead, RpcFailure, _accept
 from quarry.kernel.executor import ExecResult
 from quarry.query import QuerySpec
 from tests.kernel.fixtures import BUSY_LOOP, HEAVY
@@ -28,6 +29,8 @@ STREAM_STEP = (
     "    time.sleep(0.0005)\n"
     "print(streamed)\n"
 )
+# Starts a child that runs on after the step unless something kills it.
+CHILD_STEP = "import subprocess\nchild = subprocess.Popen(['sleep', '60'])\nprint(child.pid)\n"
 
 StandIn = Callable[[float], tuple[KernelClient, socket.socket]]
 
@@ -46,7 +49,10 @@ def stand_in() -> Iterator[StandIn]:
     made: list[tuple[KernelClient, socket.socket]] = []
 
     def make(lifetime: float) -> tuple[KernelClient, socket.socket]:
-        process = subprocess.Popen([sys.executable, "-c", f"import time; time.sleep({lifetime})"])
+        # Its own session, as `spawn` starts the kernel: `close` kills the group it leads.
+        process = subprocess.Popen(
+            [sys.executable, "-c", f"import time; time.sleep({lifetime})"], start_new_session=True
+        )
         client_end, peer = socket.socketpair()
         made.append((KernelClient(process, client_end, tempfile.TemporaryDirectory()), peer))
         return made[-1]
@@ -71,6 +77,22 @@ def interrupt_running_step(kernel: KernelClient) -> None:
     while not kernel.interrupt():
         assert time.monotonic() < deadline, "the step never started"
         time.sleep(0.05)
+
+
+def exits_soon(pid: int) -> bool:
+    """Whether process `pid` ends within 5 seconds. A zombie counts as ended: a killed child of
+    a dead kernel waits for init to reap it, and a container's init may never do so."""
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        ps = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
+        if ps.stdout.strip().startswith("Z"):
+            return True
+        time.sleep(0.05)
+    return False
 
 
 def test_execute_round_trip(kernel: KernelClient) -> None:
@@ -201,6 +223,36 @@ def test_kernel_runs_in_its_own_session(kernel: KernelClient) -> None:
     # A terminal Ctrl-C reaches the server's process group, never a kernel in a new session.
     result = kernel.execute("import os\nprint(os.getsid(0) == os.getpid())")
     assert result.stdout_tail == "True\n"
+
+
+def test_close_kills_the_processes_a_step_started(tmp_path: Path) -> None:
+    client = KernelClient.spawn(tmp_path)
+    try:
+        result = client.execute(CHILD_STEP)
+    finally:
+        client.close()
+    pid = int(result.stdout_tail)
+    assert exits_soon(pid), f"step child {pid} outlived close()"
+
+
+def test_startup_timeout_kills_the_processes_the_kernel_started() -> None:
+    # A "kernel" that starts a child and never connects.
+    code = (
+        "import subprocess, time\n"
+        "print(subprocess.Popen(['sleep', '60']).pid, flush=True)\n"
+        "time.sleep(60)\n"
+    )
+    with tempfile.TemporaryDirectory() as tmpdir, socket.socket(socket.AF_UNIX) as listener:
+        listener.bind(str(Path(tmpdir) / "kernel.sock"))
+        listener.listen(1)
+        with subprocess.Popen(
+            [sys.executable, "-c", code], stdout=subprocess.PIPE, start_new_session=True
+        ) as process:
+            assert process.stdout is not None
+            pid = int(process.stdout.readline())
+            with pytest.raises(KernelDead, match="did not connect"):
+                _accept(listener, process, 0.3)
+    assert exits_soon(pid), f"child {pid} outlived the startup timeout"
 
 
 def test_printing_a_lone_surrogate_keeps_the_kernel(kernel: KernelClient) -> None:
