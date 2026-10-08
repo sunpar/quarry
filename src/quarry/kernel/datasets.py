@@ -8,16 +8,28 @@ from typing import Final, TypeGuard
 
 import duckdb
 import polars as pl
+from duckdb.sqltypes import DuckDBPyType
 from polars.datatypes import DataTypeClass
 from pydantic import BaseModel, ConfigDict, Field
 
 from quarry.query.spec import Backing, Json
+from quarry.query.sql_target import quote_ident
 
 PREVIEW_ROWS: Final = 20
 # write_json separates a naive datetime's date and time with a space; ISO 8601 wants `T`.
 # `%.f` adds fractional seconds only when they are nonzero.
 _NAIVE_ISO_FORMAT: Final = "%Y-%m-%dT%H:%M:%S%.f"
 _JSON_MAP_KEY_TYPES: Final = (pl.String, pl.Categorical, pl.Enum)
+# chrono's NaiveDate::MIN (-262143-01-01) and MAX (+262142-12-31) as days since 1970-01-01.
+# write_json panics on a Date or Datetime outside them, such as DuckDB's 'infinity'.
+_CHRONO_MIN_DAY: Final = -96_465_292
+_CHRONO_MAX_DAY: Final = 95_026_236
+_TICKS_PER_DAY: Final = {"ms": 86_400_000, "us": 86_400_000_000, "ns": 86_400_000_000_000}
+_I64_MIN: Final = -(2**63)
+_I64_MAX: Final = 2**63 - 1
+# `.pl()` raises or panics on these DuckDB types, at any depth.
+_UNIMPORTABLE_DUCKDB_TYPES: Final = frozenset({"interval", "union"})
+_NESTED_DUCKDB_TYPES: Final = frozenset({"list", "array", "struct", "map"})
 
 Dataset = pl.DataFrame | pl.LazyFrame | duckdb.DuckDBPyRelation
 
@@ -59,7 +71,7 @@ def describe(name: str, obj: Dataset, *, count_rows: bool) -> DatasetMeta:
         head = obj.head(PREVIEW_ROWS).collect()
     else:
         rows = _relation_row_count(obj) if count_rows else None
-        head = obj.limit(PREVIEW_ROWS).pl()
+        head = relation_frame(obj, PREVIEW_ROWS)
     return DatasetMeta(
         name=name,
         backing=backing_of(obj),
@@ -71,6 +83,17 @@ def describe(name: str, obj: Dataset, *, count_rows: bool) -> DatasetMeta:
 
 def dataset_names(namespace: Mapping[str, object]) -> set[str]:
     return {n for n, v in namespace.items() if not n.startswith("_") and is_dataset(v)}
+
+
+def relation_frame(rel: duckdb.DuckDBPyRelation, limit: int | None = None) -> pl.DataFrame:
+    """`rel` as a polars frame; INTERVAL and UNION columns, which polars cannot import, as VARCHAR.
+
+    Columns are projected by position (`#n`), so duplicate names cannot pick the wrong column.
+    """
+    if any(_unimportable(t) for t in rel.types):
+        columns = enumerate(zip(rel.columns, rel.types, strict=True), start=1)
+        rel = rel.project(", ".join(_importable(n, name, t) for n, (name, t) in columns))
+    return (rel if limit is None else rel.limit(limit)).pl()
 
 
 def to_json_rows(df: pl.DataFrame) -> list[dict[str, Json]]:
@@ -90,6 +113,22 @@ def _relation_row_count(rel: duckdb.DuckDBPyRelation) -> int:
     return int(count)
 
 
+def _unimportable(column_type: DuckDBPyType) -> bool:
+    if column_type.id in _UNIMPORTABLE_DUCKDB_TYPES:
+        return True
+    return column_type.id in _NESTED_DUCKDB_TYPES and any(
+        isinstance(child, DuckDBPyType) and _unimportable(child)
+        for _, child in column_type.children
+    )
+
+
+def _importable(position: int, name: str, column_type: DuckDBPyType) -> str:
+    source = f"#{position}"
+    if _unimportable(column_type):
+        source = f"CAST({source} AS VARCHAR)"
+    return f"{source} AS {quote_ident(name)}"
+
+
 def _json_native(expr: pl.Expr, dtype: pl.DataType | DataTypeClass) -> pl.Expr | None:
     """`expr` converted so write_json emits JSON-native values, or None if it already does.
 
@@ -100,8 +139,16 @@ def _json_native(expr: pl.Expr, dtype: pl.DataType | DataTypeClass) -> pl.Expr |
             return expr.cast(pl.Float64)
         case pl.Binary():
             return expr.bin.encode("base64")
-        case pl.Datetime(time_zone=None):
-            return expr.dt.to_string(_NAIVE_ISO_FORMAT)
+        case pl.Date():
+            return _representable(expr, ticks_per_day=1)
+        case pl.Datetime(time_unit=unit, time_zone=None):
+            in_range = _representable(expr, ticks_per_day=_TICKS_PER_DAY[unit])
+            return in_range.dt.to_string(_NAIVE_ISO_FORMAT)
+        case pl.Datetime(time_unit=unit):
+            return _representable(expr, ticks_per_day=_TICKS_PER_DAY[unit])
+        case pl.Duration():
+            # write_json panics on i64::MIN milliseconds.
+            return pl.when(expr.to_physical() != _I64_MIN).then(expr)
         case pl.Object():
             return expr.map_batches(_object_strings, return_dtype=pl.String)
         case pl.List(inner=inner):
@@ -124,6 +171,16 @@ def _json_native(expr: pl.Expr, dtype: pl.DataType | DataTypeClass) -> pl.Expr |
             converted = _json_native(storage, dtype.ext_storage())
             return storage if converted is None else converted
     return None
+
+
+def _representable(expr: pl.Expr, *, ticks_per_day: int) -> pl.Expr:
+    """`expr`, with null where chrono cannot represent the value.
+
+    The guard wraps the input, not the converted output: when/then evaluates both branches.
+    """
+    low = max(_CHRONO_MIN_DAY * ticks_per_day, _I64_MIN)
+    high = min((_CHRONO_MAX_DAY + 1) * ticks_per_day - 1, _I64_MAX)
+    return pl.when(expr.to_physical().is_between(low, high)).then(expr)
 
 
 def _json_native_map(

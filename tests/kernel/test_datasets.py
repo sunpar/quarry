@@ -12,6 +12,7 @@ from quarry.kernel.datasets import (
     dataset_names,
     describe,
     is_dataset,
+    relation_frame,
     to_json_rows,
 )
 
@@ -182,6 +183,66 @@ def test_describe_duckdb_relation_with_exotic_types() -> None:
     assert row["total"] == 2
 
 
+def test_describe_relation_with_interval_column() -> None:
+    rel = duckdb.connect().sql(
+        "SELECT TIMESTAMP '2024-01-02' - TIMESTAMP '2024-01-01' AS gap, 1 AS n"
+    )
+    meta = describe("r", rel, count_rows=True)
+    assert [(c.name, c.dtype) for c in meta.schema_] == [("gap", "String"), ("n", "Int32")]
+    assert meta.preview == [{"gap": "1 day", "n": 1}]
+    assert meta.rows == 1
+
+
+def test_describe_relation_with_nested_interval_and_union() -> None:
+    rel = duckdb.connect().sql(
+        "SELECT [INTERVAL 1 DAY] AS l, union_value(k := 1) AS u, {'INTERVAL': 1} AS st"
+    )
+    meta = describe("r", rel, count_rows=False)
+    assert [c.dtype for c in meta.schema_] == ["String", "String", "Struct({'INTERVAL': Int32})"]
+    assert meta.preview == [{"l": "[1 day]", "u": "1", "st": {"INTERVAL": 1}}]
+
+
+def test_relation_frame_keeps_odd_and_duplicate_names() -> None:
+    rel = duckdb.connect().sql('SELECT INTERVAL 1 HOUR AS "my gap", 1 AS "a""b", 2 AS "a""b"')
+    result = relation_frame(rel)
+    assert result.columns == ["my gap", 'a"b', 'a"b_1']
+    assert result.row(0) == ("01:00:00", 1, 2)
+
+
+def test_relation_frame_limit() -> None:
+    rel = duckdb.connect().sql("SELECT * FROM range(30)")
+    assert relation_frame(rel).height == 30
+    assert relation_frame(rel, limit=5).height == 5
+
+
+def test_to_json_rows_keeps_chrono_extremes_and_nulls_beyond() -> None:
+    days = pl.Series("d", [95_026_236, 95_026_237, -96_465_292, -96_465_293], dtype=pl.Int32)
+    assert to_json_rows(days.cast(pl.Date).to_frame()) == [
+        {"d": "+262142-12-31"},
+        {"d": None},
+        {"d": "-262143-01-01"},
+        {"d": None},
+    ]
+    micros = pl.Series(
+        "t", [8_210_266_876_799_999_999, 8_210_266_876_800_000_000, -8_334_601_228_800_000_000]
+    )
+    assert to_json_rows(micros.cast(pl.Datetime("us")).to_frame()) == [
+        {"t": "+262142-12-31T23:59:59.999999"},
+        {"t": None},
+        {"t": "-262143-01-01T00:00:00"},
+    ]
+    assert to_json_rows(micros.cast(pl.Datetime("us", "UTC")).to_frame())[:2] == [
+        {"t": "+262142-12-31T23:59:59.999999+00:00"},
+        {"t": None},
+    ]
+
+
+def duckdb_column(name: str, literal: str) -> pl.Series:
+    """`literal` and then a null, as DuckDB hands them to polars."""
+    sql = f"SELECT x FROM (VALUES (1, {literal}), (2, NULL)) t(i, x) ORDER BY i"
+    return duckdb.connect().sql(sql).pl().get_column("x").alias(name)
+
+
 NATIVE_CASES: list[tuple[pl.Series, object]] = [
     (pl.Series("i8", [1, None], dtype=pl.Int8), 1),
     (pl.Series("u64", [2**64 - 1, None], dtype=pl.UInt64), 2**64 - 1),
@@ -207,6 +268,20 @@ NATIVE_CASES: list[tuple[pl.Series, object]] = [
         ),
         [{"key": "2024-01-01T00:00:00", "value": 1}],
     ),
+    (duckdb_column("inf_date", "'infinity'::DATE"), None),
+    (duckdb_column("neg_inf_date", "'-infinity'::DATE"), None),
+    (
+        duckdb_column("inf_date_list", "['infinity'::DATE, '2024-01-01'::DATE]"),
+        [None, "2024-01-01"],
+    ),
+    (duckdb_column("inf_date_struct", "{'d': 'infinity'::DATE}"), {"d": None}),
+    (duckdb_column("inf_ts", "'infinity'::TIMESTAMP"), None),
+    (duckdb_column("inf_ts_ms", "'infinity'::TIMESTAMP_MS"), None),
+    (duckdb_column("neg_inf_tstz", "'-infinity'::TIMESTAMPTZ"), None),
+    (duckdb_column("inf_ts_list", "['infinity'::TIMESTAMP]"), [None]),
+    (pl.Series("ms_2_62", [2**62, None]).cast(pl.Datetime("ms")), None),
+    (pl.Series("ms_2_62_utc", [2**62, None]).cast(pl.Datetime("ms", "UTC")), None),
+    (pl.Series("dur_ms_min", [-(2**63), None]).cast(pl.Duration("ms")), None),
 ]
 
 
