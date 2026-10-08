@@ -30,9 +30,11 @@ def manager(tmp_path: Path) -> Iterator[KernelManager]:
 
 def test_get_spawns_once_and_status(manager: KernelManager) -> None:
     assert manager.status("s").status == "starting"
+    assert manager.status("s").pid is None
     a = manager.get("s")
     assert manager.get("s") is a
     assert manager.status("s").status == "idle"
+    assert isinstance(manager.status("s").pid, int)
     manager.mark_running("s", True)
     assert manager.status("s").status == "running"
     manager.mark_running("s", False)
@@ -66,3 +68,10 @@ def test_restart_counts_replayed_steps_not_indices(manager: KernelManager) -> No
     report = manager.restart("s", [step(0, "a = 1"), step(2, "c = zzz")])
     assert report.replayed == 1
     assert report.failed_step == 2
+
+
+def test_restart_reports_a_kernel_that_dies_during_replay(manager: KernelManager) -> None:
+    report = manager.restart("s", [step(0, "a = 1"), step(1, "import os\nos._exit(1)\n")])
+    assert report.replayed == 1
+    assert report.failed_step == 1
+    assert report.error is not None and "kernel died" in report.error

@@ -134,6 +134,11 @@ class KernelClient:
         with self._lock:
             self._dead = True  # calls already in flight still get their answers
 
+    @property
+    def pid(self) -> int:
+        """The kernel process id."""
+        return self._process.pid
+
     def is_alive(self) -> bool:
         return not self._dead and self._poll() is None
 

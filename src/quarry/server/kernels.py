@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from quarry.kernel.client import KernelClient
+from quarry.kernel.client import KernelClient, KernelDead
 from quarry.server.models import KernelStatus, Step
 
 
@@ -39,8 +39,9 @@ class KernelManager:
         if client is None:
             return KernelStatus(status="starting")
         if not client.is_alive():
-            return KernelStatus(status="dead")
-        return KernelStatus(status="running" if session_id in self._running else "idle")
+            return KernelStatus(status="dead", pid=client.pid)
+        running = session_id in self._running
+        return KernelStatus(status="running" if running else "idle", pid=client.pid)
 
     def mark_running(self, session_id: str, running: bool) -> None:
         if running:
@@ -52,6 +53,7 @@ class KernelManager:
         """Replace the kernel and re-run `steps` in index order, stopping at the first failure.
 
         `replayed` counts the steps that ran ok; indices may have gaps, so it is not an index.
+        A step that kills the kernel fails the replay like any other failing step.
         """
         with self._lock:
             old = self._clients.pop(session_id, None)
@@ -59,7 +61,12 @@ class KernelManager:
                 old.close()
         client = self.get(session_id)
         for replayed, step in enumerate(sorted(steps, key=lambda s: s.index)):
-            result = client.execute(step.code)
+            try:
+                result = client.execute(step.code)
+            except KernelDead as exc:
+                return ReplayReport(
+                    replayed=replayed, failed_step=step.index, error=f"kernel died: {exc}"
+                )
             if result.status != "ok":
                 message = result.error.traceback if result.error else result.status
                 return ReplayReport(replayed=replayed, failed_step=step.index, error=message)
