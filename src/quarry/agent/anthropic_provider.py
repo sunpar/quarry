@@ -49,11 +49,11 @@ class AnthropicProvider:
                 betas=[FALLBACK_BETA],
                 fallbacks="default",
             )
-        except anthropic.RateLimitError as exc:
-            raise ProviderError(str(exc), retryable=True) from exc
-        except anthropic.InternalServerError as exc:
-            raise ProviderError(str(exc), retryable=True) from exc
-        except anthropic.APIConnectionError as exc:
+        except (
+            anthropic.RateLimitError,
+            anthropic.InternalServerError,
+            anthropic.APIConnectionError,
+        ) as exc:
             raise ProviderError(str(exc), retryable=True) from exc
         except anthropic.APIStatusError as exc:
             raise ProviderError(str(exc), retryable=False) from exc

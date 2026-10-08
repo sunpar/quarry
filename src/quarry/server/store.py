@@ -29,20 +29,23 @@ class SessionStore:
         return sorted(metas, key=lambda m: m.created_at, reverse=True)
 
     def get(self, session_id: str) -> Session:
-        path = self._dir / session_id / "session.json"
-        if not path.exists():
-            raise KeyError(session_id)
-        meta = SessionMeta.model_validate_json(path.read_text())
-        step_files = sorted((self._dir / session_id / "steps").glob("*.json"))
+        path = self._session_dir(session_id)
+        meta = SessionMeta.model_validate_json((path / "session.json").read_text())
+        step_files = sorted((path / "steps").glob("*.json"))
         steps = [Step.model_validate_json(p.read_text()) for p in step_files]
         return Session(meta=meta, steps=steps)
 
     def append_step(self, session_id: str, step: Step) -> None:
         if step.status == "running":
             raise ValueError("a running step cannot be persisted")
-        self.get(session_id)
-        target = self._dir / session_id / "steps" / f"{step.index:04d}.json"
+        target = self._session_dir(session_id) / "steps" / f"{step.index:04d}.json"
         target.write_text(step.model_dump_json(by_alias=True, indent=2))
 
     def next_index(self, session_id: str) -> int:
         return len(list((self._dir / session_id / "steps").glob("*.json")))
+
+    def _session_dir(self, session_id: str) -> Path:
+        path = self._dir / session_id
+        if not (path / "session.json").exists():
+            raise KeyError(session_id)
+        return path

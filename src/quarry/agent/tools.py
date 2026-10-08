@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from typing import Any, Final
+from typing import Annotated, Any, Final
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, BeforeValidator, Field, ValidationError
 
 from quarry.agent.transpile import Transpiler
 from quarry.agent.types import ToolCall, ToolDef, ToolResult
@@ -49,15 +49,16 @@ SEARCH_COMPONENTS: Final[dict[str, Json]] = {
     },
     "required": ["dataset", "tags"],
 }
+INITIAL_STATE: Final[dict[str, Json]] = {
+    "type": "string",
+    "description": 'JSON object encoded as a string, e.g. "{}"',
+}
 RENDER_VIEW: Final[dict[str, Json]] = {
     "type": "object",
     "properties": {
         "component_id": {"type": "string"},
         "datasets": {"type": "array", "items": {"type": "string"}},
-        "initial_state": {
-            "type": "string",
-            "description": 'JSON object encoded as a string, e.g. "{}"',
-        },
+        "initial_state": INITIAL_STATE,
     },
     "required": ["component_id", "datasets", "initial_state"],
 }
@@ -73,10 +74,7 @@ WRITE_VIEW: Final[dict[str, Json]] = {
             ),
         },
         "datasets": {"type": "array", "items": {"type": "string"}},
-        "initial_state": {
-            "type": "string",
-            "description": 'JSON object encoded as a string, e.g. "{}"',
-        },
+        "initial_state": INITIAL_STATE,
     },
     "required": ["source", "datasets", "initial_state"],
 }
@@ -141,26 +139,19 @@ def _parse_state(value: object) -> dict[str, Json]:
     return parsed
 
 
+StateJson = Annotated[dict[str, Json], BeforeValidator(_parse_state)]
+
+
 class _Render(BaseModel):
     component_id: str
     datasets: list[str]
-    initial_state: dict[str, Json] = Field(default_factory=dict)
-
-    @field_validator("initial_state", mode="before")
-    @classmethod
-    def _state(cls, value: object) -> dict[str, Json]:
-        return _parse_state(value)
+    initial_state: StateJson = Field(default_factory=dict)
 
 
 class _Write(BaseModel):
     source: str
     datasets: list[str]
-    initial_state: dict[str, Json] = Field(default_factory=dict)
-
-    @field_validator("initial_state", mode="before")
-    @classmethod
-    def _state(cls, value: object) -> dict[str, Json]:
-        return _parse_state(value)
+    initial_state: StateJson = Field(default_factory=dict)
 
 
 class ToolExecutor:
@@ -173,16 +164,16 @@ class ToolExecutor:
         self.view: PendingView | None = None
         self.last_python_failed = False
         self.exec_results: list[ExecResult] = []
-
-    def run(self, call: ToolCall) -> ToolResult:
-        routes: dict[str, tuple[type[BaseModel], Callable[[ToolCall, Any], ToolResult]]] = {
+        self._routes: dict[str, tuple[type[BaseModel], Callable[[ToolCall, Any], ToolResult]]] = {
             "run_python": (_RunPython, self._run_python),
             "describe_dataset": (_Describe, self._describe),
             "search_components": (_Search, self._search),
             "render_view": (_Render, self._render),
             "write_view": (_Write, self._write),
         }
-        route = routes.get(call.name)
+
+    def run(self, call: ToolCall) -> ToolResult:
+        route = self._routes.get(call.name)
         if route is None:
             return _error(call, f"unknown tool {call.name!r}")
         model, handler = route
@@ -194,12 +185,11 @@ class ToolExecutor:
 
     def _run_python(self, call: ToolCall, args: _RunPython) -> ToolResult:
         result = self._kernel.execute(args.code)
+        failed = result.status != "ok"
         self.exec_results.append(result)
-        self.last_python_failed = result.status != "ok"
+        self.last_python_failed = failed
         content = result.model_dump(by_alias=True, mode="json")
-        return ToolResult(
-            call_id=call.id, content=json.dumps(content), is_error=result.status != "ok"
-        )
+        return ToolResult(call_id=call.id, content=json.dumps(content), is_error=failed)
 
     def _describe(self, call: ToolCall, args: _Describe) -> ToolResult:
         try:

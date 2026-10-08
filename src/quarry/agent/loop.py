@@ -109,7 +109,7 @@ def run_agent_step(
             code = call.input.get("code")
             if not result.is_error and isinstance(code, str):
                 code_blocks.append(code)
-            if _python_status(result) == "interrupted":
+            if any(r.status == "interrupted" for r in tools.exec_results):
                 transcript.append(Message(role="user", tool_results=results))
                 return finish("interrupted", error="interrupted by researcher")
             consecutive_failures = consecutive_failures + 1 if result.is_error else 0
@@ -117,13 +117,6 @@ def run_agent_step(
         if consecutive_failures >= 2:
             return finish("error", error=_last_traceback(results))
     return finish("error", error=f"iteration cap reached ({max_iterations})")
-
-
-def _python_status(result: ToolResult) -> str:
-    try:
-        return str(json.loads(result.content).get("status", ""))
-    except json.JSONDecodeError:
-        return ""
 
 
 def _last_traceback(results: list[ToolResult]) -> str:

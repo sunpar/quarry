@@ -151,8 +151,8 @@ class SessionService:
             return self._kernels.restart(session_id, steps)
         finally:
             with self._lock:
-                self._running.pop(session_id, None)
                 self._kernels.mark_running(session_id, False)
+                self._running.pop(session_id, None)
 
     def shutdown(self) -> None:
         self._kernels.close_all()
@@ -228,12 +228,13 @@ class SessionService:
     def _finish(self, session_id: str, step: Step) -> None:
         with self._lock:
             self._store.append_step(session_id, step)
-            self._running.pop(session_id, None)
             self._kernels.mark_running(session_id, False)
             if step.error is not None:
                 self._last_error[session_id] = step.error.message
             else:
                 self._last_error.pop(session_id, None)
+            # Last: status() reads _running without the lock and treats None as fully finished.
+            self._running.pop(session_id, None)
 
     def _system_context(self) -> SystemContext:
         registry = load_loaders(self._config.root / "loaders.toml")
