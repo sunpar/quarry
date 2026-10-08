@@ -1,5 +1,5 @@
 import quarry
 
 
-def test_version_is_string():
+def test_version_is_string() -> None:
     assert isinstance(quarry.__version__, str)
