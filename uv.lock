@@ -1024,7 +1024,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", specifier = ">=1.0" },
+    { name = "anthropic", specifier = ">=1.12" },
     { name = "arrow-odbc", marker = "extra == 'mssql'", specifier = ">=10" },
     { name = "duckdb", specifier = ">=1.5,<2" },
     { name = "fastapi", specifier = ">=0.115" },
