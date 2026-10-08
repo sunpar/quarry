@@ -20,6 +20,7 @@ def test_defaults_when_no_file(tmp_path: Path) -> None:
     cfg = load_config(tmp_path, env={})
     assert cfg.root == tmp_path
     assert cfg.provider.name == "anthropic"
+    assert cfg.provider.model == "claude-opus-5-5"
     assert cfg.data.row_cap == 50000
     assert cfg.data.parquet_root is None
 

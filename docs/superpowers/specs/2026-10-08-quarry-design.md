@@ -611,7 +611,7 @@ step. Everything is plain text except pinned parquet.
 ```toml
 [provider]
 name = "anthropic"            # or "openai"
-model = "claude-sonnet-5-5"
+model = "claude-opus-5-5"
 # api key from QUARRY_ANTHROPIC_API_KEY / QUARRY_OPENAI_API_KEY, or:
 api_key_file = "~/.quarry/anthropic.key"   # owner-only permissions enforced
 

@@ -41,7 +41,7 @@ class ProviderConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: Literal["anthropic", "openai"] = "anthropic"
-    model: str = "claude-sonnet-5-5"
+    model: str = "claude-opus-5-5"
     api_key_file: OptionalPath = None
 
 
