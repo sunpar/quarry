@@ -15,7 +15,7 @@ class SessionStore:
         meta = SessionMeta(id=new_id(), title=title, created_at=now_iso(), provider=provider)
         path = self._dir / meta.id
         (path / "steps").mkdir(parents=True)
-        (path / "session.json").write_text(meta.model_dump_json(indent=2))
+        _write_atomic(path / "session.json", meta.model_dump_json(indent=2))
         return meta
 
     def list(self) -> list[SessionMeta]:
@@ -39,7 +39,7 @@ class SessionStore:
         if step.status == "running":
             raise ValueError("a running step cannot be persisted")
         target = self._session_dir(session_id) / "steps" / f"{step.index:04d}.json"
-        target.write_text(step.model_dump_json(by_alias=True, indent=2))
+        _write_atomic(target, step.model_dump_json(by_alias=True, indent=2))
 
     def next_index(self, session_id: str) -> int:
         return len(list((self._dir / session_id / "steps").glob("*.json")))
@@ -49,3 +49,10 @@ class SessionStore:
         if not (path / "session.json").exists():
             raise KeyError(session_id)
         return path
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    # A crash leaves at most a stray temp file, which the steps/*.json glob never matches.
+    temp = path.with_name(f".{path.name}.tmp")
+    temp.write_text(text)
+    temp.replace(path)

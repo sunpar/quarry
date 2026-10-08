@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -45,6 +46,29 @@ def test_append_and_reload_steps(tmp_path: Path) -> None:
     reloaded = SessionStore(tmp_path).get(meta.id)
     assert [s.index for s in reloaded.steps] == [0, 1]
     assert (tmp_path / "sessions" / meta.id / "steps" / "0001.json").exists()
+
+
+def test_torn_write_leaves_sessions_readable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = SessionStore(tmp_path)
+    meta = store.create(title="t", provider=ProviderInfo(name="openai", model="gpt"))
+    store.append_step(meta.id, step(0))
+    write_text = Path.write_text
+
+    def torn(self: Path, data: str, *args: Any, **kwargs: Any) -> int:
+        write_text(self, data[: len(data) // 2])
+        raise OSError("disk full")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "write_text", torn)
+        with pytest.raises(OSError, match="disk full"):
+            store.append_step(meta.id, step(1))
+        with pytest.raises(OSError, match="disk full"):
+            store.create(title="torn", provider=ProviderInfo(name="openai", model="gpt"))
+    assert [s.index for s in store.get(meta.id).steps] == [0]
+    assert store.next_index(meta.id) == 1
+    assert [m.id for m in store.list()] == [meta.id]
 
 
 def test_running_step_is_rejected(tmp_path: Path) -> None:
