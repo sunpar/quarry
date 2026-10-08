@@ -1,0 +1,25 @@
+[[step]]
+name = "ruff check"
+run = "uv run ruff check src tests"
+
+[[step]]
+name = "ruff format"
+run = "uv run ruff format --check src tests"
+
+[[step]]
+name = "mypy"
+run = "uv run mypy src"
+
+[[step]]
+name = "pytest"
+run = "uv run pytest -q"
+
+[[step]]
+name = "lockfile"
+run = "uv lock --check"
+tiers = ["full"]
+
+[[step]]
+name = "prettier (markdown)"
+run = "npx --yes prettier --check README.md"
+tiers = ["full"]
