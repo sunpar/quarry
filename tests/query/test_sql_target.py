@@ -1,7 +1,7 @@
 import duckdb
 import pytest
 
-from quarry.query import Agg, Filter, Pivot, QueryError, QuerySpec, Sort
+from quarry.query import Agg, AggFn, Filter, Pivot, QueryError, QuerySpec, Sort
 from quarry.query.sql_target import quote_ident, quote_literal, to_sql
 from tests.query.fixtures import trades
 
@@ -101,6 +101,17 @@ def test_sort_on_column_dropped_by_group_by_raises_when_columns_given() -> None:
     with pytest.raises(QueryError) as info:
         to_sql(spec, "trades", columns=trades().columns)
     assert info.value.column == "volume"
+
+
+@pytest.mark.parametrize("fn", ["first", "last"])
+def test_first_and_last_are_rejected_as_aggs_and_as_pivot_agg(fn: AggFn) -> None:
+    by_ticker = QuerySpec(dataset="trades", group_by=["ticker"], aggs=[Agg(col="ret", fn=fn)])
+    pivot = QuerySpec(dataset="trades", pivot=VOLUME_BY_TICKER.model_copy(update={"agg": fn}))
+    for spec in (by_ticker, pivot):
+        with pytest.raises(
+            QueryError, match=rf"^'{fn}' needs a row order.*'min' or 'max'.*\.pl\(\)"
+        ):
+            to_sql(spec, "trades")
 
 
 def test_pivot_output_columns_are_not_checked_before_running() -> None:

@@ -140,6 +140,46 @@ def test_except_alias_is_not_a_store() -> None:
     assert "err" not in analyze(code).loads
 
 
+def test_module_level_except_alias_load_in_its_handler_is_not_a_read() -> None:
+    names = analyze("try:\n    1 / 0\nexcept Exception as e:\n    print(e)\n")
+    assert "e" not in names.loads
+    assert names.stores == frozenset()
+    assert dataset_reads(names, before={"e"}, defined_earlier=set()) == []
+
+
+def test_module_level_except_handler_body_still_binds_and_reads_at_module_level() -> None:
+    code = (
+        "try:\n"
+        "    df = load()\n"
+        "except errors as e:\n"
+        "    df = fallback(e)\n"
+        "    def retry():\n"
+        "        return e, prices\n"
+        "    n: int = 0\n"
+    )
+    names = analyze(code)
+    assert names.stores == {"df", "retry", "n"}
+    assert names.defines == {"retry"}
+    assert names.loads == {"load", "errors", "fallback", "prices", "int"}
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "print(e)\ntry:\n    pass\nexcept ValueError as e:\n    print(e)\n",
+        "try:\n    pass\nexcept ValueError as e:\n    print(e)\nprint(e)\n",
+    ],
+    ids=["before", "after"],
+)
+def test_except_alias_loaded_outside_its_handler_is_a_read(code: str) -> None:
+    assert "e" in analyze(code).loads
+
+
+def test_class_level_except_alias_load_in_its_handler_is_not_a_read() -> None:
+    code = "class C:\n    try:\n        pass\n    except ValueError as e:\n        print(e)\n"
+    assert "e" not in analyze(code).loads
+
+
 def test_bare_annotation_is_not_a_store() -> None:
     names = analyze("returns: pl.DataFrame")
     assert names.stores == frozenset()

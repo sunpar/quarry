@@ -117,7 +117,7 @@ class Executor:
         started = time.monotonic()
         self._interrupted = False
         before = {name: _identity_check(self._ns[name]) for name in dataset_names(self._ns)}
-        out, err = io.StringIO(), io.StringIO()
+        out, err = _TailWriter(self._tail), _TailWriter(self._tail)
         status, error, names = self._exec(code, out, err)
         # On error or interrupt a store in the code may never have run, so only the namespace
         # itself can say what changed.
@@ -136,8 +136,8 @@ class Executor:
         self._defined.update(defines)
         return ExecResult(
             status=status,
-            stdout_tail=out.getvalue()[-self._tail :],
-            stderr_tail=err.getvalue()[-self._tail :],
+            stdout_tail=out.getvalue(),
+            stderr_tail=err.getvalue(),
             error=error,
             reads=reads,
             writes=writes,
@@ -189,7 +189,7 @@ class Executor:
         return meta.model_copy(update={"backing": backing_of(obj)})
 
     def _exec(
-        self, code: str, out: io.StringIO, err: io.StringIO
+        self, code: str, out: _TailWriter, err: _TailWriter
     ) -> tuple[Status, ExecError | None, CodeNames | None]:
         names: CodeNames | None = None
         try:
@@ -245,6 +245,37 @@ class Executor:
         if not is_dataset(obj):
             raise KeyError(name)
         return obj
+
+
+class _TailWriter(io.TextIOBase):
+    """A text stream that keeps only the last `limit` characters written to it.
+
+    A step can print without end, and all of it but the tail would be thrown away anyway.
+    """
+
+    def __init__(self, limit: int) -> None:
+        super().__init__()
+        self._limit = limit
+        self._chunks: list[str] = []
+        self._held = 0
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, s: str, /) -> int:
+        if s:  # an empty chunk would never count toward a trim
+            self._chunks.append(s)
+            self._held += len(s)
+            # Trimming only past twice the limit copies each character a bounded number of
+            # times, however small the writes.
+            if self._held > 2 * self._limit:
+                tail = self.getvalue()
+                self._chunks, self._held = [tail], len(tail)
+        return len(s)
+
+    def getvalue(self) -> str:
+        text = "".join(self._chunks)
+        return text[max(len(text) - self._limit, 0) :]
 
 
 def _written(

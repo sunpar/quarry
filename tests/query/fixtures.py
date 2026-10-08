@@ -49,6 +49,7 @@ def trades() -> pl.DataFrame:
     )
 
 
+# No first/last: to_sql rejects them, as a relation has no row order to pick by.
 SPECS: list[QuerySpec] = [
     QuerySpec(dataset="trades"),
     QuerySpec(dataset="trades", select=["ticker", "ret"]),

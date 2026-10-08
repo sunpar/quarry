@@ -59,8 +59,9 @@ def load_loaders(path: Path) -> LoaderRegistry:
         try:
             registry.functions[spec.name] = _import(spec.import_)
         # Importing runs the firm's module code, which can fail in any way (a server it reaches
-        # at import time is down). Any failed import skips that loader; the kernel still starts.
-        except Exception as exc:
+        # at import time is down, or it calls sys.exit()). Any failed import skips that loader;
+        # the kernel still starts. A KeyboardInterrupt is not a failed import, so it propagates.
+        except (Exception, SystemExit) as exc:
             error = f"{spec.import_}: {type(exc).__name__}: {exc}"
             registry.failures.append(LoaderFailure(name=spec.name, error=error))
     return registry

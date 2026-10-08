@@ -124,12 +124,28 @@ def test_to_json_rows_handles_datetime_and_null() -> None:
     assert to_json_rows(df) == [{"t": None, "x": None}]
 
 
-def test_to_json_rows_decimal_is_number() -> None:
+def test_to_json_rows_decimal_is_an_exact_string_at_its_scale() -> None:
     df = pl.DataFrame({"x": [Decimal("1.50"), Decimal("3")]})
-    assert to_json_rows(df) == [{"x": 1.5}, {"x": 3}]
+    assert to_json_rows(df) == [{"x": "1.50"}, {"x": "3.00"}]
     summed = duckdb.connect().sql("SELECT sum(i) AS s FROM range(3) t(i)").pl()
     assert summed.schema["s"] == pl.Decimal(38, 0)
-    assert to_json_rows(summed) == [{"s": 3}]
+    assert to_json_rows(summed) == [{"s": "3"}]
+
+
+def test_to_json_rows_decimal_keeps_every_digit_at_any_depth() -> None:
+    beyond_float = "9007199254740993"  # 2**53 + 1, which a Float64 rounds to ...992
+    long_fraction = "0.1234567890123456789012345678901234567"
+    df = pl.DataFrame(
+        {
+            "big": [Decimal(beyond_float)],
+            "frac": [Decimal(long_fraction)],
+            "nested": [[Decimal(beyond_float), None]],
+        }
+    )
+    assert df.schema["nested"] == pl.List(pl.Decimal(38, 0))
+    assert to_json_rows(df) == [
+        {"big": beyond_float, "frac": long_fraction, "nested": [beyond_float, None]}
+    ]
 
 
 def test_to_json_rows_binary_is_base64() -> None:
@@ -180,7 +196,7 @@ def test_to_json_rows_converts_inside_nested_types() -> None:
     assert to_json_rows(df) == [
         {
             "lb": ["YWI=", None],
-            "st": {"d": 1.5, "t": "2024-01-01T09:30:00", "n": 1},
+            "st": {"d": "1.5", "t": "2024-01-01T09:30:00", "n": 1},
             "ab": ["YWI=", "Y2Q="],
             "ls": [{"t": "2024-01-01T09:30:00"}],
         }
@@ -216,7 +232,7 @@ def test_describe_duckdb_relation_with_exotic_types() -> None:
     assert row["m"] == [{"key": 1, "value": "a"}]
     assert isinstance(row["big"], str)
     assert row["ts"] == "2024-01-01T09:30:00"
-    assert row["total"] == 2
+    assert row["total"] == "2"
 
 
 def test_describe_relation_with_interval_column() -> None:
@@ -295,7 +311,7 @@ NATIVE_CASES: list[tuple[pl.Series, object]] = [
         pl.Series("dt_ns", [datetime(2024, 1, 1), None], dtype=pl.Datetime("ns")),
         "2024-01-01T00:00:00",
     ),
-    (pl.Series("arr_dec", [[Decimal("1")], None], dtype=pl.Array(pl.Decimal(10, 0), 1)), [1]),
+    (pl.Series("arr_dec", [[Decimal("1")], None], dtype=pl.Array(pl.Decimal(10, 0), 1)), ["1"]),
     (pl.Series("list_list_bin", [[[b"x"]], None]), [["eA=="]]),
     (pl.Series("^b.*$", [b"x", None]), "eA=="),
     (

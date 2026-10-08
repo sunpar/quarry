@@ -128,6 +128,29 @@ def test_datetime_literal_imports_datetime() -> None:
     assert 'datetime.fromisoformat("2024-01-03T09:30:00")' in src
 
 
+@pytest.mark.parametrize(
+    "value", ["2024-99-99", "2024-01-03T09:30 market-open"], ids=["bad_date", "datetime_prefix"]
+)
+def test_iso_shaped_string_that_is_not_a_valid_temporal_stays_a_string(value: str) -> None:
+    spec = QuerySpec(dataset="events", filters=[Filter(col="tag", op="eq", value=value)])
+    src = to_source(spec, "polars")
+    assert "from datetime" not in src
+    assert f'pl.col("tag") == {py_literal(value)}' in src
+
+
+@pytest.mark.parametrize(
+    ("value", "rendered"),
+    [
+        ("2024-01-03", 'date.fromisoformat("2024-01-03")'),
+        ("2024-01-03 09:30", 'datetime.fromisoformat("2024-01-03T09:30:00")'),
+        ("2024-01-03T09:30:00+00:00", 'datetime.fromisoformat("2024-01-03T09:30:00+00:00")'),
+    ],
+)
+def test_valid_iso_strings_render_as_temporal_literals(value: str, rendered: str) -> None:
+    spec = QuerySpec(dataset="events", filters=[Filter(col="ts", op="ge", value=value)])
+    assert f'pl.col("ts") >= {rendered}' in to_source(spec, "polars")
+
+
 def test_duckdb_source_uses_sql() -> None:
     src = to_source(QuerySpec(dataset="trades", limit=1), "duckdb")
     assert 'trades.query("_quarry_trades", ' in src

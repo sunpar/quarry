@@ -12,7 +12,7 @@ import polars as pl
 import pytest
 from polars.exceptions import ColumnNotFoundError
 
-from quarry.kernel.executor import Executor, _identity_check
+from quarry.kernel.executor import Executor, _identity_check, _TailWriter
 from quarry.query import Agg, Backing, Filter, Json, Pivot, QueryError, QuerySpec, Sort
 from quarry.query.sql_target import relation_view
 from tests.kernel.fixtures import BUSY_LOOP, HEAVY
@@ -124,6 +124,43 @@ def test_execute_captures_stdout_tail() -> None:
     assert result.status == "ok"
     assert len(result.stdout_tail) == 4096
     assert result.stdout_tail.endswith("x\n")
+
+
+def test_execute_tails_are_exactly_the_last_tail_bytes_characters() -> None:
+    ex = Executor({}, conn=duckdb.connect(), row_cap=3, tail_bytes=100)
+    result = ex.execute(
+        "import sys\nfor i in range(5000):\n    print(i)\n    print(-i, file=sys.stderr)\n"
+    )
+    assert result.stdout_tail == "".join(f"{i}\n" for i in range(5000))[-100:]
+    assert result.stderr_tail == "".join(f"{-i}\n" for i in range(5000))[-100:]
+
+
+def test_tail_writer_holds_at_most_twice_its_limit_while_written() -> None:
+    writer = _TailWriter(100)
+    written = ""
+    for chunk in [*(f"{i}," * (i % 7) for i in range(5000)), "", "y" * 1000, "z"]:
+        writer.write(chunk)
+        written += chunk
+        assert sum(map(len, writer._chunks)) <= 200
+        assert writer.getvalue() == written[-100:]
+
+
+def test_execute_with_tail_bytes_zero_keeps_nothing() -> None:
+    ex = Executor({}, conn=duckdb.connect(), row_cap=3, tail_bytes=0)
+    result = ex.execute("import sys\nprint('out')\nprint('err', file=sys.stderr)\n")
+    assert (result.status, result.stdout_tail, result.stderr_tail) == ("ok", "", "")
+
+
+def test_except_alias_shadowing_a_dataset_is_not_a_read() -> None:
+    ex = make()
+    ex.execute("e = pl.DataFrame({'a': [1]})")
+    result = ex.execute("try:\n    1 / 0\nexcept Exception as e:\n    print(e)\n")
+    assert (result.status, result.stdout_tail) == ("ok", "division by zero\n")
+    assert result.reads == []
+    # Python deletes the alias when the handler ends, which unbinds the dataset; like a `del`,
+    # that is not a write.
+    assert (result.writes, result.datasets) == ([], [])
+    assert ex.list_datasets() == []
 
 
 def test_execute_error_is_structured() -> None:
@@ -544,6 +581,14 @@ def test_query_json_rows_null_non_finite_floats_and_arrow_keeps_them() -> None:
     assert repr(decoded.rows()) == repr(
         [(v, v, [v], {"x": v}) for v in (float("inf"), float("-inf"), float("nan"))]
     )
+
+
+def test_query_duckdb_bigint_sum_is_an_exact_decimal_string() -> None:
+    ex = make()
+    ex.execute('rel = _conn.sql("SELECT range + 9007199254740992 AS n, 1 AS k FROM range(2)")')
+    out = ex.query(QuerySpec(dataset="rel", group_by=["k"], aggs=[Agg(col="n", fn="sum")]))
+    assert [c.dtype for c in out.schema_] == ["Int32", "Decimal(precision=38, scale=0)"]
+    assert out.rows == [{"k": 1, "n_sum": "18014398509481985"}]
 
 
 def test_query_unknown_column_raises_query_error() -> None:

@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from quarry.config import CONFIG_FILENAME, ConfigError, QuarryConfig, api_key, load_config
 
@@ -33,6 +34,18 @@ def test_reads_toml(tmp_path: Path) -> None:
     assert cfg.provider.model == "gpt-5"
     assert cfg.data.parquet_root == Path("/data/cache")
     assert cfg.data.row_cap == 100
+
+
+@pytest.mark.parametrize("row_cap", [0, -1])
+def test_row_cap_below_one_is_rejected(row_cap: int, tmp_path: Path) -> None:
+    (tmp_path / "config.toml").write_text(f"[data]\nrow_cap = {row_cap}\n")
+    with pytest.raises(ValidationError, match="row_cap"):
+        load_config(tmp_path, env={})
+
+
+def test_row_cap_of_one_is_accepted(tmp_path: Path) -> None:
+    (tmp_path / "config.toml").write_text("[data]\nrow_cap = 1\n")
+    assert load_config(tmp_path, env={}).data.row_cap == 1
 
 
 def test_env_overrides_mssql_dsn(tmp_path: Path) -> None:

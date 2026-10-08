@@ -61,6 +61,34 @@ def test_module_that_raises_on_import_is_a_failure(
     assert "license server unreachable" in reg.failures[0].error
 
 
+def test_module_that_exits_on_import_is_a_failure_and_the_rest_still_bind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "quarry_test_exits_on_import.py").write_text(
+        "import sys\nsys.exit('no license for this host')\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    path = write(
+        tmp_path, entry("exits", "quarry_test_exits_on_import:fn") + entry("daily_returns")
+    )
+    reg = load_loaders(path)
+    assert list(reg.functions) == ["daily_returns"]
+    assert [f.name for f in reg.failures] == ["exits"]
+    assert reg.failures[0].error == (
+        "quarry_test_exits_on_import:fn: SystemExit: no license for this host"
+    )
+
+
+def test_module_interrupted_on_import_still_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "quarry_test_interrupted_on_import.py").write_text("raise KeyboardInterrupt\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    path = write(tmp_path, entry("interrupted", "quarry_test_interrupted_on_import:fn"))
+    with pytest.raises(KeyboardInterrupt):
+        load_loaders(path)
+
+
 def test_describe_loaders_renders_one_line_each(tmp_path: Path) -> None:
     path = write(
         tmp_path,

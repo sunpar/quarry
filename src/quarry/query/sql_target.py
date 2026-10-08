@@ -17,8 +17,6 @@ SQL_AGG: Final[dict[AggFn, str]] = {
     "count": "count",
     "median": "median",
     "std": "stddev_samp",
-    "first": "first",
-    "last": "last",
 }
 
 
@@ -27,7 +25,9 @@ def to_sql(spec: QuerySpec, relation: str, *, columns: Sequence[str] | None = No
 
     When `columns` is given, unknown column references raise QueryError before rendering.
     A pivot spec's sort and select are not checked: its columns come from the data.
+    `first` and `last` raise QueryError: this SQL serves DuckDB relations, which have no order.
     """
+    _reject_first_last(spec)
     if columns is not None:
         check_columns(spec, set(columns))
     inner = f"SELECT * FROM {quote_ident(relation)}"
@@ -69,8 +69,23 @@ def split_for_relation(spec: QuerySpec) -> tuple[QuerySpec, QuerySpec | None]:
     run: a pivot spec's SQL only filters and selects the pivot's inputs, and the pivot onward
     runs in polars on its result.
 
-    `first` and `last` raise QueryError: a relation has no row order, so they would pick
-    arbitrary rows, different ones from run to run.
+    `first` and `last` raise QueryError, as in `to_sql`, also as the pivot agg: that runs in
+    polars, but on rows the relation returns in no order.
+    """
+    _reject_first_last(spec)
+    if spec.pivot is None:
+        return spec, None
+    pre_pivot = spec.model_copy(
+        update={"pivot": None, "sort": [], "limit": None, "offset": 0, "select": spec.pivot.inputs}
+    )
+    return pre_pivot, spec.model_copy(update={"filters": []})
+
+
+def _reject_first_last(spec: QuerySpec) -> None:
+    """Raise QueryError for `first` or `last`, in the aggs or as the pivot agg.
+
+    A relation has no row order, so they would pick arbitrary rows, different ones from run to
+    run.
     """
     pivot_agg = [] if spec.pivot is None else [spec.pivot.agg]
     for fn in [*(a.fn for a in spec.aggs), *pivot_agg]:
@@ -80,12 +95,6 @@ def split_for_relation(spec: QuerySpec) -> tuple[QuerySpec, QuerySpec | None]:
                 "use 'min' or 'max', or convert it with .pl() first"
             )
             raise QueryError(message, dataset=spec.dataset)
-    if spec.pivot is None:
-        return spec, None
-    pre_pivot = spec.model_copy(
-        update={"pivot": None, "sort": [], "limit": None, "offset": 0, "select": spec.pivot.inputs}
-    )
-    return pre_pivot, spec.model_copy(update={"filters": []})
 
 
 def filter_sql(f: Filter) -> str:

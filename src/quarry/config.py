@@ -44,7 +44,7 @@ class ProviderConfig(BaseModel):
 class DataConfig(BaseModel):
     parquet_root: OptionalPath = None
     mssql_dsn: str = ""
-    row_cap: int = 50000
+    row_cap: int = Field(default=50000, ge=1)
     kernel_memory_mb: int = 0
 
 

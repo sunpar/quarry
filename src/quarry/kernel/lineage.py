@@ -2,7 +2,9 @@
 
 Only bindings in module scope are the step's stores. Function, lambda, and comprehension scopes
 contribute only their free names as loads. A class body contributes every name it reads, because
-class-level names are looked up at run time and can fall through to the module.
+class-level names are looked up at run time and can fall through to the module. The body of an
+`except ... as name` handler binds in its enclosing scope, but `name` there is the exception, so
+loading it is not a read.
 """
 
 from __future__ import annotations
@@ -51,8 +53,13 @@ class _Scope:
     bound: set[str] = field(default_factory=set)
     loads: set[str] = field(default_factory=set)
     declared: set[str] = field(default_factory=set)  # `global` / `nonlocal` names
+    # Set on an `except ... as alias` handler's body, which shares its parent's kind, `bound`
+    # and `declared`: only the alias is its own.
+    alias: str | None = None
 
     def free_names(self) -> set[str]:
+        if self.alias is not None:
+            return self.loads - {self.alias}
         if self.kind == "class":
             return self.loads
         return self.loads - (self.bound - self.declared)
@@ -99,7 +106,11 @@ class _ScopeVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
-        if node.value is None and isinstance(node.target, ast.Name) and self._scope is self.module:
+        if (
+            node.value is None
+            and isinstance(node.target, ast.Name)
+            and self._scope.kind == "module"
+        ):
             self.visit(node.annotation)  # a bare module-level annotation binds nothing
             return
         self.generic_visit(node)
@@ -125,11 +136,21 @@ class _ScopeVisitor(ast.NodeVisitor):
     visit_Nonlocal = visit_Global
 
     def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if node.name is None:
+            self.generic_visit(node)
+            return
+        if node.type is not None:
+            self.visit(node.type)  # evaluated before the alias is bound
+        parent = self._scope
         # Python unbinds the alias when the handler exits, so it is never a module store,
-        # but inside a function it is a local and reading it is not a free name.
-        if node.name is not None and self._scope is not self.module:
-            self._scope.bound.add(node.name)
-        self.generic_visit(node)
+        # but inside a function it is a local everywhere, and reading it is not a free name.
+        if parent.kind != "module":
+            parent.bound.add(node.name)
+        body = _Scope(
+            parent.kind, parent, bound=parent.bound, declared=parent.declared, alias=node.name
+        )
+        self._pending.append(body)  # as in `_visit_scope`
+        self._pending.extend((stmt, body) for stmt in node.body)
 
     def visit_MatchAs(self, node: ast.MatchAs) -> None:
         if node.name is not None:
@@ -183,7 +204,7 @@ class _ScopeVisitor(ast.NodeVisitor):
         self._visit_scope("comprehension", body)
 
     def _define(self, name: str) -> None:
-        if self._scope is self.module:
+        if self._scope.kind == "module":
             self.defines.add(name)
         self._scope.bound.add(name)
 

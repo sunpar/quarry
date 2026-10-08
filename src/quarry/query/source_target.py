@@ -8,10 +8,11 @@ pivot spec is split as the executor splits it (`split_for_relation`): its filter
 SQL, and the pivot onward runs as the polars chain.
 
 Filter literals depend on `schema`. When it is given, they are coerced exactly as
-`to_polars` coerces them against the frame's dtypes. Without it, ISO-date-shaped strings
-render as `date.fromisoformat`, ISO-datetime-shaped strings as `datetime.fromisoformat`,
-other strings as plain literals, and numbers as given. polars 2.0 `is_in` is strictly
-typed, so without a schema `ret in [0]` against a float column fails when run.
+`to_polars` coerces them against the frame's dtypes. Without it, a string that is a whole
+valid ISO date renders as `date.fromisoformat`, a whole valid ISO datetime as
+`datetime.fromisoformat`, any other string (even "2024-99-99") as a plain literal, and
+numbers as given. polars 2.0 `is_in` is strictly typed, so without a schema `ret in [0]`
+against a float column fails when run.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ import json
 import keyword
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import date, datetime
 from typing import Final
 
@@ -220,11 +221,16 @@ def _infer_temporal(value: Json) -> object:
         case list():
             return [_infer_temporal(item) for item in value]
         case str() if DATE_RE.match(value):
-            return date.fromisoformat(value)
+            parse: Callable[[str], date] = date.fromisoformat
         case str() if DATETIME_RE.match(value):
-            return datetime.fromisoformat(value)
+            parse = datetime.fromisoformat
         case _:
             return value
+    # The patterns only check the shape; parsing checks the whole string is a real date.
+    try:
+        return parse(value)
+    except ValueError:  # "2024-99-99", "2024-01-03T09:30 market-open"
+        return value
 
 
 def _import_line(spec: QuerySpec, schema: Schema | None) -> str:

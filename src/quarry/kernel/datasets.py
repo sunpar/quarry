@@ -118,6 +118,8 @@ def to_json_rows(df: pl.DataFrame) -> list[dict[str, Json]]:
     """Rows of JSON-native values, for every dtype, without write_json's panics or errors.
 
     Non-finite floats (inf, -inf, NaN) become null at any depth; the arrow format keeps them.
+    Decimals stay exact decimal strings at any depth, as write_json emits them ("1.50"), so
+    DuckDB integer sums (Decimal(38, 0)) arrive as strings; a float would silently round them.
     """
     # pl.nth, not pl.col: a column named like a regex (`^a.*$`) or `*` would select others.
     converted = [
@@ -156,8 +158,6 @@ def _json_native(expr: pl.Expr, dtype: pl.DataType | DataTypeClass) -> pl.Expr |
     polars types nested dtypes as instance or class; a frame's schema always holds instances.
     """
     match dtype:
-        case pl.Decimal():
-            return expr.cast(pl.Float64)
         case pl.Binary():
             return expr.bin.encode("base64")
         case pl.Date():
