@@ -1,3 +1,4 @@
+from quarry.query.polars_target import to_polars
 from quarry.query.spec import (
     Agg,
     AggFn,
@@ -20,4 +21,5 @@ __all__ = [
     "QueryError",
     "QuerySpec",
     "Sort",
+    "to_polars",
 ]
