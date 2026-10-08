@@ -182,3 +182,42 @@ def test_global_and_nonlocal_declarations() -> None:
     names = analyze(code)
     assert "step" in names.loads
     assert "n" not in names.loads
+
+
+def test_long_operator_chain_does_not_recurse() -> None:
+    names = analyze("x = " + " + ".join(["a"] * 1000))
+    assert names.stores == {"x"}
+    assert names.loads == {"a"}
+
+
+def test_deep_method_chain_does_not_recurse() -> None:
+    names = analyze("y = df" + ".f()" * 600)
+    assert names.stores == {"y"}
+    assert "df" in names.loads
+
+
+def _operator_chain(operands: int) -> str:
+    return "x = " + " | ".join(["(a == 1)"] * operands)
+
+
+def _longest_chain_compile_accepts() -> int:
+    low, high = 1, 10_000
+    while low < high:
+        middle = (low + high + 1) // 2
+        try:
+            compile(_operator_chain(middle), "<step>", "exec")
+        except RecursionError:
+            high = middle - 1
+        else:
+            low = middle
+    return low
+
+
+def test_chain_at_cpythons_own_limit() -> None:
+    longest = _longest_chain_compile_accepts()
+    assert longest > 2000  # the old recursive walk failed near 490 operands
+    # CPython 3.11 counts the caller's stack frames against AST depth, and analyze parses a couple
+    # of frames deeper than this test compiles; the walk itself adds no limit.
+    names = analyze(_operator_chain(longest - 8))
+    assert names.stores == {"x"}
+    assert names.loads == {"a"}

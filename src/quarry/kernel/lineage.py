@@ -12,6 +12,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Literal
 
+_ScopeKind = Literal["module", "function", "class", "comprehension"]
+
 
 @dataclass(slots=True, frozen=True)
 class CodeNames:
@@ -21,9 +23,13 @@ class CodeNames:
 
 
 def analyze(code: str) -> CodeNames:
-    """Collect module-level stores, loads, and definitions; a SyntaxError propagates."""
+    """Collect module-level stores, loads, and definitions.
+
+    `ast.parse` errors propagate unchanged: SyntaxError, or RecursionError or MemoryError for code
+    nested deeper than CPython itself can parse. The walk has no depth limit of its own.
+    """
     visitor = _ScopeVisitor()
-    visitor.visit(ast.parse(code))
+    visitor.walk(ast.parse(code))
     module = visitor.module
     return CodeNames(frozenset(module.bound), frozenset(module.loads), frozenset(visitor.defines))
 
@@ -40,7 +46,8 @@ def dataset_reads(names: CodeNames, before: set[str], defined_earlier: set[str])
 
 @dataclass(slots=True)
 class _Scope:
-    kind: Literal["module", "function", "class", "comprehension"]
+    kind: _ScopeKind
+    parent: _Scope | None = None
     bound: set[str] = field(default_factory=set)
     loads: set[str] = field(default_factory=set)
     declared: set[str] = field(default_factory=set)  # `global` / `nonlocal` names
@@ -50,16 +57,34 @@ class _Scope:
             return self.loads
         return self.loads - (self.bound - self.declared)
 
+    def close(self) -> None:
+        """Hand this scope's free names to the scope that encloses it."""
+        if self.parent is not None:
+            self.parent.loads |= self.free_names()
+
 
 class _ScopeVisitor(ast.NodeVisitor):
+    """Walks with an explicit work stack: valid code nests deeper than Python's recursion limit."""
+
     def __init__(self) -> None:
         self.module = _Scope("module")
         self.defines: set[str] = set()
-        self._scopes = [self.module]
+        self._scope = self.module
+        self._pending: list[tuple[ast.AST, _Scope] | _Scope] = []
 
-    @property
-    def _scope(self) -> _Scope:
-        return self._scopes[-1]
+    def walk(self, tree: ast.AST) -> None:
+        self._pending.append((tree, self.module))
+        while self._pending:
+            item = self._pending.pop()
+            if isinstance(item, _Scope):
+                item.close()
+                continue
+            node, self._scope = item
+            super().visit(node)
+
+    def visit(self, node: ast.AST) -> None:
+        # Every handler and generic_visit come through here: defer the node, in the current scope.
+        self._pending.append((node, self._scope))
 
     def visit_Name(self, node: ast.Name) -> None:
         if isinstance(node.ctx, ast.Store):
@@ -81,7 +106,9 @@ class _ScopeVisitor(ast.NodeVisitor):
 
     def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
         # PEP 572: a walrus binds in the nearest enclosing scope that is not a comprehension.
-        owner = next(s for s in reversed(self._scopes) if s.kind != "comprehension")
+        owner = self._scope
+        while owner.kind == "comprehension" and owner.parent is not None:
+            owner = owner.parent
         owner.bound.add(node.target.id)
         self.visit(node.value)
 
@@ -125,7 +152,7 @@ class _ScopeVisitor(ast.NodeVisitor):
         self.visit(node.args)  # defaults and annotations are evaluated where the def runs
         if node.returns is not None:
             self.visit(node.returns)
-        self._visit_scope(_Scope("function", bound=_parameters(node.args)), node.body)
+        self._visit_scope("function", node.body, bound=_parameters(node.args))
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
@@ -133,11 +160,11 @@ class _ScopeVisitor(ast.NodeVisitor):
         self._define(node.name)
         for expr in [*node.decorator_list, *node.bases, *node.keywords]:
             self.visit(expr)
-        self._visit_scope(_Scope("class"), node.body)
+        self._visit_scope("class", node.body)
 
     def visit_Lambda(self, node: ast.Lambda) -> None:
         self.visit(node.args)
-        self._visit_scope(_Scope("function", bound=_parameters(node.args)), [node.body])
+        self._visit_scope("function", [node.body], bound=_parameters(node.args))
 
     def visit_ListComp(self, node: ast.ListComp | ast.SetComp | ast.GeneratorExp) -> None:
         self._visit_comprehension(node.generators, [node.elt])
@@ -153,19 +180,19 @@ class _ScopeVisitor(ast.NodeVisitor):
         outermost, *inner = generators
         self.visit(outermost.iter)  # evaluated in the enclosing scope, before the loop starts
         body: list[ast.AST] = [outermost.target, *outermost.ifs, *inner, *results]
-        self._visit_scope(_Scope("comprehension"), body)
+        self._visit_scope("comprehension", body)
 
     def _define(self, name: str) -> None:
         if self._scope is self.module:
             self.defines.add(name)
         self._scope.bound.add(name)
 
-    def _visit_scope(self, scope: _Scope, body: Iterable[ast.AST]) -> None:
-        self._scopes.append(scope)
-        for node in body:
-            self.visit(node)
-        self._scopes.pop()
-        self._scope.loads |= scope.free_names()
+    def _visit_scope(
+        self, kind: _ScopeKind, body: Iterable[ast.AST], bound: Iterable[str] = ()
+    ) -> None:
+        scope = _Scope(kind, parent=self._scope, bound=set(bound))
+        self._pending.append(scope)  # popped, and closed, only after its whole body is walked
+        self._pending.extend((node, scope) for node in body)
 
 
 def _parameters(args: ast.arguments) -> set[str]:
