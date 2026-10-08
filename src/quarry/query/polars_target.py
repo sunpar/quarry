@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
-from typing import Literal
+from datetime import UTC, date, datetime
+from typing import Final, Literal
+from zoneinfo import ZoneInfo
 
 import polars as pl
 
@@ -12,6 +13,9 @@ from quarry.query.columns import check_columns, check_output_columns
 from quarry.query.spec import Agg, AggFn, Filter, Json, Pivot, QuerySpec
 
 CompareOp = Literal["eq", "ne", "lt", "le", "gt", "ge", "in", "not_in", "between"]
+_UP_TO_64_BIT_INTEGERS: Final = frozenset(
+    {pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,7 +116,13 @@ def _coerce_item(item: Json, dtype: pl.DataType) -> object:
         case str() if dtype == pl.Date:
             return date.fromisoformat(item)
         case str() if isinstance(dtype, pl.Datetime):
-            return datetime.fromisoformat(item)
+            parsed = datetime.fromisoformat(item)
+            if dtype.time_zone is None:
+                return parsed
+            # polars compares a zoned column only with a literal in that zone. A naive string
+            # means UTC, as DuckDB reads it in the kernel's UTC session.
+            aware = parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+            return aware.astimezone(ZoneInfo(dtype.time_zone))
         case _:
             return item
 
@@ -134,9 +144,7 @@ def _aggregate(fn: AggFn, values: pl.Expr, dtype: pl.DataType) -> pl.Expr:
     """
     match fn:
         case "sum":
-            # polars sums an Int64 in Int64 and wraps silently on overflow; DuckDB sums every
-            # integer type as HUGEINT, which `.pl()` reads as Decimal(38, 0).
-            total = values.cast(pl.Decimal(38, 0)) if dtype.is_integer() else values
+            total = values.cast(pl.Decimal(38, 0)) if sums_as_decimal(dtype) else values
             # SQL SUM over no non-null values is NULL; polars would return 0.
             return pl.when(values.count() > 0).then(total.sum())
         case "mean":
@@ -155,6 +163,16 @@ def _aggregate(fn: AggFn, values: pl.Expr, dtype: pl.DataType) -> pl.Expr:
             return values.first()
         case "last":
             return values.last()
+
+
+def sums_as_decimal(dtype: pl.DataType) -> bool:
+    """Whether `sum` over `dtype` runs as Decimal(38, 0).
+
+    polars sums an Int64 in Int64 and wraps silently on overflow; DuckDB sums every integer type
+    it reads as HUGEINT, which `.pl()` reads as Decimal(38, 0). A 128-bit integer can pass that
+    decimal, and DuckDB cannot read one anyway, so it sums in its own type.
+    """
+    return dtype in _UP_TO_64_BIT_INTEGERS
 
 
 def _pivot(lf: pl.LazyFrame, pivot: Pivot, dtype: pl.DataType) -> pl.LazyFrame:

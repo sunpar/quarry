@@ -12,7 +12,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from quarry.config import ENV_API_KEY
+from quarry.config import ENV_API_KEY, ENV_MSSQL_DSN
 from quarry.kernel.client import KernelClient, KernelDead, RpcFailure, _accept
 from quarry.kernel.executor import ExecResult
 from quarry.query import QuerySpec
@@ -160,6 +160,19 @@ def test_kernel_environment_lacks_provider_api_keys(
     finally:
         client.close()
     assert result.stdout_tail == "[] kept\n"
+
+
+def test_kernel_environment_lacks_the_mssql_dsn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The kernel reads it into its config; step code must not see the password.
+    monkeypatch.setenv(ENV_MSSQL_DSN, "Driver=x;PWD=secret")
+    client = KernelClient.spawn(tmp_path)
+    try:
+        result = client.execute(f"import os\nprint(os.environ.get({ENV_MSSQL_DSN!r}))")
+    finally:
+        client.close()
+    assert result.stdout_tail == "None\n"
 
 
 def test_interrupt_while_idle_is_ignored(kernel: KernelClient) -> None:

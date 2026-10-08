@@ -4,6 +4,7 @@ import ast
 import math
 from datetime import date, datetime
 
+import duckdb
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
@@ -26,7 +27,11 @@ from tests.query.fixtures import (
     INT_SUM_IDS,
     INT_SUM_SPECS,
     SPECS,
+    ZONED_FILTERS,
+    ZONED_IDS,
+    new_york_rows,
     overflowing,
+    past_decimal_38,
     trades,
     utc_connection,
 )
@@ -63,10 +68,11 @@ FIRST_LAST_SPECS: list[QuerySpec] = [
     ),
 ]
 FIRST_LAST_IDS = ["first", "pivot_last"]
-# How relation source ends: it drops the view `relation.query` registered.
+# How relation source ends: it drops the view `relation.query` registered, even on failure.
 DROP_LINES = [
-    "# release the temporary view",
-    'trades.query("_quarry_trades", "DROP VIEW \\"_quarry_trades\\"")',
+    "finally:",
+    "    # release the temporary view",
+    '    trades.query("_quarry_trades", "DROP VIEW \\"_quarry_trades\\"")',
 ]
 
 
@@ -165,10 +171,11 @@ def test_valid_iso_strings_render_as_temporal_literals(value: str, rendered: str
 
 
 def test_duckdb_source_uses_sql() -> None:
-    src = to_source(QuerySpec(dataset="trades", limit=1), "duckdb")
-    assert 'trades.query("_quarry_trades", ' in src
-    assert ".pl()" in src
-    assert src.splitlines()[1:] == DROP_LINES
+    lines = to_source(QuerySpec(dataset="trades", limit=1), "duckdb").splitlines()
+    assert lines[0] == "try:"
+    assert lines[1].startswith('    result = trades.query("_quarry_trades", ')
+    assert lines[1].endswith(".pl()")
+    assert lines[2:] == DROP_LINES
 
 
 def test_duckdb_source_runs_over_a_table_of_the_same_name() -> None:
@@ -192,6 +199,12 @@ def test_duckdb_source_runs_over_a_table_of_the_same_name() -> None:
     assert con.sql("SELECT count(*) FROM trades").fetchone() == (5,)
 
 
+def trades_view(con: duckdb.DuckDBPyConnection) -> list[tuple[str]]:
+    """The view a query on `trades` registers, if it is still on `con`."""
+    views = "SELECT view_name FROM duckdb_views() WHERE view_name = ?"
+    return con.execute(views, [relation_view("trades")]).fetchall()
+
+
 @pytest.mark.parametrize(
     "spec",
     [
@@ -207,8 +220,23 @@ def test_duckdb_source_drops_its_view(spec: QuerySpec) -> None:
     con = utc_connection()
     con.register("fixture", trades())
     execute(to_source(spec, "duckdb"), {"trades": con.sql("SELECT * FROM fixture")})
-    views = "SELECT view_name FROM duckdb_views() WHERE view_name = ?"
-    assert con.execute(views, [relation_view("trades")]).fetchall() == []
+    assert trades_view(con) == []
+
+
+@pytest.mark.parametrize("pivoted", [False, True], ids=["plain", "pivot"])
+def test_failing_duckdb_source_raises_and_still_drops_its_view(pivoted: bool) -> None:
+    con = utc_connection()
+    con.register("fixture", trades())
+    spec = QuerySpec(
+        dataset="trades",
+        filters=[Filter(col="volume", op="eq", value="two")],  # fails as the SQL runs
+        pivot=Pivot(index=["date"], columns="ticker", values="volume", agg="sum")
+        if pivoted
+        else None,
+    )
+    with pytest.raises(duckdb.ConversionException, match="two"):
+        execute(to_source(spec, "duckdb"), {"trades": con.sql("SELECT * FROM fixture")})
+    assert trades_view(con) == []
 
 
 def test_duckdb_pivot_runs_filters_in_sql_and_the_pivot_in_polars() -> None:
@@ -219,14 +247,14 @@ def test_duckdb_pivot_runs_filters_in_sql_and_the_pivot_in_polars() -> None:
         sort=[Sort(col="date")],
     )
     lines = to_source(spec, "duckdb").splitlines()
-    assert lines[0] == "result = ("
-    assert lines[1].startswith('    trades.query("_quarry_trades", ')
-    assert lines[1].endswith(".pl()")
-    assert "WHERE" in lines[1]
-    assert "    .pivot(" in lines
-    assert "        sort_columns=True," in lines
+    assert lines[:2] == ["try:", "    result = ("]
+    assert lines[2].startswith('        trades.query("_quarry_trades", ')
+    assert lines[2].endswith(".pl()")
+    assert "WHERE" in lines[2]
+    assert "        .pivot(" in lines
+    assert "            sort_columns=True," in lines
     assert not any("PIVOT" in line or ".filter(" in line for line in lines)
-    assert lines[-4:] == ["    .collect()", ")", *DROP_LINES]
+    assert lines[-5:] == ["        .collect()", "    )", *DROP_LINES]
 
 
 @pytest.mark.parametrize("spec", FIRST_LAST_SPECS, ids=FIRST_LAST_IDS)
@@ -249,7 +277,7 @@ def test_pivot_collects_only_its_input_columns(backing: Backing) -> None:
     )
     lines = to_source(spec, backing).splitlines()
     if backing == "duckdb":
-        assert 'SELECT \\"date\\", \\"ticker\\", \\"volume\\" FROM' in lines[1]
+        assert 'SELECT \\"date\\", \\"ticker\\", \\"volume\\" FROM' in lines[2]
     else:
         collect = lines.index("    .collect()")
         assert lines[collect - 1] == '    .select(["date", "ticker", "volume"])'
@@ -286,6 +314,28 @@ def test_schema_compares_an_integer_column_with_a_fraction_as_float() -> None:
     assert 'pl.col("volume").cast(pl.Float64) < 300.5' in src
 
 
+# Not duckdb: a relation's filters run in its SQL, which test_equivalence checks.
+@pytest.mark.parametrize("backing", ["polars", "polars_lazy"])
+@pytest.mark.parametrize(("filter_", "selected"), ZONED_FILTERS, ids=ZONED_IDS)
+def test_schema_reads_iso_strings_against_a_zoned_column_as_duckdb_does(
+    filter_: Filter, selected: list[int], backing: Backing
+) -> None:
+    spec = QuerySpec(dataset="t", filters=[filter_], select=["n"], sort=[Sort(col="n")])
+    frame = new_york_rows()
+    out = execute(to_source(spec, backing, schema=frame.schema), {"t": bind(frame, backing)})
+    assert out["n"].to_list() == selected
+
+
+def test_schema_renders_a_naive_string_against_a_zoned_column_in_its_zone() -> None:
+    spec = QuerySpec(dataset="t", filters=[Filter(col="ts", op="ge", value="2024-01-01T02:00")])
+    src = to_source(spec, "polars", schema=new_york_rows().schema)
+    assert src.startswith("from datetime import datetime\nfrom zoneinfo import ZoneInfo\n\n")
+    assert (
+        'pl.col("ts") >= datetime.fromisoformat("2023-12-31T21:00:00-05:00")'
+        '.astimezone(ZoneInfo("America/New_York"))'
+    ) in src
+
+
 @pytest.mark.parametrize("backing", BACKINGS)
 @pytest.mark.parametrize("spec", INT_SUM_SPECS, ids=INT_SUM_IDS)
 def test_schema_sums_integers_without_overflow(spec: QuerySpec, backing: Backing) -> None:
@@ -293,6 +343,18 @@ def test_schema_sums_integers_without_overflow(spec: QuerySpec, backing: Backing
     out = execute(to_source(spec, backing, schema=frame.schema), {"nums": bind(frame, backing)})
     assert out.dtypes[1] == pl.Decimal(38, 0)
     assert out.rows() == [("a", 2**63), ("b", None)]  # Decimal equals int exactly
+
+
+@pytest.mark.parametrize("backing", ["polars", "polars_lazy"])
+@pytest.mark.parametrize("dtype", [pl.Int128(), pl.UInt128()], ids=str)
+@pytest.mark.parametrize("spec", INT_SUM_SPECS, ids=INT_SUM_IDS)
+def test_schema_sums_128_bit_integers_natively(
+    spec: QuerySpec, dtype: pl.DataType, backing: Backing
+) -> None:
+    frame = past_decimal_38(dtype)
+    out = execute(to_source(spec, backing, schema=frame.schema), {"nums": bind(frame, backing)})
+    assert out.dtypes[1] == dtype
+    assert out.rows() == [("a", 10**38), ("b", None)]
 
 
 def test_integer_sum_casts_only_with_a_schema() -> None:

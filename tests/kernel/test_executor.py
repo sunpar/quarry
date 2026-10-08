@@ -216,6 +216,32 @@ def test_helper_defined_earlier_counts_as_read() -> None:
     assert result.reads == ["clean", "returns"]
 
 
+def test_helper_rebound_to_a_value_is_not_read_later() -> None:
+    ex = make()
+    ex.execute("def scale(x):\n    return x * 2\n")
+    ex.execute("df = pl.DataFrame({'a': [1]})")
+    ex.execute("scale = 3")
+    assert ex.execute("ds = df.select(pl.lit(scale))").reads == ["df"]
+
+
+def test_deleted_helper_is_forgotten() -> None:
+    ex = make()
+    ex.execute("def scale(x):\n    return x * 2\n")
+    ex.execute("df = pl.DataFrame({'a': [1]})")
+    assert ex.execute("del scale").status == "ok"
+    # Rebound in the step that reads it, so only the `del` can have forgotten the helper.
+    assert ex.execute("scale = 3\nds = df.select(pl.lit(scale))").reads == ["df"]
+
+
+def test_live_helper_stays_a_read_in_later_steps() -> None:
+    ex = make()
+    ex.execute("def scale(x):\n    return x * 2\n")
+    ex.execute("df = pl.DataFrame({'a': [1]})")
+    ex.execute("other = 1")
+    assert ex.execute("ds = df.select(pl.lit(scale(2)))").reads == ["df", "scale"]
+    assert ex.execute("again = scale(3)").reads == ["scale"]
+
+
 def test_helper_rebinding_a_dataset_through_global_is_a_write() -> None:
     ex = make()
     ex.execute("df = pl.DataFrame({'a': [1, 2]})")
@@ -571,6 +597,20 @@ def test_failing_query_drops_its_view_of_a_relation() -> None:
     with pytest.raises(duckdb.ConversionException):
         ex.query(QuerySpec(dataset="rel", filters=[Filter(col="n", op="eq", value="two")]))
     assert quarry_views(conn, "rel") == []
+
+
+def test_relation_with_repeated_names_queries_under_the_names_describe_gives(
+    tmp_path: Path,
+) -> None:
+    ex = make()
+    ex.execute("rel = _conn.sql('SELECT 1 AS a, 2 AS a UNION ALL SELECT 3, 4')")
+    assert [c.name for c in ex.describe("rel").schema_] == ["a", "a_1"]
+    second = QuerySpec(dataset="rel", select=["a_1"], sort=[Sort(col="a_1")])
+    assert ex.query(second).rows == [{"a_1": 2}, {"a_1": 4}]
+    filtered = QuerySpec(dataset="rel", filters=[Filter(col="a_1", op="gt", value=3)])
+    assert ex.query(filtered).rows == [{"a": 3, "a_1": 4}]
+    meta = ex.snapshot("rel", tmp_path / "rel.parquet")
+    assert [c.name for c in meta.schema_] == ["a", "a_1"]
 
 
 def test_relation_with_interval_column_queries_and_snapshots(tmp_path: Path) -> None:

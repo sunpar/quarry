@@ -4,13 +4,16 @@ import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 
-from quarry.query import QuerySpec
+from quarry.query import Filter, QuerySpec, Sort
 from quarry.query.polars_target import to_polars
 from quarry.query.sql_target import to_sql
 from tests.query.fixtures import (
     INT_SUM_IDS,
     INT_SUM_SPECS,
     SPECS,
+    ZONED_FILTERS,
+    ZONED_IDS,
+    new_york_rows,
     overflowing,
     trades,
     utc_connection,
@@ -61,3 +64,16 @@ def test_integer_sums_agree_exactly(spec: QuerySpec, dtype: pl.DataType) -> None
     assert_frame_equal(via_polars, via_sql)
     assert via_sql.dtypes[1] == pl.Decimal(38, 0)
     assert via_polars.rows() == [("a", 2 * top), ("b", None)]
+
+
+@pytest.mark.parametrize(("filter_", "selected"), ZONED_FILTERS, ids=ZONED_IDS)
+def test_iso_strings_against_a_zoned_column_agree(filter_: Filter, selected: list[int]) -> None:
+    spec = QuerySpec(dataset="t", filters=[filter_], select=["n"], sort=[Sort(col="n")])
+    frame = new_york_rows()
+    conn = utc_connection()
+    conn.register("frame", frame)
+    # A table: DuckDB pushes an IN filter into a registered frame's Arrow scan through pytz,
+    # which quarry does not install.
+    conn.execute("CREATE TABLE t AS FROM frame")
+    assert to_polars(spec, frame).collect()["n"].to_list() == selected
+    assert conn.sql(to_sql(spec, "t")).pl()["n"].to_list() == selected

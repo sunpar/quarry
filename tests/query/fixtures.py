@@ -153,6 +153,32 @@ def overflowing(
     )
 
 
+def new_york_rows() -> pl.DataFrame:
+    """UTC 00:00, 03:00 and 06:00 on 2024-01-01, held in a New York Datetime column."""
+    utc = [datetime(2024, 1, 1, hour, tzinfo=UTC) for hour in (0, 3, 6)]
+    return pl.DataFrame({"n": [1, 2, 3], "ts": utc}).with_columns(
+        pl.col("ts").dt.convert_time_zone("America/New_York")
+    )
+
+
+# Over `new_york_rows()`, with the `n` each selects. DuckDB, in its UTC session, reads a naive
+# string as UTC; the polars target must agree.
+ZONED_FILTERS: list[tuple[Filter, list[int]]] = [
+    (Filter(col="ts", op="ge", value="2024-01-01T02:00:00"), [2, 3]),
+    (Filter(col="ts", op="ge", value="2023-12-31T21:00:00-05:00"), [2, 3]),
+    (Filter(col="ts", op="between", value=["2024-01-01T02:00:00", "2024-01-01T04:00:00"]), [2]),
+    (Filter(col="ts", op="in", value=["2024-01-01T03:00:00", "2024-01-01T06:00:00Z"]), [2, 3]),
+]
+ZONED_IDS = ["naive", "offset", "naive_between", "in"]
+
+
+def past_decimal_38(dtype: pl.DataType) -> pl.DataFrame:
+    """Group "a" holds 10**38, one past Decimal(38, 0); group "b" sums only a null."""
+    return pl.DataFrame(
+        {"k": ["a", "b"], "c": ["x", "x"], "n": pl.Series([10**38, None], dtype=dtype)}
+    )
+
+
 # Over `overflowing()`: each gives the rows [("a", 2 * top), ("b", None)].
 INT_SUM_SPECS: list[QuerySpec] = [
     QuerySpec(dataset="nums", group_by=["k"], aggs=[Agg(col="n", fn="sum")], sort=[Sort(col="k")]),

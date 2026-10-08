@@ -55,6 +55,12 @@ def test_duplicate_output_names_rejected(
         QuerySpec(dataset="r", group_by=group_by, aggs=aggs)
 
 
+def test_duplicate_select_names_rejected() -> None:
+    # polars raises a duplicate-column error at run time, while SQL returns the column twice.
+    with pytest.raises(ValidationError, match="duplicate select column 'a'"):
+        QuerySpec(dataset="r", select=["a", "b", "a"])
+
+
 def test_same_column_with_different_fns_is_allowed() -> None:
     spec = QuerySpec(
         dataset="r", group_by=["a"], aggs=[Agg(col="x", fn="sum"), Agg(col="x", fn="mean")]

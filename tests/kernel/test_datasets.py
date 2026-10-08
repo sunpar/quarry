@@ -15,7 +15,9 @@ from quarry.kernel.datasets import (
     relation_frame,
     to_json_rows,
     undescribed,
+    unique_names,
 )
+from quarry.query.sql_target import quote_ident
 
 
 def frame() -> pl.DataFrame:
@@ -259,6 +261,24 @@ def test_relation_frame_keeps_odd_and_duplicate_names() -> None:
     result = relation_frame(rel)
     assert result.columns == ["my gap", 'a"b', 'a"b_1']
     assert result.row(0) == ("01:00:00", 1, 2)
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        ["a", "a"],
+        ["a", "a", "a", "a_1"],
+        ["a_1", "a", "a"],
+        ["A", "a"],
+        ["a", "a", "A", "a_1"],
+        ["k", "v", "k", "v"],
+        ["a", "b"],
+    ],
+    ids=str,
+)
+def test_unique_names_are_the_names_pl_gives(names: list[str]) -> None:
+    select = ", ".join(f"{n} AS {quote_ident(name)}" for n, name in enumerate(names))
+    assert unique_names(names) == duckdb.connect().sql(f"SELECT {select}").pl().columns
 
 
 def test_relation_frame_limit() -> None:

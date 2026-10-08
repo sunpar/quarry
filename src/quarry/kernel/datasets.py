@@ -104,14 +104,49 @@ def relation_frame(rel: duckdb.DuckDBPyRelation, limit: int | None = None) -> pl
 
 
 def importable_relation(rel: duckdb.DuckDBPyRelation) -> duckdb.DuckDBPyRelation:
-    """`rel` with its INTERVAL and UNION columns, which polars cannot import, as VARCHAR.
+    """`uniquely_named(rel)` with its INTERVAL and UNION columns, which polars cannot import, as
+    VARCHAR.
 
     Columns are projected by position (`#n`), so duplicate names cannot pick the wrong column.
     """
+    rel = uniquely_named(rel)
     if not any(_unimportable(t) for t in rel.types):
         return rel
     columns = enumerate(zip(rel.columns, rel.types, strict=True), start=1)
     return rel.project(", ".join(_importable(n, name, t) for n, (name, t) in columns))
+
+
+def uniquely_named(rel: duckdb.DuckDBPyRelation) -> duckdb.DuckDBPyRelation:
+    """`rel` with repeated column names made unique as `.pl()` makes them (`unique_names`), so
+    SQL can name each column as describe reports it. Types stay as they are."""
+    names = unique_names(rel.columns)
+    if names == rel.columns:
+        return rel
+    return rel.project(
+        ", ".join(f"#{n} AS {quote_ident(name)}" for n, name in enumerate(names, start=1))
+    )
+
+
+def unique_names(names: list[str]) -> list[str]:
+    """`names` with repeats renamed as DuckDB's conversion to polars renames them.
+
+    Names compare case-insensitively, as DuckDB identifiers do, and a suffix already taken is
+    skipped: `a, a, A` become `a, a_1, A_2`, and `a_1, a, a` become `a_1, a, a_2`.
+    """
+    # Per lower-cased name taken so far: the suffix a repeat of it tries first.
+    suffixes: dict[str, int] = {}
+    unique: list[str] = []
+    for name in names:
+        key = name.lower()
+        if key not in suffixes:
+            suffixes[key] = 1
+            unique.append(name)
+            continue
+        while (renamed := f"{name}_{suffixes[key]}").lower() in suffixes:
+            suffixes[key] += 1
+        suffixes[renamed.lower()] = 1
+        unique.append(renamed)
+    return unique
 
 
 def to_json_rows(df: pl.DataFrame) -> list[dict[str, Json]]:

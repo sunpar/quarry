@@ -1,12 +1,13 @@
 """Render a QuerySpec as Python source a researcher can read and run.
 
-The source assumes `pl` and the dataset variable are in scope, and imports `date` or
-`datetime` itself only when a literal needs one. The polars rendering mirrors
+The source assumes `pl` and the dataset variable are in scope, and imports `date`,
+`datetime` or `ZoneInfo` itself only when a literal needs one. The polars rendering mirrors
 `polars_target` method for method. A DuckDB relation runs `to_sql` through
 `relation.query`, so the dataset is read by its Python name, on its own connection, and a
 pivot spec is split as the executor splits it (`split_for_relation`): its filters run as
 SQL, and the pivot onward runs as the polars chain. The source then drops the view
-`relation.query` registered, through the relation again, as the executor does.
+`relation.query` registered, through the relation again, as the executor does, in a `finally`
+so a failing query releases it too.
 
 Filter literals depend on `schema`. When it is given, they are coerced exactly as
 `to_polars` coerces them against the frame's dtypes. Without it, a string that is a whole
@@ -15,8 +16,9 @@ valid ISO date renders as `date.fromisoformat`, a whole valid ISO datetime as
 numbers as given. polars 2.0 `is_in` is strictly typed, so without a schema `ret in [0]`
 against a float column fails when run.
 
-`sum` depends on `schema` too. When it is given, an integer column sums as Decimal(38, 0),
-as in `to_polars`. Without it, the source sums plainly, so an Int64 sum can wrap on overflow.
+`sum` depends on `schema` too. When it is given, an integer column of up to 64 bits sums as
+Decimal(38, 0), as in `to_polars`. Without it, the source sums plainly, so an Int64 sum can
+wrap on overflow.
 """
 
 from __future__ import annotations
@@ -28,16 +30,28 @@ import re
 from collections.abc import Callable, Mapping
 from datetime import date, datetime
 from typing import Final
+from zoneinfo import ZoneInfo
 
 import polars as pl
 
 from quarry.query.columns import check_columns
-from quarry.query.polars_target import CoercedLiteral, CompareOp, coerce_literal
+from quarry.query.polars_target import (
+    CoercedLiteral,
+    CompareOp,
+    coerce_literal,
+    sums_as_decimal,
+)
 from quarry.query.spec import NULL_OPS, TEXT_OPS, Agg, AggFn, Backing, Filter, Json, QuerySpec
 from quarry.query.sql_target import quote_ident, relation_view, split_for_relation, to_sql
 
 DATE_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATETIME_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
+# The module each name a literal can need is imported from.
+IMPORTED_FROM: Final[dict[str, str]] = {
+    "date": "datetime",
+    "datetime": "datetime",
+    "ZoneInfo": "zoneinfo",
+}
 OPERATORS: Final[dict[str, str]] = {
     "eq": "==",
     "ne": "!=",
@@ -63,28 +77,32 @@ def to_source(
     if schema is not None:
         check_columns(spec, set(schema))
     if backing != "duckdb":
-        return _chain_source(
+        chain = _chain_source(
             spec,
             result_name=result_name,
             schema=schema,
             head=f"{spec.dataset}.lazy()",
             head_is_lazy=True,
         )
+        return f"{_import_lines(spec, schema)}{chain}\n"
     if result_name == spec.dataset:
         # The view is dropped through the dataset after the result is assigned.
         raise ValueError(f"result_name {result_name!r} must differ from the dataset for a relation")
     sql_part, polars_part = split_for_relation(spec)
     view = relation_view(spec.dataset)
     head = f"{spec.dataset}.query({py_literal(view)}, {py_literal(to_sql(sql_part, view))}).pl()"
-    # The view stays on the relation's connection, pinning its data, until something drops it.
-    drop_sql = py_literal(f"DROP VIEW {quote_ident(view)}")
-    drop = f"# release the temporary view\n{spec.dataset}.query({py_literal(view)}, {drop_sql})\n"
     if polars_part is None:
-        return f"{result_name} = {head}\n{drop}"
-    chain = _chain_source(
-        polars_part, result_name=result_name, schema=schema, head=head, head_is_lazy=False
-    )
-    return chain + drop
+        assign = f"{result_name} = {head}"
+    else:
+        # No imports: the filters, the only literals, run in the SQL.
+        assign = _chain_source(
+            polars_part, result_name=result_name, schema=schema, head=head, head_is_lazy=False
+        )
+    # The view stays on the relation's connection, pinning its data, until something drops it,
+    # so it is dropped even when the query fails.
+    drop_sql = py_literal(f"DROP VIEW {quote_ident(view)}")
+    drop = f"# release the temporary view\n{spec.dataset}.query({py_literal(view)}, {drop_sql})"
+    return f"try:\n{_indent(assign)}\nfinally:\n{_indent(drop)}\n"
 
 
 def filter_source(f: Filter, dtype: pl.DataType | None = None) -> str:
@@ -123,6 +141,11 @@ def py_literal(value: object) -> str:
             return repr(value)
         case list():
             return "[" + ", ".join(py_literal(item) for item in value) + "]"
+        case datetime(tzinfo=ZoneInfo() as zone):
+            # The zone, not only the offset isoformat keeps: polars compares a zoned column only
+            # with a literal in that zone.
+            iso, key = py_literal(value.isoformat()), py_literal(zone.key)
+            return f"datetime.fromisoformat({iso}).astimezone(ZoneInfo({key}))"
         case datetime():
             return f"datetime.fromisoformat({py_literal(value.isoformat())})"
         case date():
@@ -139,6 +162,7 @@ def _chain_source(
     head: str,
     head_is_lazy: bool,
 ) -> str:
+    """The statement assigning the chain to `result_name`, with no import line."""
     lines = [
         head,
         *_filter_steps(spec, schema),
@@ -146,9 +170,13 @@ def _chain_source(
         *_tail_steps(spec),
         ".collect()",
     ]
+    body = _indent("\n".join(lines))
+    return f"{result_name} = (\n{body}\n)"
+
+
+def _indent(source: str) -> str:
     # str.splitlines (and so textwrap.indent) also breaks on U+0085, U+2028 and U+2029.
-    body = "\n".join(f"    {line}" for line in "\n".join(lines).split("\n"))
-    return f"{_import_line(spec, schema)}{result_name} = (\n{body}\n)\n"
+    return "\n".join(f"    {line}" for line in source.split("\n"))
 
 
 def _filter_steps(spec: QuerySpec, schema: Schema | None) -> list[str]:
@@ -203,7 +231,7 @@ def _method_call(method: str, args: list[str]) -> str:
 def _aggregate_source(fn: AggFn, values: str, dtype: pl.DataType | None) -> str:
     """Mirror `polars_target._aggregate`: every other AggFn is a polars method of its name."""
     if fn == "sum":
-        exact = dtype is not None and dtype.is_integer()
+        exact = dtype is not None and sums_as_decimal(dtype)
         total = f"{values}.cast(pl.Decimal(38, 0))" if exact else values
         # SQL SUM over no non-null values is NULL; polars would return 0.
         return f"pl.when({values}.count() > 0).then({total}.sum())"
@@ -247,20 +275,26 @@ def _infer_temporal(value: Json) -> object:
         return value
 
 
-def _import_line(spec: QuerySpec, schema: Schema | None) -> str:
+def _import_lines(spec: QuerySpec, schema: Schema | None) -> str:
     literals = [
         _literal(f.value, _dtype(schema, f.col)).value
         for f in spec.filters
         if f.op not in TEXT_OPS | NULL_OPS
     ]
     names = sorted({name for value in literals for name in _temporal_names(value)})
-    return f"from datetime import {', '.join(names)}\n\n" if names else ""
+    lines = [
+        f"from {module} import {', '.join(n for n in names if IMPORTED_FROM[n] == module)}\n"
+        for module in sorted({IMPORTED_FROM[n] for n in names})
+    ]
+    return "".join(lines) + "\n" if lines else ""
 
 
 def _temporal_names(value: object) -> set[str]:
     match value:
         case list():
             return {name for item in value for name in _temporal_names(item)}
+        case datetime(tzinfo=ZoneInfo()):
+            return {"datetime", "ZoneInfo"}
         case datetime():
             return {"datetime"}
         case date():

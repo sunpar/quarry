@@ -30,6 +30,7 @@ from quarry.kernel.datasets import (
     relation_frame,
     to_json_rows,
     undescribed,
+    uniquely_named,
 )
 from quarry.kernel.datasets import describe as describe_dataset
 from quarry.kernel.lineage import CodeNames, analyze, dataset_reads, dataset_writes
@@ -43,7 +44,7 @@ NOT_FAILURES: Final = (KeyboardInterrupt, SystemExit, GeneratorExit)
 _NOTHING_STORED: Final = CodeNames(frozenset(), frozenset(), frozenset())
 
 Status = Literal["ok", "error", "interrupted"]
-# Whether a namespace value is still the object a dataset name was bound to before the step.
+# Whether a namespace value is still the object a name was bound to when the check was made.
 _IsSame = Callable[[object], bool]
 
 
@@ -89,7 +90,8 @@ class Executor:
         self._conn = conn
         self._row_cap = row_cap
         self._tail = tail_bytes
-        self._defined: set[str] = set()
+        # Each helper an earlier step defined, with a test that its name still holds it.
+        self._defined: dict[str, _IsSame] = {}
         self._running = False
         self._interrupted = False  # whether the SIGINT handler interrupted the current step
 
@@ -132,8 +134,16 @@ class Executor:
         elif status == "ok" and describe_errors:
             status, error = "error", describe_errors[0]
         defines = [] if names is None else _newly_bound(names.defines, prior, self._ns)
-        reads = [] if names is None else dataset_reads(names, set(before), self._defined)
-        self._defined.update(defines)
+        # Helpers as they were when the step started, as `before` is for datasets.
+        reads = [] if names is None else dataset_reads(names, set(before), set(self._defined))
+        # A name rebound to anything else, or deleted, no longer holds the helper a later
+        # step would read.
+        self._defined = {
+            name: same
+            for name, same in self._defined.items()
+            if name in self._ns and same(self._ns[name])
+        }
+        self._defined.update({name: _identity_check(self._ns[name]) for name in defines})
         return ExecResult(
             status=status,
             stdout_tail=out.getvalue(),
@@ -317,11 +327,13 @@ def _identity_check(obj: object) -> _IsSame:
 def _run_query(spec: QuerySpec, obj: Dataset, conn: duckdb.DuckDBPyConnection) -> pl.DataFrame:
     if not isinstance(obj, duckdb.DuckDBPyRelation):
         return to_polars(spec, obj).collect()
+    # Under the names describe reports: a repeated `a` is `a` and `a_1`, which SQL can tell apart.
+    rel = uniquely_named(obj)
     sql_part, polars_part = split_for_relation(spec)
     view = relation_view(spec.dataset)
-    sql = to_sql(sql_part, view, columns=obj.columns)
+    sql = to_sql(sql_part, view, columns=rel.columns)
     try:
-        frame = relation_frame(obj.query(view, sql))
+        frame = relation_frame(rel.query(view, sql))
     finally:
         # `query` registers the view on the relation's connection, where it would pin the
         # relation's data for the kernel's lifetime.

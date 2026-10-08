@@ -18,7 +18,7 @@ from typing import NoReturn, cast
 import duckdb
 from pydantic import ValidationError
 
-from quarry.config import load_config
+from quarry.config import ENV_MSSQL_DSN, load_config
 from quarry.data.namespace import build_namespace
 from quarry.kernel.executor import Executor
 from quarry.kernel.protocol import (
@@ -43,6 +43,9 @@ def main() -> None:
     parser.add_argument("--temp-dir", required=True)
     args = parser.parse_args()
     config = load_config(Path(args.root))
+    # `sql` takes the DSN from the config. Step code, and every process it starts, can print
+    # the environment into a persisted result, and the DSN can carry a password.
+    os.environ.pop(ENV_MSSQL_DSN, None)
     if config.data.kernel_memory_mb > 0:
         apply_memory_cap(config.data.kernel_memory_mb)
     namespace = build_namespace(config, Path(args.temp_dir))

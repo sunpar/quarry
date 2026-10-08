@@ -5,7 +5,14 @@ import pytest
 
 from quarry.query import Agg, AggFn, Filter, Json, Pivot, QueryError, QuerySpec, Sort
 from quarry.query.polars_target import CoercedLiteral, coerce_literal, to_polars
-from tests.query.fixtures import INT_SUM_IDS, INT_SUM_SPECS, SPECS, overflowing, trades
+from tests.query.fixtures import (
+    INT_SUM_IDS,
+    INT_SUM_SPECS,
+    SPECS,
+    overflowing,
+    past_decimal_38,
+    trades,
+)
 
 VOLUME_BY_TICKER = Pivot(index=["date"], columns="ticker", values="volume", agg="sum")
 
@@ -28,13 +35,13 @@ def test_string_literal_against_date_column() -> None:
     assert out.height == 3
 
 
-def test_naive_string_against_tz_aware_column_raises() -> None:
-    # R27: polars reads a naive string in no zone at all; the string must carry its offset.
+def test_naive_string_against_tz_aware_column_means_utc() -> None:
+    # As DuckDB reads it in the kernel's UTC session.
     spec = QuerySpec(
         dataset="trades", filters=[Filter(col="ts_utc", op="ge", value="2024-01-03T14:30:00")]
     )
-    with pytest.raises(pl.exceptions.SchemaError):
-        to_polars(spec, trades()).collect()
+    out = to_polars(spec, trades()).collect()
+    assert out["volume"].to_list() == [300, 400, 500]
 
 
 def test_group_by_agg_names() -> None:
@@ -125,15 +132,24 @@ def test_integer_sum_does_not_overflow(spec: QuerySpec) -> None:
 @pytest.mark.parametrize(
     "dtype",
     [
-        *(pl.Int8(), pl.Int16(), pl.Int32(), pl.Int64(), pl.Int128()),
-        *(pl.UInt8(), pl.UInt16(), pl.UInt32(), pl.UInt64(), pl.UInt128()),
+        *(pl.Int8(), pl.Int16(), pl.Int32(), pl.Int64()),
+        *(pl.UInt8(), pl.UInt16(), pl.UInt32(), pl.UInt64()),
     ],
     ids=str,
 )
-def test_every_integer_width_sums_as_decimal(dtype: pl.DataType) -> None:
+def test_every_integer_width_up_to_64_bits_sums_as_decimal(dtype: pl.DataType) -> None:
     out = to_polars(INT_SUM_SPECS[0], overflowing(100, dtype)).collect()
     assert out.schema["n_sum"] == pl.Decimal(38, 0)
     assert out["n_sum"].to_list() == [200, None]
+
+
+@pytest.mark.parametrize("dtype", [pl.Int128(), pl.UInt128()], ids=str)
+@pytest.mark.parametrize("spec", INT_SUM_SPECS, ids=INT_SUM_IDS)
+def test_128_bit_integers_sum_natively(spec: QuerySpec, dtype: pl.DataType) -> None:
+    # A 128-bit value can pass Decimal(38, 0); DuckDB cannot read these types to compare.
+    out = to_polars(spec, past_decimal_38(dtype)).collect()
+    assert out.dtypes[1] == dtype
+    assert out.rows() == [("a", 10**38), ("b", None)]
 
 
 def test_pivot_absent_cell_is_null_for_sum_and_zero_for_count() -> None:
