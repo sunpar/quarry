@@ -47,30 +47,36 @@ EXTRA_SPECS: list[QuerySpec] = [
 ]
 
 
-def run_source(source: str, backing: Backing) -> pl.DataFrame:
-    # No `duckdb` in scope: generated code reaches DuckDB only through the relation.
-    namespace: dict[str, object] = {"pl": pl}
-    frame = trades()
+def bind(frame: pl.DataFrame, backing: Backing) -> object:
     if backing == "duckdb":
-        duckdb.register("trades_src", frame)
-        namespace["trades"] = duckdb.sql("SELECT * FROM trades_src")
-    elif backing == "polars_lazy":
-        namespace["trades"] = frame.lazy()
-    else:
-        namespace["trades"] = frame
+        con = duckdb.connect()
+        con.register("frame_src", frame)
+        return con.sql("SELECT * FROM frame_src")
+    if backing == "polars_lazy":
+        return frame.lazy()
+    return frame
+
+
+def execute(source: str, datasets: dict[str, object]) -> pl.DataFrame:
+    # No `duckdb` in scope: generated code reaches DuckDB only through the relation.
+    namespace: dict[str, object] = {"pl": pl, **datasets}
     exec(source, namespace)  # the test executes generated code on purpose
     result = namespace["result"]
     assert isinstance(result, pl.DataFrame)
     return result
 
 
-def assert_matches_polars_target(spec: QuerySpec, backing: Backing) -> None:
-    frame = trades()
-    expected = to_polars(spec, frame).collect()
-    actual = run_source(to_source(spec, backing, schema=frame.schema), backing)
+def assert_same_rows(expected: pl.DataFrame, actual: pl.DataFrame) -> None:
     expected = expected.select(sorted(expected.columns)).sort(sorted(expected.columns))
     actual = actual.select(sorted(actual.columns)).sort(sorted(actual.columns))
     assert_frame_equal(expected, actual, check_dtypes=False, rel_tol=1e-9)
+
+
+def assert_matches_polars_target(spec: QuerySpec, backing: Backing) -> None:
+    frame = trades()
+    source = to_source(spec, backing, schema=frame.schema)
+    actual = execute(source, {"trades": bind(frame, backing)})
+    assert_same_rows(to_polars(spec, frame).collect(), actual)
 
 
 def test_polars_source_is_readable() -> None:
@@ -114,9 +120,30 @@ def test_datetime_literal_imports_datetime() -> None:
 
 def test_duckdb_source_uses_sql() -> None:
     src = to_source(QuerySpec(dataset="trades", limit=1), "duckdb")
-    assert 'trades.query("trades", ' in src
+    assert 'trades.query("_quarry_trades", ' in src
     assert ".pl()" in src
     assert src.count("\n") == 1
+
+
+def test_duckdb_source_runs_over_a_table_of_the_same_name() -> None:
+    frame = trades()
+    con = duckdb.connect()
+    con.register("fixture", frame)
+    con.execute("CREATE TABLE trades AS SELECT * FROM fixture")
+    relation = con.table("trades")
+    specs = [
+        QuerySpec(dataset="trades", filters=[Filter(col="volume", op="gt", value=250)]),
+        QuerySpec(
+            dataset="trades",
+            pivot=Pivot(index=["date"], columns="ticker", values="volume", agg="sum"),
+            sort=[Sort(col="date")],
+        ),
+    ]
+    for spec in specs:
+        actual = execute(to_source(spec, "duckdb"), {"trades": relation})
+        assert_same_rows(to_polars(spec, frame).collect(), actual)
+    # The query's view must not shadow the researcher's table.
+    assert con.sql("SELECT count(*) FROM trades").fetchone() == (5,)
 
 
 def test_duckdb_pivot_runs_filters_in_sql_and_the_pivot_in_polars() -> None:
@@ -128,13 +155,32 @@ def test_duckdb_pivot_runs_filters_in_sql_and_the_pivot_in_polars() -> None:
     )
     lines = to_source(spec, "duckdb").splitlines()
     assert lines[0] == "result = ("
-    assert lines[1].startswith('    trades.query("trades", ')
+    assert lines[1].startswith('    trades.query("_quarry_trades", ')
     assert lines[1].endswith(".pl()")
     assert "WHERE" in lines[1]
     assert "    .pivot(" in lines
     assert "        sort_columns=True," in lines
     assert not any("PIVOT" in line or ".filter(" in line for line in lines)
     assert lines[-2:] == ["    .collect()", ")"]
+
+
+@pytest.mark.parametrize("backing", BACKINGS)
+@pytest.mark.parametrize("pivoted", [False, True], ids=["filter", "pivot"])
+@pytest.mark.parametrize("ch", ["\u2028", "\x85"], ids=["U+2028", "U+0085"])
+def test_line_break_characters_stay_inside_literals(
+    ch: str, pivoted: bool, backing: Backing
+) -> None:
+    note = f"note{ch}"
+    frame = pl.DataFrame({note: [f"a{ch}b", "a b", "c"], "kind": ["x", "y", "x"], "v": [1, 2, 3]})
+    spec = QuerySpec(
+        dataset="notes",
+        filters=[Filter(col=note, op="eq", value=f"a{ch}b")],
+        pivot=Pivot(index=[note], columns="kind", values="v", agg="sum") if pivoted else None,
+    )
+    expected = to_polars(spec, frame).collect()
+    actual = execute(to_source(spec, backing, schema=frame.schema), {"notes": bind(frame, backing)})
+    assert expected.height == 1
+    assert_same_rows(expected, actual)
 
 
 def test_schema_coerces_integral_list_items_to_a_float_column() -> None:
@@ -172,6 +218,13 @@ def test_names_must_be_python_identifiers(dataset: str, result_name: str) -> Non
 def test_py_literal_round_trips(value: Json) -> None:
     assert ast.literal_eval(py_literal(value)) == value
     assert ast.literal_eval(py_literal([value, [value]])) == [value, [value]]
+
+
+def test_py_literal_escapes_non_printable_characters() -> None:
+    assert py_literal("a\u202eb") == '"a\\u202eb"'
+    assert py_literal("\U000e0001") == '"\\U000e0001"'
+    tricky = "x\u2028\x85\u2029\u202e\xa0\ud800\U000e0001\U0001f600y"
+    assert ast.literal_eval(py_literal(tricky)) == tricky
 
 
 def test_py_literal_uses_double_quotes() -> None:

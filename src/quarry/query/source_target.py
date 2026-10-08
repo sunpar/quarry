@@ -3,7 +3,9 @@
 The source assumes `pl` and the dataset variable are in scope, and imports `date` or
 `datetime` itself only when a literal needs one. The polars rendering mirrors
 `polars_target` method for method. A DuckDB relation runs `to_sql` through
-`relation.query`, so the dataset is read by its Python name, on its own connection.
+`relation.query`, so the dataset is read by its Python name, on its own connection. The
+query's view is named `_quarry_<dataset>`: a relation over a table named like the dataset
+would otherwise bind to itself, and the view would shadow that table afterwards.
 DuckDB cannot plan PIVOT through `relation.query`, so a relation's pivot spec is split:
 its filters run as SQL, and the pivot onward runs as the polars chain.
 
@@ -20,7 +22,6 @@ import json
 import keyword
 import math
 import re
-import textwrap
 from collections.abc import Mapping
 from datetime import date, datetime
 from typing import Final
@@ -107,7 +108,7 @@ def py_literal(value: object) -> str:
     """Render `value` as a Python expression; strings get JSON's double-quoted escaping."""
     match value:
         case str():
-            return json.dumps(value, ensure_ascii=False)
+            return "".join(map(_escape_unprintable, json.dumps(value, ensure_ascii=False)))
         case float() if not math.isfinite(value):
             # repr gives a bare inf or nan, which Python reads as a name.
             return f'float("{value!r}")'
@@ -138,7 +139,8 @@ def _chain_source(
         *_tail_steps(spec),
         ".collect()",
     ]
-    body = textwrap.indent("\n".join(lines), "    ")
+    # str.splitlines (and so textwrap.indent) also breaks on U+0085, U+2028 and U+2029.
+    body = "\n".join(f"    {line}" for line in "\n".join(lines).split("\n"))
     return f"{_import_line(spec, schema)}{result_name} = (\n{body}\n)\n"
 
 
@@ -251,8 +253,9 @@ def _temporal_names(value: object) -> set[str]:
 
 
 def _relation_query(spec: QuerySpec) -> str:
-    sql = to_sql(spec, spec.dataset)
-    return f"{spec.dataset}.query({py_literal(spec.dataset)}, {py_literal(sql)}).pl()"
+    view = f"_quarry_{spec.dataset}"
+    sql = to_sql(spec, view)
+    return f"{spec.dataset}.query({py_literal(view)}, {py_literal(sql)}).pl()"
 
 
 def _dtype(schema: Schema | None, col: str) -> pl.DataType | None:
@@ -263,6 +266,15 @@ def _as_pair(value: object) -> tuple[object, object]:
     if not (isinstance(value, list) and len(value) == 2):
         raise TypeError("expected a two-element list value")
     return value[0], value[1]
+
+
+def _escape_unprintable(ch: str) -> str:
+    # Raw line separators would split the literal across lines, and raw bidi controls
+    # (U+202E) would make the source read differently from what it runs.
+    if ch.isprintable():
+        return ch
+    code = ord(ch)
+    return f"\\u{code:04x}" if code <= 0xFFFF else f"\\U{code:08x}"
 
 
 def _require_identifier(name: str, role: str) -> None:
