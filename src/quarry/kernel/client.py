@@ -64,9 +64,10 @@ class KernelClient:
         self._tmpdir = tmpdir
         self._ids = itertools.count(1)
         self._pending: dict[int, Future[Response]] = {}
-        self._lock = threading.Lock()  # guards _pending and _dead
+        self._lock = threading.Lock()  # guards _pending, _dead and _group_killed
         self._send_lock = threading.Lock()  # concurrent calls must not interleave their lines
         self._dead = False
+        self._group_killed = False
         threading.Thread(target=self._read_responses, daemon=True).start()
 
     @classmethod
@@ -134,11 +135,16 @@ class KernelClient:
             self._dead = True  # calls already in flight still get their answers
 
     def is_alive(self) -> bool:
-        return not self._dead and self._process.poll() is None
+        return not self._dead and self._poll() is None
 
     def close(self) -> None:
         """Kill the kernel and what its steps started, and release its socket and directory."""
-        _kill_group(self._process)
+        with self._lock:
+            # Once the kernel is reaped, `_poll` has killed its group: the group's id is the
+            # kernel's pid, which another process can have by now.
+            if self._process.returncode is None:
+                self._group_killed = True
+                _kill_group(self._process)
         self._process.wait(timeout=5)
         with contextlib.suppress(OSError):  # the peer may already be gone
             # Wakes the reader thread even if a child the kernel forked holds the socket open.
@@ -149,9 +155,10 @@ class KernelClient:
     def _call(self, method: str, params: dict[str, Json]) -> Json:
         request = Request(id=next(self._ids), method=method, params=params)
         future: Future[Response] = Future()
+        exited = self._poll() is not None
         with self._lock:
             # Checked under the lock: a call registered after _mark_dead would wait forever.
-            if self._dead or self._process.poll() is not None:
+            if self._dead or exited:
                 raise KernelDead("kernel is not running")
             self._pending[request.id] = future
         try:
@@ -171,9 +178,19 @@ class KernelClient:
             try:
                 return future.result(timeout=_LIVENESS_POLL_SECONDS)
             except TimeoutError:
-                code = self._process.poll()
+                code = self._poll()
                 if code is not None:
                     self._mark_dead(f"kernel exited with code {code}")
+
+    def _poll(self) -> int | None:
+        """`Popen.poll()`, which reaps the kernel once it exited; the call that first sees it
+        exited kills its group, before the kernel's pid, the group's id, can be reused."""
+        with self._lock:
+            code = self._process.poll()
+            if code is not None and not self._group_killed:
+                self._group_killed = True
+                _kill_group(self._process)
+        return code
 
     def _read_responses(self) -> None:
         reason = "kernel closed its socket"
@@ -215,14 +232,16 @@ def _accept(
             raise KernelDead(f"kernel did not connect within {timeout} seconds") from None
         conn.settimeout(None)
         return conn
+    _kill_group(process)  # what it started, right after the poll that reaped it
     raise KernelDead(f"kernel exited with code {code} before connecting")
 
 
 def _kill_group(process: subprocess.Popen[bytes]) -> None:
     """SIGKILL the kernel and every process its steps started: the group the kernel leads.
 
-    Callers kill before they reap where they can: once the kernel is reaped and its group is
-    empty, another process can take its pid, which is the group's id.
+    Callers kill before they reap, or in the call that reaped, right after it, and never once
+    the kernel was reaped earlier: then its group can be empty, and another process can have
+    taken its pid, which is the group's id.
     """
     # ProcessLookupError: the group is empty. macOS raises PermissionError instead when only
     # zombies are left in it, as when the kernel exited and nothing has reaped it yet.

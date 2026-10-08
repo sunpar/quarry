@@ -101,9 +101,9 @@ def interrupt_soon(ex: Executor) -> threading.Thread:
 
 
 def quarry_views(conn: duckdb.DuckDBPyConnection, dataset: str) -> list[tuple[str]]:
-    """The view a query on `dataset` registers, if it is still on `conn`."""
-    sql = "SELECT view_name FROM duckdb_views() WHERE view_name = ?"
-    return conn.execute(sql, [relation_view(dataset)]).fetchall()
+    """The views queries on `dataset` registered (`_quarry_<dataset>_<hex>`) still on `conn`."""
+    sql = "SELECT view_name FROM duckdb_views() WHERE starts_with(view_name, ?)"
+    return conn.execute(sql, [f"{relation_view(dataset)}_"]).fetchall()
 
 
 def test_execute_registers_dataset_and_reports_lineage() -> None:
@@ -590,6 +590,22 @@ def test_query_drops_its_view_of_a_relation_from_another_connection() -> None:
     assert quarry_views(other, "rel") == []
 
 
+@pytest.mark.parametrize("kind", ["TEMP VIEW", "TEMP TABLE"])
+def test_query_keeps_the_researchers_object_named_like_its_view(kind: str) -> None:
+    conn = duckdb.connect()
+    ex = make(conn)
+    name = relation_view("rel")
+    ex.execute(f"_conn.execute('CREATE {kind} {name} AS SELECT 42 AS answer')\n{RELATION_STEP}")
+    definition = (
+        "SELECT sql FROM duckdb_views() WHERE view_name = $name"
+        " UNION ALL SELECT sql FROM duckdb_tables() WHERE table_name = $name"
+    )
+    before = conn.execute(definition, {"name": name}).fetchall()
+    assert ex.query(QuerySpec(dataset="rel")).rows == [{"n": 1, "s": "x"}, {"n": 2, "s": "y"}]
+    assert conn.execute(definition, {"name": name}).fetchall() == before
+    assert conn.execute(f"SELECT answer FROM {name}").fetchall() == [(42,)]
+
+
 def test_failing_query_drops_its_view_of_a_relation() -> None:
     conn = duckdb.connect()
     ex = make(conn)
@@ -621,6 +637,15 @@ def test_relation_with_interval_column_queries_and_snapshots(tmp_path: Path) -> 
     meta = ex.snapshot("rel", tmp_path / "rel.parquet")
     assert meta.rows == 1
     assert pl.read_parquet(tmp_path / "rel.parquet")["gap"].to_list() == ["1 day"]
+
+
+def test_relation_query_filters_an_interval_column_as_the_text_describe_gives() -> None:
+    ex = make()
+    sql = "SELECT * FROM (VALUES (INTERVAL 1 DAY, 1), (INTERVAL 2 HOUR, 2)) t(gap, k)"
+    ex.execute(f"rel = _conn.sql({sql!r})")
+    assert [c.dtype for c in ex.describe("rel").schema_] == ["String", "Int32"]
+    spec = QuerySpec(dataset="rel", filters=[Filter(col="gap", op="contains", value="day")])
+    assert ex.query(spec).rows == [{"gap": "1 day", "k": 1}]
 
 
 def test_query_arrow_format() -> None:

@@ -10,9 +10,14 @@ from quarry.query.sql_target import to_sql
 from tests.query.fixtures import (
     INT_SUM_IDS,
     INT_SUM_SPECS,
+    NAIVE_OFFSET_FILTERS,
+    NAIVE_OFFSET_IDS,
+    NAIVE_UNITS,
     SPECS,
     ZONED_FILTERS,
     ZONED_IDS,
+    TimeUnit,
+    naive_rows,
     new_york_rows,
     overflowing,
     trades,
@@ -77,3 +82,16 @@ def test_iso_strings_against_a_zoned_column_agree(filter_: Filter, selected: lis
     conn.execute("CREATE TABLE t AS FROM frame")
     assert to_polars(spec, frame).collect()["n"].to_list() == selected
     assert conn.sql(to_sql(spec, "t")).pl()["n"].to_list() == selected
+
+
+@pytest.mark.parametrize("unit", NAIVE_UNITS)
+@pytest.mark.parametrize(("filter_", "selected"), NAIVE_OFFSET_FILTERS, ids=NAIVE_OFFSET_IDS)
+def test_offset_strings_against_a_naive_column_agree(
+    filter_: Filter, selected: dict[TimeUnit, list[int]], unit: TimeUnit
+) -> None:
+    spec = QuerySpec(dataset="t", filters=[filter_], select=["n"], sort=[Sort(col="n")])
+    frame = naive_rows(unit)
+    conn = utc_connection()
+    conn.register("t", frame)
+    assert conn.sql(to_sql(spec, "t")).pl()["n"].to_list() == selected[unit]
+    assert to_polars(spec, frame).collect()["n"].to_list() == selected[unit]

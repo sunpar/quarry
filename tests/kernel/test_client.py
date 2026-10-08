@@ -1,3 +1,4 @@
+import math
 import os
 import socket
 import stat
@@ -11,11 +12,12 @@ from pathlib import Path
 
 import polars as pl
 import pytest
+from pydantic import ValidationError
 
 from quarry.config import ENV_API_KEY, ENV_MSSQL_DSN
 from quarry.kernel.client import KernelClient, KernelDead, RpcFailure, _accept
 from quarry.kernel.executor import ExecResult
-from quarry.query import QuerySpec
+from quarry.query import Filter, QuerySpec
 from tests.kernel.fixtures import BUSY_LOOP, HEAVY
 
 # Streams 3M rows from the default DuckDB connection; a query on that connection mid-stream
@@ -107,6 +109,15 @@ def test_query_round_trip(kernel: KernelClient) -> None:
     kernel.execute("df = pl.DataFrame({'a': [3, 1, 2]})")
     out = kernel.query(QuerySpec(dataset="df", sort=[{"col": "a"}], limit=2))
     assert out.rows == [{"a": 1}, {"a": 2}]
+
+
+def test_query_cannot_carry_a_non_finite_filter_value(kernel: KernelClient) -> None:
+    # JSON has no NaN: the request would carry null, and `between` reads a null bound as no row.
+    kernel.execute("df = pl.DataFrame({'a': [1.0, 2.0]})")
+    with pytest.raises(ValidationError, match="finite"):
+        kernel.query(
+            QuerySpec(dataset="df", filters=[Filter(col="a", op="between", value=[math.nan, 5.0])])
+        )
 
 
 def test_snapshot_round_trip(kernel: KernelClient, tmp_path: Path) -> None:
@@ -246,6 +257,69 @@ def test_close_kills_the_processes_a_step_started(tmp_path: Path) -> None:
         client.close()
     pid = int(result.stdout_tail)
     assert exits_soon(pid), f"step child {pid} outlived close()"
+
+
+def test_close_does_not_signal_a_kernel_the_client_already_reaped(
+    stand_in: StandIn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _ = stand_in(0)
+    deadline = time.monotonic() + 5
+    while client.is_alive():  # polls, and so reaps, the exited stand-in
+        assert time.monotonic() < deadline, "the stand-in never exited"
+        time.sleep(0.05)
+    signalled: list[int] = []
+    monkeypatch.setattr(os, "killpg", lambda pgid, sig: signalled.append(pgid))
+    client.close()
+    # Once reaped, the kernel's pid, its group's id, can belong to another process.
+    assert signalled == []
+
+
+def test_kernel_seen_exited_by_a_poll_has_its_group_killed_then(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A "kernel" that starts a child, then exits. The test holds the socket's peer open, as a
+    # child the kernel forked would, so only the client's liveness poll sees the exit.
+    code = (
+        "import subprocess, time\n"
+        "print(subprocess.Popen(['sleep', '60']).pid, flush=True)\n"
+        "time.sleep(1)\n"
+    )
+    client_end, peer = socket.socketpair()
+    with (
+        peer,
+        subprocess.Popen(
+            [sys.executable, "-c", code], stdout=subprocess.PIPE, start_new_session=True
+        ) as process,
+    ):
+        client = KernelClient(process, client_end, tempfile.TemporaryDirectory())
+        try:
+            assert process.stdout is not None
+            child = int(process.stdout.readline())
+            with pytest.raises(KernelDead, match="exited with code 0"):
+                client.list_datasets()
+            assert exits_soon(child), f"child {child} outlived its kernel until close()"
+            signalled: list[int] = []
+            with monkeypatch.context() as patch:
+                patch.setattr(os, "killpg", lambda pgid, sig: signalled.append(pgid))
+                client.close()
+            assert signalled == []
+        finally:
+            client.close()
+
+
+def test_kernel_that_exits_before_connecting_has_its_group_killed() -> None:
+    code = "import subprocess\nprint(subprocess.Popen(['sleep', '60']).pid, flush=True)\nexit(1)\n"
+    with tempfile.TemporaryDirectory() as tmpdir, socket.socket(socket.AF_UNIX) as listener:
+        listener.bind(str(Path(tmpdir) / "kernel.sock"))
+        listener.listen(1)
+        with subprocess.Popen(
+            [sys.executable, "-c", code], stdout=subprocess.PIPE, start_new_session=True
+        ) as process:
+            assert process.stdout is not None
+            pid = int(process.stdout.readline())
+            with pytest.raises(KernelDead, match="exited with code 1 before connecting"):
+                _accept(listener, process, 30)
+    assert exits_soon(pid), f"child {pid} outlived a kernel that never connected"
 
 
 def test_startup_timeout_kills_the_processes_the_kernel_started() -> None:

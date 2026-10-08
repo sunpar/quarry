@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import json
 import keyword
-import math
 import re
 from collections.abc import Callable, Mapping
 from datetime import date, datetime
@@ -134,9 +133,6 @@ def py_literal(value: object) -> str:
     match value:
         case str():
             return "".join(map(_escape_unprintable, json.dumps(value, ensure_ascii=False)))
-        case float() if not math.isfinite(value):
-            # repr gives a bare inf or nan, which Python reads as a name.
-            return f'float("{value!r}")'
         case None | bool() | int() | float():
             return repr(value)
         case list():

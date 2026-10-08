@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 from typing import Final
 
@@ -54,7 +53,8 @@ def to_sql(spec: QuerySpec, relation: str, *, columns: Sequence[str] | None = No
 
 
 def relation_view(dataset: str) -> str:
-    """The name a DuckDB relation's `query` gives `dataset` in its SQL.
+    """The name a DuckDB relation's `query` gives `dataset` in its SQL; the executor adds a
+    per-query suffix.
 
     Under the dataset's own name, a relation over a same-named table would read itself, and
     the view would shadow that table afterwards.
@@ -149,9 +149,6 @@ def quote_literal(value: Json) -> str:
             return "NULL"
         case bool():
             return "TRUE" if value else "FALSE"
-        case float() if not math.isfinite(value):
-            # A bare inf or nan would parse as a column reference.
-            return f"'{value!r}'::DOUBLE"
         case int() | float():
             return repr(value)
         case str():

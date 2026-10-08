@@ -1,6 +1,7 @@
 """Fixture frame, specs and DuckDB connection shared by every compile-target test."""
 
 from datetime import UTC, date, datetime
+from typing import Literal
 
 import duckdb
 import polars as pl
@@ -170,6 +171,34 @@ ZONED_FILTERS: list[tuple[Filter, list[int]]] = [
     (Filter(col="ts", op="in", value=["2024-01-01T03:00:00", "2024-01-01T06:00:00Z"]), [2, 3]),
 ]
 ZONED_IDS = ["naive", "offset", "naive_between", "in"]
+
+TimeUnit = Literal["us", "ms", "ns"]
+NAIVE_UNITS: list[TimeUnit] = ["us", "ms", "ns"]
+
+
+def naive_rows(unit: TimeUnit) -> pl.DataFrame:
+    """07:00, 07:30 and 09:30 on 2024-01-03 in a naive Datetime column of `unit`."""
+    ts = [datetime(2024, 1, 3, 7), datetime(2024, 1, 3, 7, 30), datetime(2024, 1, 3, 9, 30)]
+    return pl.DataFrame({"n": [1, 2, 3], "ts": pl.Series(ts, dtype=pl.Datetime(unit))})
+
+
+# 09:30+02:00 is 07:30 UTC. Over `naive_rows(unit)`, the `n` each filter selects per unit: DuckDB
+# 1.5.6 casts the string to TIMESTAMP_NS in UTC (07:30), but to TIMESTAMP (polars "us") and
+# TIMESTAMP_MS by dropping the offset (09:30). The polars target must agree.
+_OFFSET = "2024-01-03T09:30:00+02:00"
+_AS_UTC, _AS_WALL_CLOCK = [2, 3], [3]
+NAIVE_OFFSET_FILTERS: list[tuple[Filter, dict[TimeUnit, list[int]]]] = [
+    (
+        Filter(col="ts", op="ge", value=_OFFSET),
+        {"us": _AS_WALL_CLOCK, "ms": _AS_WALL_CLOCK, "ns": _AS_UTC},
+    ),
+    (
+        Filter(col="ts", op="between", value=[_OFFSET, "2024-01-04"]),
+        {"us": _AS_WALL_CLOCK, "ms": _AS_WALL_CLOCK, "ns": _AS_UTC},
+    ),
+    (Filter(col="ts", op="in", value=[_OFFSET]), {"us": [3], "ms": [3], "ns": [2]}),
+]
+NAIVE_OFFSET_IDS = ["ge", "between", "in"]
 
 
 def past_decimal_38(dtype: pl.DataType) -> pl.DataFrame:

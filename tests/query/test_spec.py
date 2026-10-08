@@ -1,3 +1,5 @@
+import math
+
 import pytest
 from pydantic import BaseModel, ValidationError
 
@@ -59,6 +61,25 @@ def test_duplicate_select_names_rejected() -> None:
     # polars raises a duplicate-column error at run time, while SQL returns the column twice.
     with pytest.raises(ValidationError, match="duplicate select column 'a'"):
         QuerySpec(dataset="r", select=["a", "b", "a"])
+
+
+@pytest.mark.parametrize(
+    ("fields", "message"),
+    [
+        (
+            {"group_by": ["ticker"], "aggs": [Agg(col="x", fn="sum", alias="TICKER")]},
+            "duplicate output column 'TICKER': clashes with 'ticker'",
+        ),
+        ({"select": ["Price", "price"]}, "duplicate select column 'price': clashes with 'Price'"),
+    ],
+    ids=["output", "select"],
+)
+def test_names_differing_only_in_case_are_duplicates(
+    fields: dict[str, list[str] | list[Agg]], message: str
+) -> None:
+    # DuckDB identifiers ignore case, so the SQL target cannot tell these apart.
+    with pytest.raises(ValidationError, match=message):
+        QuerySpec.model_validate({"dataset": "r", **fields})
 
 
 def test_same_column_with_different_fns_is_allowed() -> None:
@@ -174,3 +195,31 @@ def test_list_ops_reject_null_items(op: FilterOp, value: Json) -> None:
 
 def test_list_ops_accept_non_null_items() -> None:
     assert Filter(col="x", op="in", value=[1, 2]).value == [1, 2]
+
+
+NON_FINITE_FILTERS: list[tuple[FilterOp, Json]] = [
+    (op, value)
+    for bad in (math.inf, -math.inf, math.nan)
+    for op, value in [
+        ("eq", bad),
+        ("ge", bad),
+        ("in", [1.0, bad]),
+        ("not_in", [bad]),
+        ("between", [bad, 1.0]),
+        ("between", [0.0, bad]),
+    ]
+]
+
+
+@pytest.mark.parametrize(("op", "value"), NON_FINITE_FILTERS)
+def test_non_finite_filter_values_rejected(op: FilterOp, value: Json) -> None:
+    # JSON has no inf or nan: a spec sent to the kernel would carry null in their place.
+    with pytest.raises(ValidationError, match="finite"):
+        Filter(col="x", op=op, value=value)
+
+
+@pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity", "[1, NaN]"])
+def test_non_finite_filter_values_rejected_from_json(token: str) -> None:
+    # The kernel decodes requests with pydantic, whose JSON parser accepts these tokens.
+    with pytest.raises(ValidationError, match="finite"):
+        Filter.model_validate_json(f'{{"col": "x", "op": "in", "value": [{token}]}}')

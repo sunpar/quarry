@@ -7,7 +7,8 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from quarry.kernel.executor import NOT_FAILURES, Executor, exception_message
+from quarry.errors import NOT_FAILURES, exception_message
+from quarry.kernel.executor import Executor
 from quarry.kernel.protocol import Request, Response, RpcError
 from quarry.query.spec import Json, QuerySpec
 

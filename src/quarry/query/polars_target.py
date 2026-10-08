@@ -118,7 +118,12 @@ def _coerce_item(item: Json, dtype: pl.DataType) -> object:
         case str() if isinstance(dtype, pl.Datetime):
             parsed = datetime.fromisoformat(item)
             if dtype.time_zone is None:
-                return parsed
+                # polars compares a naive column only with a naive literal. An offset is read as
+                # DuckDB 1.5.6 casts the string to the column's type: TIMESTAMP_NS converts it to
+                # UTC, while TIMESTAMP and TIMESTAMP_MS drop it and keep the wall clock.
+                if parsed.tzinfo is not None and dtype.time_unit == "ns":
+                    parsed = parsed.astimezone(UTC)
+                return parsed.replace(tzinfo=None)
             # polars compares a zoned column only with a literal in that zone. A naive string
             # means UTC, as DuckDB reads it in the kernel's UTC session.
             aware = parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)

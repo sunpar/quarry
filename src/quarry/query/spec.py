@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
@@ -65,6 +66,9 @@ class Filter(BaseModel):
             raise ValueError(f"{op} requires a scalar value")
         if op in TEXT_OPS and not isinstance(value, str):
             raise ValueError(f"{op} requires a string value")
+        if _has_non_finite(value):
+            # JSON has no inf or nan: sent to the kernel, the spec would carry null instead.
+            raise ValueError(f"{op} requires finite numbers")
         return self
 
 
@@ -124,7 +128,7 @@ class QuerySpec(BaseModel):
         if self.group_by is not None and not self.aggs:
             raise ValueError("group_by requires at least one entry in aggs")
         # polars raises DuplicateError on a repeated name; DuckDB renames it (`s_1`), or, in a
-        # select, returns the column twice.
+        # select, returns the column twice. DuckDB names ignore case, so `a` repeats `A`.
         if self.group_by is not None:
             _require_unique([*self.group_by, *(a.name for a in self.aggs)], "output column")
         if self.select is not None:
@@ -132,9 +136,16 @@ class QuerySpec(BaseModel):
         return self
 
 
+def _has_non_finite(value: Json) -> bool:
+    if isinstance(value, list):
+        return any(_has_non_finite(item) for item in value)
+    return isinstance(value, float) and not math.isfinite(value)
+
+
 def _require_unique(names: list[str], role: str) -> None:
-    seen: set[str] = set()
+    seen: dict[str, str] = {}  # each lower-cased name, as first spelled
     for name in names:
-        if name in seen:
-            raise ValueError(f"duplicate {role} {name!r}")
-        seen.add(name)
+        if (first := seen.get(name.lower())) is not None:
+            clash = "" if first == name else f": clashes with {first!r}"
+            raise ValueError(f"duplicate {role} {name!r}{clash}")
+        seen[name.lower()] = name

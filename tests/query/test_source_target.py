@@ -1,7 +1,6 @@
 """Generated source must read clearly and produce exactly the polars target's frame."""
 
 import ast
-import math
 from datetime import date, datetime
 
 import duckdb
@@ -26,9 +25,14 @@ from quarry.query.sql_target import relation_view
 from tests.query.fixtures import (
     INT_SUM_IDS,
     INT_SUM_SPECS,
+    NAIVE_OFFSET_FILTERS,
+    NAIVE_OFFSET_IDS,
+    NAIVE_UNITS,
     SPECS,
     ZONED_FILTERS,
     ZONED_IDS,
+    TimeUnit,
+    naive_rows,
     new_york_rows,
     overflowing,
     past_decimal_38,
@@ -326,6 +330,29 @@ def test_schema_reads_iso_strings_against_a_zoned_column_as_duckdb_does(
     assert out["n"].to_list() == selected
 
 
+# Not duckdb: a relation's filters run in its SQL, which test_equivalence checks.
+@pytest.mark.parametrize("backing", ["polars", "polars_lazy"])
+@pytest.mark.parametrize("unit", NAIVE_UNITS)
+@pytest.mark.parametrize(("filter_", "selected"), NAIVE_OFFSET_FILTERS, ids=NAIVE_OFFSET_IDS)
+def test_schema_reads_offset_strings_against_a_naive_column_as_duckdb_does(
+    filter_: Filter, selected: dict[TimeUnit, list[int]], unit: TimeUnit, backing: Backing
+) -> None:
+    spec = QuerySpec(dataset="t", filters=[filter_], select=["n"], sort=[Sort(col="n")])
+    frame = naive_rows(unit)
+    out = execute(to_source(spec, backing, schema=frame.schema), {"t": bind(frame, backing)})
+    assert out["n"].to_list() == selected[unit]
+
+
+def test_schema_renders_an_offset_string_against_a_naive_column_by_its_unit() -> None:
+    spec = QuerySpec(
+        dataset="t", filters=[Filter(col="ts", op="ge", value="2024-01-03T09:30:00+02:00")]
+    )
+    wall_clock = to_source(spec, "polars", schema=naive_rows("us").schema)
+    assert 'pl.col("ts") >= datetime.fromisoformat("2024-01-03T09:30:00")' in wall_clock
+    utc = to_source(spec, "polars", schema=naive_rows("ns").schema)
+    assert 'pl.col("ts") >= datetime.fromisoformat("2024-01-03T07:30:00")' in utc
+
+
 def test_schema_renders_a_naive_string_against_a_zoned_column_in_its_zone() -> None:
     spec = QuerySpec(dataset="t", filters=[Filter(col="ts", op="ge", value="2024-01-01T02:00")])
     src = to_source(spec, "polars", schema=new_york_rows().schema)
@@ -408,13 +435,6 @@ def test_py_literal_escapes_non_printable_characters() -> None:
 def test_py_literal_uses_double_quotes() -> None:
     assert py_literal("AAPL") == '"AAPL"'
     assert py_literal(["note col", 'q"uote']) == '["note col", "q\\"uote"]'
-
-
-@pytest.mark.parametrize("value", [math.inf, -math.inf, math.nan])
-def test_py_literal_non_finite_float_is_runnable(value: float) -> None:
-    rendered = py_literal(value)
-    assert rendered == f'float("{value!r}")'
-    assert repr(eval(rendered)) == repr(value)  # the test evaluates generated code on purpose
 
 
 def test_py_literal_renders_dates_by_iso_string() -> None:

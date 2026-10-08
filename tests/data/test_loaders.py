@@ -79,6 +79,29 @@ def test_module_that_exits_on_import_is_a_failure_and_the_rest_still_bind(
     )
 
 
+def test_import_error_that_cannot_print_itself_is_a_failure_and_the_rest_still_bind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "quarry_test_unprintable_on_import.py").write_text(
+        "class Unprintable(Exception):\n"
+        "    def __str__(self):\n"
+        "        raise ValueError('cannot print')\n"
+        "\n"
+        "raise Unprintable\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    path = write(
+        tmp_path,
+        entry("unprintable", "quarry_test_unprintable_on_import:fn") + entry("daily_returns"),
+    )
+    reg = load_loaders(path)
+    assert list(reg.functions) == ["daily_returns"]
+    assert [f.name for f in reg.failures] == ["unprintable"]
+    assert reg.failures[0].error == (
+        "quarry_test_unprintable_on_import:fn: Unprintable: <unprintable Unprintable>"
+    )
+
+
 def test_module_interrupted_on_import_still_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

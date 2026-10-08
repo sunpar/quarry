@@ -19,6 +19,7 @@ import polars as pl
 import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field
 
+from quarry.errors import NOT_FAILURES, exception_message
 from quarry.kernel.datasets import (
     Column,
     Dataset,
@@ -30,7 +31,6 @@ from quarry.kernel.datasets import (
     relation_frame,
     to_json_rows,
     undescribed,
-    uniquely_named,
 )
 from quarry.kernel.datasets import describe as describe_dataset
 from quarry.kernel.lineage import CodeNames, analyze, dataset_reads, dataset_writes
@@ -39,8 +39,6 @@ from quarry.query.spec import Json, QuerySpec
 from quarry.query.sql_target import quote_ident, relation_view, split_for_relation, to_sql
 
 TAIL_BYTES: Final = 4096
-# Kernel-level exits and interrupts: a guard that turns failures into results lets these through.
-NOT_FAILURES: Final = (KeyboardInterrupt, SystemExit, GeneratorExit)
 _NOTHING_STORED: Final = CodeNames(frozenset(), frozenset(), frozenset())
 
 Status = Literal["ok", "error", "interrupted"]
@@ -327,10 +325,13 @@ def _identity_check(obj: object) -> _IsSame:
 def _run_query(spec: QuerySpec, obj: Dataset, conn: duckdb.DuckDBPyConnection) -> pl.DataFrame:
     if not isinstance(obj, duckdb.DuckDBPyRelation):
         return to_polars(spec, obj).collect()
-    # Under the names describe reports: a repeated `a` is `a` and `a_1`, which SQL can tell apart.
-    rel = uniquely_named(obj)
+    # As describe reports it, so the spec's filters, sorts and aggs see the types it advertises
+    # (an INTERVAL is text), and a repeated `a` is `a` and `a_1`, which SQL can tell apart.
+    rel = importable_relation(obj)
     sql_part, polars_part = split_for_relation(spec)
-    view = relation_view(spec.dataset)
+    # Unique per query: `query` replaces a temp view of its name, and the drop below removes
+    # it, so a fixed name could destroy a view the researcher made under it.
+    view = f"{relation_view(spec.dataset)}_{uuid.uuid4().hex[:8]}"
     sql = to_sql(sql_part, view, columns=rel.columns)
     try:
         frame = relation_frame(rel.query(view, sql))
@@ -371,13 +372,3 @@ def _exec_error(exc: BaseException) -> ExecError:
     # format_exception already survives a failing __str__ ("<exception str() failed>").
     trace = "".join(traceback.format_exception(exc))
     return ExecError(type=type(exc).__name__, message=exception_message(exc), traceback=trace)
-
-
-def exception_message(exc: BaseException) -> str:
-    """`str(exc)`, or a placeholder when the exception cannot print itself."""
-    try:
-        return str(exc)
-    except NOT_FAILURES:
-        raise
-    except BaseException:  # user code's exception can fail in its own __str__
-        return f"<unprintable {type(exc).__name__}>"

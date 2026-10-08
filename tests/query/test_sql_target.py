@@ -27,13 +27,6 @@ def test_quote_literal() -> None:
     assert quote_literal(None) == "NULL"
 
 
-@pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan")])
-def test_quote_literal_non_finite_float_is_a_double_not_an_identifier(value: float) -> None:
-    rendered = quote_literal(value)
-    assert rendered == f"'{value!r}'::DOUBLE"
-    assert duckdb.sql(f"SELECT {rendered} AS v").fetchone() is not None
-
-
 def test_passthrough() -> None:
     sql = to_sql(QuerySpec(dataset="trades"), "trades")
     assert run(sql).pl().height == 5
