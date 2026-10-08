@@ -112,14 +112,12 @@ class SessionService:
 
     def start_prompt(self, session_id: str, prompt: str) -> Step:
         step = self._begin(session_id, kind="prompt", prompt=prompt, code="")
-        threading.Thread(
-            target=self._run_prompt, args=(session_id, step, prompt), daemon=True
-        ).start()
+        self._start(session_id, self._run_prompt, (session_id, step, prompt))
         return step
 
     def start_manual(self, session_id: str, code: str) -> Step:
         step = self._begin(session_id, kind="manual", prompt=None, code=code)
-        threading.Thread(target=self._run_manual, args=(session_id, step), daemon=True).start()
+        self._start(session_id, self._run_manual, (session_id, step))
         return step
 
     def status(self, session_id: str) -> SessionStatus:
@@ -180,6 +178,16 @@ class SessionService:
             self._kernels.mark_running(session_id, True)
             return step
 
+    def _start(
+        self, session_id: str, target: Callable[..., None], args: tuple[object, ...]
+    ) -> None:
+        try:
+            threading.Thread(target=target, args=args, daemon=True).start()
+        except Exception as exc:
+            with self._lock:
+                self._release(session_id, f"failed to start step: {exc}")
+            raise
+
     def _run_prompt(self, session_id: str, step: Step, prompt: str) -> None:
         started = time.monotonic()
         try:
@@ -231,15 +239,25 @@ class SessionService:
         self._finish(session_id, done)
 
     def _finish(self, session_id: str, step: Step) -> None:
+        error = step.error.message if step.error is not None else None
         with self._lock:
-            self._store.append_step(session_id, step)
-            self._kernels.mark_running(session_id, False)
-            if step.error is not None:
-                self._last_error[session_id] = step.error.message
-            else:
-                self._last_error.pop(session_id, None)
-            # Last: status() reads _running without the lock and treats None as fully finished.
-            self._running.pop(session_id, None)
+            try:
+                self._store.append_step(session_id, step)
+            except Exception as exc:
+                error = f"failed to save step: {exc}"
+                raise
+            finally:
+                self._release(session_id, error)
+
+    def _release(self, session_id: str, error: str | None) -> None:
+        """Free the session for its next step; the caller holds the lock."""
+        self._kernels.mark_running(session_id, False)
+        if error is not None:
+            self._last_error[session_id] = error
+        else:
+            self._last_error.pop(session_id, None)
+        # Last: status() reads _running without the lock and treats None as fully finished.
+        self._running.pop(session_id, None)
 
     def _system_context(self) -> SystemContext:
         registry = load_loaders(self._config.root / "loaders.toml")

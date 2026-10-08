@@ -1,9 +1,12 @@
 import re
+import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from starlette.routing import BaseRoute
@@ -11,7 +14,9 @@ from starlette.routing import BaseRoute
 from quarry.agent.fake import FakeProvider
 from quarry.agent.types import AssistantTurn, Provider, ToolCall
 from quarry.config import ConfigError, QuarryConfig
+from quarry.server import service as service_module
 from quarry.server.app import create_app
+from quarry.server.models import Step
 from quarry.server.service import ProviderFactory
 
 TOKEN = "t0k3n"
@@ -246,3 +251,55 @@ def test_interrupt_when_idle_reports_nothing_interrupted(tmp_path: Path) -> None
         client.post(f"/sessions/{sid}/steps/manual", json={"code": "a = 1"})
         wait_idle(client, sid)
         assert client.post(f"/sessions/{sid}/interrupt").json() == {"ok": False}
+
+
+def test_save_failure_frees_the_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    escaped: list[threading.ExceptHookArgs] = []
+    monkeypatch.setattr(threading, "excepthook", escaped.append)
+    with make_client(tmp_path, []) as client:
+        store = client.app.state.service._store
+        save = store.append_step
+        failures = [OSError("disk full")]
+
+        def save_fails_once(session_id: str, step: Step) -> None:
+            if failures:
+                raise failures.pop()
+            save(session_id, step)
+
+        monkeypatch.setattr(store, "append_step", save_fails_once)
+        sid = client.post("/sessions", json={}).json()["id"]
+        first = client.post(f"/sessions/{sid}/steps/manual", json={"code": "a = 1"})
+        assert first.status_code == 202
+        status = wait_idle(client, sid, timeout=5)
+        assert status["last_error"] == "failed to save step: disk full"
+        second = client.post(f"/sessions/{sid}/steps/manual", json={"code": "b = 2"})
+        assert second.status_code == 202
+        assert wait_idle(client, sid)["last_error"] is None
+        assert [s["code"] for s in client.get(f"/sessions/{sid}").json()["steps"]] == ["b = 2"]
+    # The save error still escapes the step thread rather than being swallowed.
+    assert [type(e.exc_value) for e in escaped] == [OSError]
+
+
+def test_thread_start_failure_frees_the_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class NoThread:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def start(self) -> None:
+            raise RuntimeError("can't start new thread")
+
+    with make_client(tmp_path, []) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        with monkeypatch.context() as patch:
+            patch.setattr(service_module, "threading", SimpleNamespace(Thread=NoThread))
+            with pytest.raises(RuntimeError, match="can't start new thread"):
+                client.post(f"/sessions/{sid}/steps/manual", json={"code": "a = 1"})
+        status = client.get(f"/sessions/{sid}/status").json()
+        assert status["running_step"] is None
+        assert status["last_error"] == "failed to start step: can't start new thread"
+        assert (
+            client.post(f"/sessions/{sid}/steps/manual", json={"code": "a = 1"}).status_code == 202
+        )
+        wait_idle(client, sid)
