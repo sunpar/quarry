@@ -22,6 +22,7 @@ FilterOp = Literal[
     "not_null",
 ]
 AggFn = Literal["sum", "mean", "min", "max", "count", "median", "std", "first", "last"]
+Backing = Literal["polars", "polars_lazy", "duckdb"]
 Json = JsonValue
 
 LIST_OPS: frozenset[str] = frozenset({"in", "not_in"})
