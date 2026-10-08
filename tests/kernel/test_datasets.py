@@ -14,6 +14,7 @@ from quarry.kernel.datasets import (
     is_dataset,
     relation_frame,
     to_json_rows,
+    undescribed,
 )
 
 
@@ -81,6 +82,21 @@ def test_describe_round_trips_through_json_mode() -> None:
 def test_dataset_names_skips_private_and_non_datasets() -> None:
     ns = {"a": frame(), "_b": frame(), "c": 3, "pl": pl}
     assert dataset_names(ns) == {"a"}
+
+
+def test_dataset_names_ignores_non_string_keys() -> None:
+    ns: dict[object, object] = {1: frame(), "a": frame()}
+    assert dataset_names(ns) == {"a"}
+
+
+def test_undescribed_meta_carries_error_and_round_trips() -> None:
+    meta = undescribed("lf", frame().lazy(), error="lf: ColumnNotFoundError: nope")
+    assert (meta.backing, meta.schema_, meta.rows, meta.preview) == ("polars_lazy", [], None, [])
+    wire = json.loads(json.dumps(meta.model_dump(by_alias=True, mode="json")))
+    assert wire["schema"] == []
+    assert wire["error"] == "lf: ColumnNotFoundError: nope"
+    assert DatasetMeta.model_validate(wire) == meta
+    assert describe("f", frame(), count_rows=False).error is None
 
 
 def test_to_json_rows_handles_datetime_and_null() -> None:

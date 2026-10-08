@@ -5,13 +5,15 @@ from pathlib import Path
 import duckdb
 import polars as pl
 import pytest
+from polars.exceptions import ColumnNotFoundError
 
-from quarry.kernel.executor import Executor
+from quarry.kernel.executor import Executor, _identity_check
 from quarry.query import Filter, Pivot, QueryError, QuerySpec
 
 PIVOT_ROWS = (
     "SELECT * FROM (VALUES ('a', 'x', 1), ('a', 'y', 2), ('b', 'x', 3), ('b', 'y', 40)) t(k, c, v)"
 )
+BAD_PLAN = "lf = pl.DataFrame({'a': [1]}).lazy().filter(pl.col('nope') > 1)"
 
 
 def make() -> Executor:
@@ -103,6 +105,23 @@ def test_helper_rebinding_a_dataset_through_global_is_a_write() -> None:
     assert result.datasets[0].rows == 1
 
 
+def test_rebinding_twice_in_one_step_is_a_write_despite_address_reuse() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': list(range(10))})")
+    ex.execute("def shrink():\n    global df\n    df = df.head(df.height - 1)\n")
+    result = ex.execute("shrink()\nshrink()")
+    assert result.status == "ok"
+    assert result.writes == ["df"]
+    assert result.datasets[0].rows == 8
+
+
+def test_identity_check_falls_back_to_id_without_weakref_support() -> None:
+    held = (1, 2)
+    same = _identity_check(held)
+    assert same(held)
+    assert not same((1, 2, 3))
+
+
 def test_failed_step_does_not_report_its_unrun_store_as_write() -> None:
     ex = make()
     ex.execute("returns = pl.DataFrame({'a': [1, 2]})")
@@ -131,13 +150,49 @@ def test_failed_step_does_not_define_helpers_it_never_reached() -> None:
 
 def test_describe_failure_after_exec_is_structured_error() -> None:
     ex = make()
-    result = ex.execute("lf = pl.DataFrame({'a': [1]}).lazy().filter(pl.col('nope') > 1)")
+    result = ex.execute(BAD_PLAN)
     assert result.status == "error"
     assert result.writes == ["lf"]
-    assert result.datasets == []
     assert result.error is not None
     assert result.error.type == "ColumnNotFoundError"
+    assert result.error.message.startswith("lf: ")
     assert "ColumnNotFoundError" in result.error.traceback
+    (meta,) = result.datasets
+    assert meta.name == "lf"
+    assert meta.backing == "polars_lazy"
+    assert (meta.schema_, meta.rows, meta.preview) == ([], None, [])
+    assert meta.error is not None
+    assert meta.error.startswith("lf: ColumnNotFoundError: ")
+
+
+def test_list_datasets_reports_an_undescribable_dataset_with_its_error() -> None:
+    ex = make()
+    ex.execute("good = pl.DataFrame({'a': [1]})")
+    ex.execute(BAD_PLAN)
+    good, bad = ex.list_datasets()
+    assert (good.name, good.error, good.rows) == ("good", None, 1)
+    assert bad.name == "lf"
+    assert bad.error is not None
+    assert bad.error.startswith("lf: ColumnNotFoundError: ")
+    with pytest.raises(ColumnNotFoundError):
+        ex.describe("lf")
+
+
+def test_unprintable_exception_is_structured_error() -> None:
+    code = "class E(Exception):\n    def __str__(self):\n        return self.msg\nraise E()"
+    result = make().execute(code)
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error.type == "E"
+    assert result.error.message == "<unprintable E>"
+
+
+def test_non_string_namespace_key_does_not_break_later_steps() -> None:
+    ex = make()
+    assert ex.execute("globals()[1] = 1").status == "ok"
+    result = ex.execute("x = pl.DataFrame({'a': [1]})")
+    assert result.status == "ok"
+    assert result.writes == ["x"]
 
 
 def test_running_is_true_only_while_user_code_runs() -> None:

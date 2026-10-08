@@ -7,7 +7,8 @@ import contextlib
 import io
 import time
 import traceback
-from collections.abc import Mapping
+import weakref
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Final, Literal
 
@@ -23,10 +24,9 @@ from quarry.kernel.datasets import (
     is_dataset,
     relation_frame,
     to_json_rows,
+    undescribed,
 )
-from quarry.kernel.datasets import (
-    describe as describe_dataset,
-)
+from quarry.kernel.datasets import describe as describe_dataset
 from quarry.kernel.lineage import CodeNames, analyze, dataset_reads, dataset_writes
 from quarry.query.polars_target import to_polars
 from quarry.query.spec import Json, QuerySpec
@@ -38,6 +38,8 @@ _NOT_FAILURES: Final = (KeyboardInterrupt, SystemExit, GeneratorExit)
 _NOTHING_STORED: Final = CodeNames(frozenset(), frozenset(), frozenset())
 
 Status = Literal["ok", "error", "interrupted"]
+# Whether a namespace value is still the object a dataset name was bound to before the step.
+_IsSame = Callable[[object], bool]
 
 
 class ExecError(BaseModel):
@@ -86,16 +88,17 @@ class Executor:
     def execute(self, code: str) -> ExecResult:
         """Run `code` in the namespace; every failure, even describing a write, is a result."""
         started = time.monotonic()
-        before = self._dataset_ids()
+        before = {name: _identity_check(self._ns[name]) for name in dataset_names(self._ns)}
         out, err = io.StringIO(), io.StringIO()
         status, error, names = self._exec(code, out, err)
         # On error or interrupt a store in the code may never have run, so only the namespace
         # itself can say what changed.
         stored = names if names is not None and status == "ok" else _NOTHING_STORED
-        writes = _written(stored, before, self._dataset_ids())
-        datasets, describe_error = self._describe_written(writes)
-        if status == "ok" and describe_error is not None:
-            status, error = "error", describe_error
+        writes = _written(stored, before, self._ns)
+        described = [self._describe_guarded(name) for name in writes]
+        describe_errors = [e for _, e in described if e is not None]
+        if status == "ok" and describe_errors:
+            status, error = "error", describe_errors[0]
         defines = [] if names is None else sorted(n for n in names.defines if n in self._ns)
         reads = [] if names is None else dataset_reads(names, set(before), self._defined)
         self._defined.update(defines)
@@ -107,7 +110,7 @@ class Executor:
             reads=reads,
             writes=writes,
             defines=defines,
-            datasets=datasets,
+            datasets=[meta for meta, _ in described],
             duration_ms=int((time.monotonic() - started) * 1000),
         )
 
@@ -115,10 +118,8 @@ class Executor:
         return describe_dataset(name, self._dataset(name), count_rows=True)
 
     def list_datasets(self) -> list[DatasetMeta]:
-        return [
-            describe_dataset(n, self._dataset(n), count_rows=False)
-            for n in sorted(dataset_names(self._ns))
-        ]
+        """Every dataset; one that cannot be described carries an `error` instead of a schema."""
+        return [self._describe_guarded(name)[0] for name in sorted(dataset_names(self._ns))]
 
     def query(self, spec: QuerySpec) -> QueryResult:
         """Run `spec`, returning at most `row_cap` rows; `truncated` when more rows exist."""
@@ -126,19 +127,11 @@ class Executor:
         frame = _run_query(spec.model_copy(update={"limit": self._capped(spec.limit)}), obj)
         truncated = frame.height > self._row_cap
         frame = frame.head(self._row_cap)
-        schema = [Column(name=n, dtype=str(t)) for n, t in frame.schema.items()]
-        if spec.format == "arrow":
-            return QueryResult(
-                schema=schema,
-                rows=None,
-                arrow_base64=_arrow_base64(frame),
-                row_count=frame.height,
-                truncated=truncated,
-            )
+        arrow = spec.format == "arrow"
         return QueryResult(
-            schema=schema,
-            rows=to_json_rows(frame),
-            arrow_base64=None,
+            schema=[Column(name=n, dtype=str(t)) for n, t in frame.schema.items()],
+            rows=None if arrow else to_json_rows(frame),
+            arrow_base64=_arrow_base64(frame) if arrow else None,
             row_count=frame.height,
             truncated=truncated,
         )
@@ -169,25 +162,21 @@ class Executor:
             return "error", _exec_error(exc), names
         return "ok", None, names
 
-    def _describe_written(self, writes: list[str]) -> tuple[list[DatasetMeta], ExecError | None]:
-        """Metadata for every write that can be described, and the first failure to describe."""
-        described: list[DatasetMeta] = []
-        failure: ExecError | None = None
-        for name in writes:
-            try:
-                described.append(describe_dataset(name, self._dataset(name), count_rows=False))
-            except _NOT_FAILURES:
-                raise
-            except BaseException as exc:  # polars panics are BaseException, not Exception
-                failure = failure or _exec_error(exc)
-        return described, failure
+    def _describe_guarded(self, name: str) -> tuple[DatasetMeta, ExecError | None]:
+        """Metadata for `name`; if describing fails, metadata carrying the error, and the error."""
+        obj = self._dataset(name)
+        try:
+            return describe_dataset(name, obj, count_rows=False), None
+        except _NOT_FAILURES:
+            raise
+        except BaseException as exc:  # polars panics are BaseException, not Exception
+            error = _exec_error(exc)
+            meta = undescribed(name, obj, error=f"{name}: {error.type}: {error.message}")
+            return meta, error.model_copy(update={"message": f"{name}: {error.message}"})
 
     def _capped(self, limit: int | None) -> int:
         """`limit` when it is within the cap, else one row past it to detect truncation."""
         return limit if limit is not None and limit <= self._row_cap else self._row_cap + 1
-
-    def _dataset_ids(self) -> dict[str, int]:
-        return {name: id(self._ns[name]) for name in dataset_names(self._ns)}
 
     def _dataset(self, name: str) -> Dataset:
         obj = self._ns.get(name)
@@ -196,14 +185,27 @@ class Executor:
         return obj
 
 
-def _written(stored: CodeNames, before: Mapping[str, int], after: Mapping[str, int]) -> list[str]:
-    """Datasets the code stored, newly bound, or rebound to a new object (a helper's `global`).
+def _written(
+    stored: CodeNames, before: Mapping[str, _IsSame], namespace: Mapping[str, object]
+) -> list[str]:
+    """Datasets the code stored, newly bound, or rebound to another object (a helper's `global`)."""
+    after = dataset_names(namespace)
+    rebound = {name for name in after & before.keys() if not before[name](namespace[name])}
+    return sorted({*dataset_writes(stored, set(before), after), *rebound})
 
-    Objects are compared by id only: holding the replaced datasets to rule out address reuse
-    would keep them all in memory until the step ends.
+
+def _identity_check(obj: object) -> _IsSame:
+    """A test for "is this still `obj`" that holds no strong reference to it.
+
+    An id can be reused by a new object once `obj` is freed, which a weak reference cannot match;
+    holding `obj` itself would keep every replaced dataset in memory until the step ends.
     """
-    rebound = {name for name, ident in after.items() if before.get(name, ident) != ident}
-    return sorted({*dataset_writes(stored, set(before), set(after)), *rebound})
+    try:
+        ref = weakref.ref(obj)
+    except TypeError:  # the type refuses weak references: an id is the best that is left
+        ident = id(obj)
+        return lambda current: id(current) == ident
+    return lambda current: ref() is current
 
 
 def _run_query(spec: QuerySpec, obj: Dataset) -> pl.DataFrame:
@@ -242,8 +244,15 @@ def _arrow_base64(frame: pl.DataFrame) -> str:
 
 
 def _exec_error(exc: BaseException) -> ExecError:
-    return ExecError(
-        type=type(exc).__name__,
-        message=str(exc),
-        traceback="".join(traceback.format_exception(exc)),
-    )
+    # format_exception already survives a failing __str__ ("<exception str() failed>").
+    trace = "".join(traceback.format_exception(exc))
+    return ExecError(type=type(exc).__name__, message=_message(exc), traceback=trace)
+
+
+def _message(exc: BaseException) -> str:
+    try:
+        return str(exc)
+    except _NOT_FAILURES:
+        raise
+    except BaseException:  # user code's exception can fail in its own __str__
+        return f"<unprintable {type(exc).__name__}>"

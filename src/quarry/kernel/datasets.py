@@ -47,6 +47,8 @@ class DatasetMeta(BaseModel):
     schema_: list[Column] = Field(alias="schema")
     rows: int | None
     preview: list[dict[str, Json]]
+    # Set, with schema and preview empty, when the dataset exists but could not be described.
+    error: str | None = None
 
 
 def is_dataset(obj: object) -> TypeGuard[Dataset]:
@@ -81,8 +83,20 @@ def describe(name: str, obj: Dataset, *, count_rows: bool) -> DatasetMeta:
     )
 
 
+def undescribed(name: str, obj: Dataset, *, error: str) -> DatasetMeta:
+    """Metadata for a dataset `describe` failed on: its name and backing, and why it failed."""
+    return DatasetMeta(
+        name=name, backing=backing_of(obj), schema=[], rows=None, preview=[], error=error
+    )
+
+
 def dataset_names(namespace: Mapping[str, object]) -> set[str]:
-    return {n for n, v in namespace.items() if not n.startswith("_") and is_dataset(v)}
+    # Step code can add a non-str key (`globals()[1] = 1`), which no step can reference.
+    return {
+        n
+        for n, v in namespace.items()
+        if isinstance(n, str) and not n.startswith("_") and is_dataset(v)
+    }
 
 
 def relation_frame(rel: duckdb.DuckDBPyRelation, limit: int | None = None) -> pl.DataFrame:
