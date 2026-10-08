@@ -1,6 +1,5 @@
 """Every fixture spec must produce the same result on both execution targets."""
 
-import duckdb
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
@@ -8,7 +7,7 @@ from polars.testing import assert_frame_equal
 from quarry.query import QuerySpec
 from quarry.query.polars_target import to_polars
 from quarry.query.sql_target import to_sql
-from tests.query.fixtures import SPECS, trades
+from tests.query.fixtures import SPECS, trades, utc_connection
 
 
 def normalize(df: pl.DataFrame) -> pl.DataFrame:
@@ -22,7 +21,7 @@ def normalize(df: pl.DataFrame) -> pl.DataFrame:
 def test_targets_agree(spec: QuerySpec) -> None:
     frame = trades()
     via_polars = to_polars(spec, frame).collect()
-    conn = duckdb.connect()
+    conn = utc_connection()
     conn.register("trades", frame)
     via_sql = conn.sql(to_sql(spec, "trades")).pl()
     assert_frame_equal(normalize(via_polars), normalize(via_sql), check_dtypes=False, rel_tol=1e-9)

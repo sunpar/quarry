@@ -7,20 +7,25 @@ import contextlib
 import io
 import time
 import traceback
+import uuid
 import weakref
 from collections.abc import Callable, Mapping
 from pathlib import Path
+from types import FrameType
 from typing import Final, Literal
 
 import duckdb
 import polars as pl
+import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field
 
 from quarry.kernel.datasets import (
     Column,
     Dataset,
     DatasetMeta,
+    backing_of,
     dataset_names,
+    importable_relation,
     is_dataset,
     relation_frame,
     to_json_rows,
@@ -30,7 +35,7 @@ from quarry.kernel.datasets import describe as describe_dataset
 from quarry.kernel.lineage import CodeNames, analyze, dataset_reads, dataset_writes
 from quarry.query.polars_target import to_polars
 from quarry.query.spec import Json, QuerySpec
-from quarry.query.sql_target import relation_view, split_for_relation, to_sql
+from quarry.query.sql_target import quote_ident, relation_view, split_for_relation, to_sql
 
 TAIL_BYTES: Final = 4096
 # Kernel-level exits and interrupts: a guard that turns failures into results lets these through.
@@ -72,22 +77,45 @@ class QueryResult(BaseModel):
 
 class Executor:
     def __init__(
-        self, namespace: dict[str, object], *, row_cap: int, tail_bytes: int = TAIL_BYTES
+        self,
+        namespace: dict[str, object],
+        *,
+        conn: duckdb.DuckDBPyConnection,
+        row_cap: int,
+        tail_bytes: int = TAIL_BYTES,
     ) -> None:
+        """`conn` is the namespace's DuckDB connection, which an interrupt also stops."""
         self._ns = namespace
+        self._conn = conn
         self._row_cap = row_cap
         self._tail = tail_bytes
         self._defined: set[str] = set()
         self._running = False
+        self._interrupted = False  # whether the SIGINT handler interrupted the current step
 
     @property
     def running(self) -> bool:
-        """True only while user code is inside `exec`, the one place an interrupt may land."""
+        """True only inside a step's `exec` or one describe of its writes: the guarded regions,
+        the only places an interrupt may land."""
         return self._running
+
+    def on_sigint(self, signum: int, frame: FrameType | None) -> None:
+        """The kernel's SIGINT handler: interrupt the step's guarded region, and record it.
+
+        Anywhere else (idle, between a step's guarded regions, answering any other request) a
+        KeyboardInterrupt would escape and end the kernel, so the signal is dropped there.
+        """
+        if self._running:
+            self._interrupted = True
+            # An interrupted `.pl()` returns while DuckDB's workers run on, holding up the next
+            # query on the namespace's connection. With no query running, this changes nothing.
+            self._conn.interrupt()
+            raise KeyboardInterrupt
 
     def execute(self, code: str) -> ExecResult:
         """Run `code` in the namespace; every failure, even describing a write, is a result."""
         started = time.monotonic()
+        self._interrupted = False
         before = {name: _identity_check(self._ns[name]) for name in dataset_names(self._ns)}
         out, err = io.StringIO(), io.StringIO()
         status, error, names = self._exec(code, out, err)
@@ -95,9 +123,13 @@ class Executor:
         # itself can say what changed.
         stored = names if names is not None and status == "ok" else _NOTHING_STORED
         writes = _written(stored, before, self._ns)
-        described = [self._describe_guarded(name) for name in writes]
+        described = [self._describe_write(name) for name in writes]
         describe_errors = [e for _, e in described if e is not None]
-        if status == "ok" and describe_errors:
+        if self._interrupted:
+            # Whatever followed the interrupt: DuckDB raises its own RuntimeError for it, and a
+            # step can catch it and finish.
+            status, error = "interrupted", None
+        elif status == "ok" and describe_errors:
             status, error = "error", describe_errors[0]
         defines = [] if names is None else sorted(n for n in names.defines if n in self._ns)
         reads = [] if names is None else dataset_reads(names, set(before), self._defined)
@@ -124,7 +156,8 @@ class Executor:
     def query(self, spec: QuerySpec) -> QueryResult:
         """Run `spec`, returning at most `row_cap` rows; `truncated` when more rows exist."""
         obj = self._dataset(spec.dataset)
-        frame = _run_query(spec.model_copy(update={"limit": self._capped(spec.limit)}), obj)
+        capped = spec.model_copy(update={"limit": self._capped(spec.limit)})
+        frame = _run_query(capped, obj, self._conn)
         truncated = frame.height > self._row_cap
         frame = frame.head(self._row_cap)
         arrow = spec.format == "arrow"
@@ -138,10 +171,22 @@ class Executor:
         )
 
     def snapshot(self, name: str, path: Path) -> DatasetMeta:
-        frame = _materialize(self._dataset(name))
+        """Stream `name` to parquet at `path`, which then holds all of it or what it held before.
+
+        The metadata describes the written file, under the backing of the dataset it came from.
+        """
+        obj = self._dataset(name)
         path.parent.mkdir(parents=True, exist_ok=True)
-        frame.write_parquet(path)
-        return describe_dataset(name, frame, count_rows=True)
+        # Beside `path`, so the rename stays on one filesystem; not *.parquet, so no glob reads it.
+        temp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            _write_parquet(obj, temp)
+            temp.replace(path)
+        finally:
+            temp.unlink(missing_ok=True)  # gone already once the rename succeeded
+        # Not a glob: `prices[2024].parquet` names one file.
+        meta = describe_dataset(name, pl.scan_parquet(path, glob=False), count_rows=True)
+        return meta.model_copy(update={"backing": backing_of(obj)})
 
     def _exec(
         self, code: str, out: io.StringIO, err: io.StringIO
@@ -163,6 +208,22 @@ class Executor:
             return "error", _exec_error(exc), names
         return "ok", None, names
 
+    def _describe_write(self, name: str) -> tuple[DatasetMeta, ExecError | None]:
+        """`_describe_guarded`, open to the step's interrupt; once the step is interrupted, its
+        writes are left undescribed."""
+        if not self._interrupted:
+            with contextlib.suppress(KeyboardInterrupt):
+                # Inline, not a context manager: entering its `__exit__` would run a pending
+                # signal's handler with the flag still set, outside this try.
+                self._running = True
+                try:
+                    described = self._describe_guarded(name)
+                finally:
+                    self._running = False
+                if not self._interrupted:  # DuckDB turns the interrupt into its own error
+                    return described
+        return undescribed(name, self._dataset(name), error="interrupted"), None
+
     def _describe_guarded(self, name: str) -> tuple[DatasetMeta, ExecError | None]:
         """Metadata for `name`; if describing fails, metadata carrying the error, and the error."""
         obj = self._dataset(name)
@@ -181,7 +242,7 @@ class Executor:
 
     def _dataset(self, name: str) -> Dataset:
         obj = self._ns.get(name)
-        if name.startswith("_") or not is_dataset(obj):
+        if not is_dataset(obj):
             raise KeyError(name)
         return obj
 
@@ -209,21 +270,39 @@ def _identity_check(obj: object) -> _IsSame:
     return lambda current: ref() is current
 
 
-def _run_query(spec: QuerySpec, obj: Dataset) -> pl.DataFrame:
+def _run_query(spec: QuerySpec, obj: Dataset, conn: duckdb.DuckDBPyConnection) -> pl.DataFrame:
     if not isinstance(obj, duckdb.DuckDBPyRelation):
         return to_polars(spec, obj).collect()
     sql_part, polars_part = split_for_relation(spec)
     view = relation_view(spec.dataset)
-    frame = relation_frame(obj.query(view, to_sql(sql_part, view, columns=obj.columns)))
+    sql = to_sql(sql_part, view, columns=obj.columns)
+    try:
+        frame = relation_frame(obj.query(view, sql))
+    finally:
+        # `query` registers the view on the relation's connection, where it would pin the
+        # relation's data for the kernel's lifetime.
+        drop = f"DROP VIEW {quote_ident(view)}"
+        try:
+            conn.execute(drop)
+        except duckdb.CatalogException:
+            # The relation came from another connection, which only its own `query` reaches;
+            # that re-binds the relation first (re-globbing a read_parquet), so it comes last.
+            obj.query(view, drop)
     return frame if polars_part is None else to_polars(polars_part, frame).collect()
 
 
-def _materialize(obj: Dataset) -> pl.DataFrame:
-    if isinstance(obj, pl.LazyFrame):
-        return obj.collect()
-    if isinstance(obj, duckdb.DuckDBPyRelation):
-        return relation_frame(obj)
-    return obj
+def _write_parquet(obj: Dataset, path: Path) -> None:
+    if isinstance(obj, pl.DataFrame):
+        obj.write_parquet(path)
+    elif isinstance(obj, pl.LazyFrame):
+        obj.sink_parquet(path)
+    else:
+        # Through Arrow, batch by batch, as `.pl()` converts: DuckDB's own write_parquet stores
+        # other types than describe and query report (HUGEINT as a double, UUID as bytes).
+        reader = importable_relation(obj).to_arrow_reader()
+        with pq.ParquetWriter(path, reader.schema, compression="zstd") as writer:
+            for batch in reader:
+                writer.write_batch(batch)
 
 
 def _arrow_base64(frame: pl.DataFrame) -> str:

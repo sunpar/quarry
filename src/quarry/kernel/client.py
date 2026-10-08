@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import itertools
+import os
 import socket
 import subprocess
 import sys
@@ -16,6 +17,7 @@ from typing import Final
 
 from pydantic import TypeAdapter, ValidationError
 
+from quarry.config import ENV_API_KEY
 from quarry.kernel.datasets import DatasetMeta
 from quarry.kernel.executor import ExecResult, QueryResult
 from quarry.kernel.protocol import (
@@ -71,6 +73,8 @@ class KernelClient:
         """Start a kernel for `root`; KernelDead if it exits or does not connect in time."""
         tmpdir = tempfile.TemporaryDirectory(prefix="quarry-kernel-")
         socket_path = Path(tmpdir.name) / "kernel.sock"
+        # No provider API keys: step code can print its environment into a persisted result.
+        env = {k: v for k, v in os.environ.items() if k not in ENV_API_KEY.values()}
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
                 listener.bind(str(socket_path))
@@ -87,8 +91,11 @@ class KernelClient:
                         str(socket_path),
                         "--root",
                         str(root),
+                        "--temp-dir",
+                        tmpdir.name,
                     ],
                     stdin=subprocess.DEVNULL,
+                    env=env,
                     start_new_session=True,
                 )
                 conn = _accept(listener, process, startup_timeout)

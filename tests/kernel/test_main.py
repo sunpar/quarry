@@ -15,8 +15,7 @@ import pytest
 from quarry.kernel.__main__ import apply_memory_cap, serve
 from quarry.kernel.executor import Executor
 from quarry.kernel.protocol import Request, Response, decode_response, encode, read_lines
-
-BUSY_LOOP = "import time\nwhile True:\n    time.sleep(0.01)\n"
+from tests.kernel.fixtures import BUSY_LOOP
 
 KernelProcess = tuple[subprocess.Popen[bytes], socket.socket]
 
@@ -39,7 +38,9 @@ def kernel_process(tmp_path: Path) -> Iterator[KernelProcess]:
             listener.listen(1)
             listener.settimeout(30)
             command = [sys.executable, "-m", "quarry.kernel", "--socket", path]
-            process = subprocess.Popen([*command, "--root", str(tmp_path)])
+            process = subprocess.Popen(
+                [*command, "--root", str(tmp_path), "--temp-dir", socket_dir]
+            )
             try:
                 conn, _ = listener.accept()
                 conn.settimeout(10)  # a missing response fails the test instead of hanging it
@@ -59,7 +60,7 @@ def serve_lines(*lines: bytes) -> list[Response]:
     with client_end:
         client_end.sendall(b"".join(lines))
         client_end.shutdown(socket.SHUT_WR)
-        executor = Executor({"pl": pl, "duckdb": duckdb}, row_cap=10)
+        executor = Executor({"pl": pl, "duckdb": duckdb}, conn=duckdb.connect(), row_cap=10)
         serve(kernel_end, executor, on_disconnect=lambda: None)
         received = b"".join(iter(lambda: client_end.recv(65536), b""))
     return [decode_response(line) for line in received.splitlines()]

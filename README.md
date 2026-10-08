@@ -11,6 +11,9 @@ Agentic data exploration for quant researchers. Design: `docs/superpowers/specs/
 
 ## Using the core from a REPL (Stage 1)
 
+The snippet assumes `config.toml` under the root (`~/.quarry` here) sets
+`data.parquet_root`.
+
 ```python
 from pathlib import Path
 from quarry.kernel.client import KernelClient
@@ -29,8 +32,11 @@ The kernel reads `config.toml` from the root it is spawned with. Its namespace
 starts with `pl`, `duckdb`, `loaders.<name>` for every valid entry in the root's
 `loaders.toml`, `sql(query)` for SQL Server (set `data.mssql_dsn` or
 `QUARRY_MSSQL_DSN` and install the `mssql` extra), `pq(glob)` for a DuckDB
-relation over the Hive-partitioned parquet cache under `data.parquet_root`,
-`sql_local(query)` for DuckDB SQL that reads the kernel's datasets by name, and
-`catalog`, whose `register(name, frame)` makes a frame visible to DuckDB. All of
-them share DuckDB's default connection, so `duckdb.sql` sees `pq` relations too.
-`shutdown()` stops the kernel; `close()` then releases its socket directory.
+relation over the Hive-partitioned parquet cache under `data.parquet_root`, and
+`sql_local(query)` for DuckDB SQL that reads the kernel's datasets by name. `pq`,
+`sql_local` and `duckdb.sql` share DuckDB's default connection, so `duckdb.sql`
+sees `pq` relations too. `execute` returns the step's status, the tails of its
+output, its lineage (`reads`, `writes`, `defines`) and metadata for the datasets
+it wrote. The client also has `describe`, `list_datasets`, `query`, `interrupt`
+and `snapshot`. `shutdown()` stops the kernel; `close()` then releases its socket
+directory.

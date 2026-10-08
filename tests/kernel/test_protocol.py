@@ -16,7 +16,7 @@ from quarry.kernel.service import KernelService
 
 
 def service() -> KernelService:
-    return KernelService(Executor({"pl": pl, "duckdb": duckdb}, row_cap=10))
+    return KernelService(Executor({"pl": pl, "duckdb": duckdb}, conn=duckdb.connect(), row_cap=10))
 
 
 class FakePanic(BaseException):
@@ -32,7 +32,7 @@ class RaisingExecutor(Executor):
     """An executor whose `describe` raises `exc`."""
 
     def __init__(self, exc: BaseException) -> None:
-        super().__init__({}, row_cap=10)
+        super().__init__({}, conn=duckdb.connect(), row_cap=10)
         self._exc = exc
 
     def describe(self, name: str) -> DatasetMeta:

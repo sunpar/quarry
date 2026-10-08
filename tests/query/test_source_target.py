@@ -4,12 +4,12 @@ import ast
 import math
 from datetime import date, datetime
 
-import duckdb
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 
 from quarry.query import (
+    Agg,
     Backing,
     Filter,
     Json,
@@ -21,7 +21,7 @@ from quarry.query import (
     to_source,
 )
 from quarry.query.source_target import py_literal
-from tests.query.fixtures import SPECS, trades
+from tests.query.fixtures import SPECS, trades, utc_connection
 
 BACKINGS: list[Backing] = ["polars", "polars_lazy", "duckdb"]
 
@@ -46,10 +46,20 @@ EXTRA_SPECS: list[QuerySpec] = [
     ),
 ]
 
+# Order-dependent aggregates: a DuckDB relation has no row order to take them in.
+FIRST_LAST_SPECS: list[QuerySpec] = [
+    QuerySpec(dataset="trades", group_by=["ticker"], aggs=[Agg(col="ret", fn="first")]),
+    QuerySpec(
+        dataset="trades",
+        pivot=Pivot(index=["date"], columns="ticker", values="volume", agg="last"),
+    ),
+]
+FIRST_LAST_IDS = ["first", "pivot_last"]
+
 
 def bind(frame: pl.DataFrame, backing: Backing) -> object:
     if backing == "duckdb":
-        con = duckdb.connect()
+        con = utc_connection()
         con.register("frame_src", frame)
         return con.sql("SELECT * FROM frame_src")
     if backing == "polars_lazy":
@@ -127,7 +137,7 @@ def test_duckdb_source_uses_sql() -> None:
 
 def test_duckdb_source_runs_over_a_table_of_the_same_name() -> None:
     frame = trades()
-    con = duckdb.connect()
+    con = utc_connection()
     con.register("fixture", frame)
     con.execute("CREATE TABLE trades AS SELECT * FROM fixture")
     relation = con.table("trades")
@@ -162,6 +172,18 @@ def test_duckdb_pivot_runs_filters_in_sql_and_the_pivot_in_polars() -> None:
     assert "        sort_columns=True," in lines
     assert not any("PIVOT" in line or ".filter(" in line for line in lines)
     assert lines[-2:] == ["    .collect()", ")"]
+
+
+@pytest.mark.parametrize("spec", FIRST_LAST_SPECS, ids=FIRST_LAST_IDS)
+def test_duckdb_source_rejects_first_and_last(spec: QuerySpec) -> None:
+    with pytest.raises(QueryError, match="needs a row order"):
+        to_source(spec, "duckdb")
+
+
+@pytest.mark.parametrize("backing", ["polars", "polars_lazy"])
+@pytest.mark.parametrize("spec", FIRST_LAST_SPECS, ids=FIRST_LAST_IDS)
+def test_polars_source_runs_first_and_last(spec: QuerySpec, backing: Backing) -> None:
+    assert_matches_polars_target(spec, backing)
 
 
 @pytest.mark.parametrize("backing", BACKINGS)

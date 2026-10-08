@@ -1,4 +1,5 @@
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -10,11 +11,12 @@ from pathlib import Path
 import polars as pl
 import pytest
 
+from quarry.config import ENV_API_KEY
 from quarry.kernel.client import KernelClient, KernelDead, RpcFailure
 from quarry.kernel.executor import ExecResult
 from quarry.query import QuerySpec
+from tests.kernel.fixtures import BUSY_LOOP, HEAVY
 
-BUSY_LOOP = "import time\nwhile True:\n    time.sleep(0.01)\n"
 # Streams 3M rows from the default DuckDB connection; a query on that connection mid-stream
 # used to end the stream early without an error.
 STREAM_STEP = (
@@ -97,13 +99,45 @@ def test_error_response_raises_rpc_failure(kernel: KernelClient) -> None:
     assert info.value.type == "KeyError"
 
 
-def test_interrupt_busy_loop(kernel: KernelClient) -> None:
-    thread, results = run_in_thread(kernel, BUSY_LOOP)
+@pytest.mark.parametrize(
+    "step", [BUSY_LOOP, f"n = duckdb.sql({HEAVY!r}).fetchall()"], ids=["busy_loop", "duckdb"]
+)
+def test_interrupt_running_step(kernel: KernelClient, step: str) -> None:
+    thread, results = run_in_thread(kernel, step)
+    # Well into the step: an interrupt sent as a query starts reaches Python, not DuckDB.
+    time.sleep(0.5)
     interrupt_running_step(kernel)
     thread.join(timeout=10)
     assert not thread.is_alive()
-    assert results[0].status == "interrupted"
+    assert (results[0].status, results[0].error) == ("interrupted", None)
     assert kernel.execute("x = 1").status == "ok"
+
+
+def test_kernel_spills_into_the_client_temp_directory(kernel: KernelClient) -> None:
+    step = "print(duckdb.sql(\"SELECT current_setting('temp_directory')\").fetchone()[0])"
+    spill = Path(kernel.execute(step).stdout_tail.strip())
+    temp_dir = Path(kernel._tmpdir.name)
+    assert spill.parent == temp_dir
+    assert stat.S_IMODE(temp_dir.stat().st_mode) == 0o700
+
+
+def test_kernel_environment_lacks_provider_api_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    keys = set(ENV_API_KEY.values())
+    for name in keys:
+        monkeypatch.setenv(name, "secret")
+    monkeypatch.setenv("QUARRY_TEST_PASSED_ON", "kept")
+    step = (
+        f"import os\nprint(sorted(os.environ.keys() & {keys!r}), "
+        "os.environ['QUARRY_TEST_PASSED_ON'])"
+    )
+    client = KernelClient.spawn(tmp_path)
+    try:
+        result = client.execute(step)
+    finally:
+        client.close()
+    assert result.stdout_tail == "[] kept\n"
 
 
 def test_interrupt_while_idle_is_ignored(kernel: KernelClient) -> None:

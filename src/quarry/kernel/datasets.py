@@ -52,14 +52,15 @@ class DatasetMeta(BaseModel):
     error: str | None = None
 
 
+# Both test type(obj): isinstance falls back to `obj.__class__`, which a proxy can make raise.
 def is_dataset(obj: object) -> TypeGuard[Dataset]:
-    return isinstance(obj, pl.DataFrame | pl.LazyFrame | duckdb.DuckDBPyRelation)
+    return issubclass(type(obj), pl.DataFrame | pl.LazyFrame | duckdb.DuckDBPyRelation)
 
 
 def backing_of(obj: Dataset) -> Backing:
-    if isinstance(obj, pl.DataFrame):
+    if issubclass(type(obj), pl.DataFrame):
         return "polars"
-    if isinstance(obj, pl.LazyFrame):
+    if issubclass(type(obj), pl.LazyFrame):
         return "polars_lazy"
     return "duckdb"
 
@@ -93,26 +94,31 @@ def undescribed(name: str, obj: Dataset, *, error: str) -> DatasetMeta:
 
 def dataset_names(namespace: Mapping[str, object]) -> set[str]:
     # Step code can add a non-str key (`globals()[1] = 1`), which no step can reference.
-    return {
-        n
-        for n, v in namespace.items()
-        if isinstance(n, str) and not n.startswith("_") and is_dataset(v)
-    }
+    return {n for n, v in namespace.items() if isinstance(n, str) and is_dataset(v)}
 
 
 def relation_frame(rel: duckdb.DuckDBPyRelation, limit: int | None = None) -> pl.DataFrame:
-    """`rel` as a polars frame; INTERVAL and UNION columns, which polars cannot import, as VARCHAR.
-
-    Columns are projected by position (`#n`), so duplicate names cannot pick the wrong column.
-    """
-    if any(_unimportable(t) for t in rel.types):
-        columns = enumerate(zip(rel.columns, rel.types, strict=True), start=1)
-        rel = rel.project(", ".join(_importable(n, name, t) for n, (name, t) in columns))
+    """`rel`, or its first `limit` rows, as a polars frame, by way of `importable_relation`."""
+    rel = importable_relation(rel)
     return (rel if limit is None else rel.limit(limit)).pl()
 
 
+def importable_relation(rel: duckdb.DuckDBPyRelation) -> duckdb.DuckDBPyRelation:
+    """`rel` with its INTERVAL and UNION columns, which polars cannot import, as VARCHAR.
+
+    Columns are projected by position (`#n`), so duplicate names cannot pick the wrong column.
+    """
+    if not any(_unimportable(t) for t in rel.types):
+        return rel
+    columns = enumerate(zip(rel.columns, rel.types, strict=True), start=1)
+    return rel.project(", ".join(_importable(n, name, t) for n, (name, t) in columns))
+
+
 def to_json_rows(df: pl.DataFrame) -> list[dict[str, Json]]:
-    """Rows of JSON-native values, for every dtype, without write_json's panics or errors."""
+    """Rows of JSON-native values, for every dtype, without write_json's panics or errors.
+
+    Non-finite floats (inf, -inf, NaN) become null at any depth; the arrow format keeps them.
+    """
     # pl.nth, not pl.col: a column named like a regex (`^a.*$`) or `*` would select others.
     converted = [
         expr.alias(name)

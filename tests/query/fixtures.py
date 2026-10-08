@@ -1,10 +1,18 @@
-"""Fixture frame and specs shared by every compile-target test."""
+"""Fixture frame, specs and DuckDB connection shared by every compile-target test."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 
+import duckdb
 import polars as pl
 
 from quarry.query import Agg, Filter, Pivot, QuerySpec, Sort
+
+
+def utc_connection() -> duckdb.DuckDBPyConnection:
+    """A connection in UTC, as the kernel's runs, so `ts_utc` reads back as it went in."""
+    conn = duckdb.connect()
+    conn.execute("SET TimeZone = 'UTC'")
+    return conn
 
 
 def trades() -> pl.DataFrame:
@@ -23,6 +31,20 @@ def trades() -> pl.DataFrame:
             "volume": [100, 200, 300, 400, 500],
             "note col": ["a", "b", "c", "d", "e"],
             'q"uote': [1, 2, 3, 4, 5],
+            "ts": [
+                datetime(2024, 1, 2, 9, 30),
+                datetime(2024, 1, 2, 16, 0),
+                datetime(2024, 1, 3, 9, 30),
+                datetime(2024, 1, 3, 16, 0),
+                datetime(2024, 1, 4, 9, 30),
+            ],
+            "ts_utc": [
+                datetime(2024, 1, 2, 14, 30, tzinfo=UTC),
+                datetime(2024, 1, 2, 21, 0, tzinfo=UTC),
+                datetime(2024, 1, 3, 14, 30, tzinfo=UTC),
+                datetime(2024, 1, 3, 21, 0, tzinfo=UTC),
+                datetime(2024, 1, 4, 14, 30, tzinfo=UTC),
+            ],
         }
     )
 
@@ -88,4 +110,34 @@ SPECS: list[QuerySpec] = [
     QuerySpec(dataset="trades", filters=[Filter(col="ret", op="in", value=[0])]),
     QuerySpec(dataset="trades", filters=[Filter(col="ret", op="not_in", value=[0])]),
     QuerySpec(dataset="trades", filters=[Filter(col="volume", op="in", value=[100.0, 300])]),
+    QuerySpec(dataset="trades", filters=[Filter(col="ts", op="ge", value="2024-01-03T09:30:00")]),
+    QuerySpec(
+        dataset="trades",
+        filters=[Filter(col="ts_utc", op="lt", value="2024-01-03T14:30:00+00:00")],
+    ),
+    QuerySpec(
+        dataset="trades",
+        filters=[
+            Filter(
+                col="ts_utc",
+                op="between",
+                value=["2024-01-02T21:00:00+00:00", "2024-01-03T21:00:00+00:00"],
+            )
+        ],
+    ),
+    QuerySpec(dataset="trades", sort=[Sort(col="ts", desc=True)], limit=2),
+    QuerySpec(
+        dataset="trades", select=["ts_utc", "ticker"], sort=[Sort(col="ts_utc", desc=True)], limit=3
+    ),
+    QuerySpec(
+        dataset="trades",
+        group_by=["ticker"],
+        aggs=[
+            Agg(col="ts", fn="min"),
+            Agg(col="ts", fn="max"),
+            Agg(col="ts_utc", fn="min"),
+            Agg(col="ts_utc", fn="max"),
+        ],
+        sort=[Sort(col="ticker")],
+    ),
 ]

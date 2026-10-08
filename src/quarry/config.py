@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 import tomllib
+import warnings
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Final, Literal
@@ -17,6 +19,8 @@ ENV_API_KEY: Final[dict[str, str]] = {
     "anthropic": "QUARRY_ANTHROPIC_API_KEY",
     "openai": "QUARRY_OPENAI_API_KEY",
 }
+# An ODBC PWD or Password key, at the start of a DSN or after a `;`.
+_DSN_PASSWORD: Final = re.compile(r"(?:^|;)\s*(?:pwd|password)\s*=", re.IGNORECASE)
 
 
 class ConfigError(Exception):
@@ -67,6 +71,13 @@ def load_config(root: Path, env: Mapping[str, str] | None = None) -> QuarryConfi
         with path.open("rb") as handle:
             raw = tomllib.load(handle)
     config = QuarryConfig.model_validate({"root": root, **raw})
+    # Before the environment's DSN replaces it: the file's permissions expose only its own.
+    if _DSN_PASSWORD.search(config.data.mssql_dsn) and _group_or_world(path):
+        warnings.warn(
+            f"{path} holds a data.mssql_dsn password and has group or world permissions; "
+            "use chmod 600",
+            stacklevel=2,
+        )
     dsn = environment.get(ENV_MSSQL_DSN)
     if dsn:
         config = config.model_copy(
@@ -90,10 +101,13 @@ def api_key(config: QuarryConfig, env: Mapping[str, str] | None = None) -> str:
 def _read_owner_only(path: Path) -> str:
     if not path.exists():
         raise ConfigError(f"API key file not found: {path}")
-    mode = stat.S_IMODE(path.stat().st_mode)
-    if mode & (stat.S_IRWXG | stat.S_IRWXO):
+    if _group_or_world(path):
         raise ConfigError(f"API key file {path} has group or world permissions; use chmod 600")
     key = path.read_text().strip()
     if not key:
         raise ConfigError(f"API key file is empty: {path}")
     return key
+
+
+def _group_or_world(path: Path) -> bool:
+    return bool(stat.S_IMODE(path.stat().st_mode) & (stat.S_IRWXG | stat.S_IRWXO))

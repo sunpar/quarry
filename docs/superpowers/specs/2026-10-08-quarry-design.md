@@ -276,7 +276,9 @@ AggFn = "sum" | "mean" | "min" | "max" | "count" | "median" | "std" | "first" | 
 
 Evaluation order is fixed: filters, then group-by with aggs or pivot (never
 both), then sort, then offset and limit, then select. A spec with both
-`group_by` and `pivot` is rejected.
+`group_by` and `pivot` is rejected. `first` and `last` need a row order, which
+a DuckDB relation does not have, so specs on relation-backed datasets reject
+them.
 
 ## 6. Kernel
 
@@ -352,9 +354,10 @@ environment variable.
 
 **Parquet catalog.** A DuckDB connection with the Hive root from config.
 `pq(path_glob: str) -> duckdb.DuckDBPyRelation` wraps `read_parquet` with
-`hive_partitioning=true`. Every registered polars dataset is also visible to
-DuckDB SQL by name through `duckdb.register`, so `sql_local("select ...")`
-runs DuckDB over in-memory frames. At session start the kernel scans the
+`hive_partitioning=true`. Every dataset is also visible to DuckDB SQL by
+name: the kernel's connection resolves table names from the step's variables
+(`python_scan_all_frames`), so `sql_local("select ...")` runs DuckDB over
+in-memory frames and always sees the current binding. At session start the kernel scans the
 cache root two levels deep and reports the partition layout (directory names
 and partition keys) for the agent's context.
 

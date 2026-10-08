@@ -34,10 +34,10 @@ TEXT_OPS: frozenset[str] = frozenset({"contains", "starts_with"})
 
 
 class QueryError(Exception):
-    """A spec references a column the dataset does not have."""
+    """A spec the dataset cannot answer; `column` names the missing column when that is why."""
 
-    def __init__(self, column: str, dataset: str) -> None:
-        super().__init__(f"Column {column!r} does not exist in dataset {dataset!r}")
+    def __init__(self, message: str, *, dataset: str, column: str | None = None) -> None:
+        super().__init__(message)
         self.column = column
         self.dataset = dataset
 

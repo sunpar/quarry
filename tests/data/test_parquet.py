@@ -36,12 +36,6 @@ def test_pq_reads_with_hive_partitioning(tmp_path: Path) -> None:
     assert df.height == 2
 
 
-def test_register_and_sql_local() -> None:
-    catalog = ParquetCatalog(None, duckdb.connect())
-    catalog.register("frame", pl.DataFrame({"a": [1, 2]}))
-    assert catalog.sql_local("SELECT sum(a) AS s FROM frame").pl()["s"].to_list() == [3]
-
-
 def test_pq_without_root_raises() -> None:
     catalog = ParquetCatalog(None, duckdb.connect())
     with pytest.raises(RuntimeError, match="parquet_root"):

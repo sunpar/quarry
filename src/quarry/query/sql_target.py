@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from typing import Final
 
 from quarry.query.columns import check_columns
-from quarry.query.spec import Agg, AggFn, Filter, Json, Pivot, QuerySpec
+from quarry.query.spec import Agg, AggFn, Filter, Json, Pivot, QueryError, QuerySpec
 
 SQL_AGG: Final[dict[AggFn, str]] = {
     "sum": "sum",
@@ -68,7 +68,18 @@ def split_for_relation(spec: QuerySpec) -> tuple[QuerySpec, QuerySpec | None]:
     DuckDB plans PIVOT without an IN list as a MULTI statement, which `relation.query` cannot
     run: a pivot spec's SQL only filters and selects the pivot's inputs, and the pivot onward
     runs in polars on its result.
+
+    `first` and `last` raise QueryError: a relation has no row order, so they would pick
+    arbitrary rows, different ones from run to run.
     """
+    pivot_agg = [] if spec.pivot is None else [spec.pivot.agg]
+    for fn in [*(a.fn for a in spec.aggs), *pivot_agg]:
+        if fn in ("first", "last"):
+            message = (
+                f"{fn!r} needs a row order, which a DuckDB relation does not have; "
+                "use 'min' or 'max', or convert it with .pl() first"
+            )
+            raise QueryError(message, dataset=spec.dataset)
     if spec.pivot is None:
         return spec, None
     pre_pivot = spec.model_copy(

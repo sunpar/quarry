@@ -1,5 +1,10 @@
 import base64
 import io
+import signal
+import threading
+import time
+from collections.abc import Callable, Iterator
+from decimal import Decimal
 from pathlib import Path
 
 import duckdb
@@ -8,17 +13,96 @@ import pytest
 from polars.exceptions import ColumnNotFoundError
 
 from quarry.kernel.executor import Executor, _identity_check
-from quarry.query import Filter, Pivot, QueryError, QuerySpec
+from quarry.query import Agg, Backing, Filter, Json, Pivot, QueryError, QuerySpec, Sort
+from quarry.query.sql_target import relation_view
+from tests.kernel.fixtures import BUSY_LOOP, HEAVY
 
 PIVOT_ROWS = (
     "SELECT * FROM (VALUES ('a', 'x', 1), ('a', 'y', 2), ('b', 'x', 3), ('b', 'y', 40)) t(k, c, v)"
 )
 BAD_PLAN = "lf = pl.DataFrame({'a': [1]}).lazy().filter(pl.col('nope') > 1)"
+RELATION_SQL = "SELECT * FROM (VALUES (1, 'x'), (2, 'y')) t(n, s)"
+RELATION_STEP = f"rel = _conn.sql({RELATION_SQL!r})"
+# Specs whose answer depends on row order, and that answer over PIVOT_ROWS in its order.
+ORDERED_SPECS: list[tuple[QuerySpec, str, list[dict[str, Json]]]] = [
+    (
+        QuerySpec(
+            dataset="t", group_by=["k"], aggs=[Agg(col="v", fn="first")], sort=[Sort(col="k")]
+        ),
+        "first",
+        [{"k": "a", "v_first": 1}, {"k": "b", "v_first": 3}],
+    ),
+    (
+        QuerySpec(
+            dataset="t",
+            group_by=["k"],
+            aggs=[Agg(col="v", fn="sum"), Agg(col="v", fn="last")],
+            sort=[Sort(col="k")],
+        ),
+        "last",
+        [{"k": "a", "v_sum": 3, "v_last": 2}, {"k": "b", "v_sum": 43, "v_last": 40}],
+    ),
+    (
+        QuerySpec(
+            dataset="t",
+            pivot=Pivot(index=["k"], columns="c", values="v", agg="first"),
+            sort=[Sort(col="k")],
+        ),
+        "first",
+        [{"k": "a", "x": 1, "y": 2}, {"k": "b", "x": 3, "y": 40}],
+    ),
+]
+ORDERED_IDS = ["first", "last", "pivot_first"]
+SNAPSHOT_SOURCES = [
+    ("polars", "src = pl.DataFrame({'a': [1, 2], 's': ['x', None]})"),
+    ("polars_lazy", "src = pl.DataFrame({'a': [1, 2], 's': ['x', None]}).lazy()"),
+    ("duckdb", "src = _conn.sql(\"SELECT * FROM (VALUES (1, 'x'), (2, NULL)) t(a, s)\")"),
+]
 
 
-def make() -> Executor:
-    conn = duckdb.connect()
-    return Executor({"pl": pl, "duckdb": duckdb, "_conn": conn}, row_cap=3)
+def make(conn: duckdb.DuckDBPyConnection | None = None) -> Executor:
+    conn = duckdb.connect() if conn is None else conn
+    return Executor({"pl": pl, "duckdb": duckdb, "_conn": conn}, conn=conn, row_cap=3)
+
+
+@pytest.fixture
+def interruptible() -> Iterator[Callable[[int], Executor]]:
+    """Makes an executor on a private connection running `threads` threads, under the
+    kernel's SIGINT handler as `serve` installs it."""
+    previous = signal.getsignal(signal.SIGINT)
+
+    def install(threads: int) -> Executor:
+        conn = duckdb.connect()
+        conn.execute(f"SET threads = {threads}")
+        ex = make(conn)
+        signal.signal(signal.SIGINT, ex.on_sigint)
+        return ex
+
+    yield install
+    signal.signal(signal.SIGINT, previous)
+
+
+def interrupt_soon(ex: Executor) -> threading.Thread:
+    """Signal the main thread, as the kernel's reader does, 0.2 s into `ex`'s running step."""
+    main = threading.main_thread().ident
+    assert main is not None and threading.current_thread() is threading.main_thread()
+
+    def send() -> None:
+        deadline = time.monotonic() + 10
+        while not ex.running and time.monotonic() < deadline:
+            time.sleep(0.005)
+        time.sleep(0.2)
+        signal.pthread_kill(main, signal.SIGINT)
+
+    thread = threading.Thread(target=send)
+    thread.start()
+    return thread
+
+
+def quarry_views(conn: duckdb.DuckDBPyConnection, dataset: str) -> list[tuple[str]]:
+    """The view a query on `dataset` registers, if it is still on `conn`."""
+    sql = "SELECT view_name FROM duckdb_views() WHERE view_name = ?"
+    return conn.execute(sql, [relation_view(dataset)]).fetchall()
 
 
 def test_execute_registers_dataset_and_reports_lineage() -> None:
@@ -195,15 +279,112 @@ def test_non_string_namespace_key_does_not_break_later_steps() -> None:
     assert result.writes == ["x"]
 
 
+def test_object_whose_class_attribute_raises_does_not_break_later_steps() -> None:
+    ex = make()
+    proxy = "class Proxy:\n    @property\n    def __class__(self):\n        raise RuntimeError\n"
+    assert ex.execute(proxy + "p = Proxy()").status == "ok"
+    assert ex.execute("x = 1").status == "ok"
+    assert ex.execute("del p").status == "ok"
+
+
+def test_underscore_names_are_datasets_with_lineage() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1, 2]})")
+    first = ex.execute("_tmp = df.filter(pl.col('a') > 1)")
+    assert first.writes == ["_tmp"]
+    second = ex.execute("out = _tmp.head(1)")
+    assert second.reads == ["_tmp"]
+    assert ex.describe("_tmp").rows == 1
+    assert [m.name for m in ex.list_datasets()] == ["_tmp", "df", "out"]
+
+
 def test_running_is_true_only_while_user_code_runs() -> None:
     namespace: dict[str, object] = {"pl": pl}
-    ex = Executor(namespace, row_cap=3)
+    ex = Executor(namespace, conn=duckdb.connect(), row_cap=3)
     namespace["_ex"] = ex
     assert ex.running is False
     result = ex.execute("seen = _ex.running")
     assert result.status == "ok"
     assert namespace["seen"] is True
     assert ex.running is False
+
+
+@pytest.mark.parametrize(
+    ("code", "printed"),
+    [
+        (
+            "try:\n"
+            f"    _conn.sql({HEAVY!r}).fetchall()\n"
+            "except BaseException as exc:\n"
+            "    print(type(exc).__name__)\n"
+            "    raise\n",
+            "RuntimeError\n",  # DuckDB's "Query interrupted"
+        ),
+        (
+            "import time\n"
+            "try:\n"
+            "    for _ in range(1000):\n"
+            "        time.sleep(0.01)\n"
+            "except KeyboardInterrupt:\n"
+            "    print('caught')\n",
+            "caught\n",
+        ),
+    ],
+    ids=["duckdb_raises_its_own_error", "step_catches_it_and_finishes"],
+)
+def test_interrupted_step_is_interrupted_whatever_follows(
+    interruptible: Callable[[int], Executor], code: str, printed: str
+) -> None:
+    ex = interruptible(1)
+    sender = interrupt_soon(ex)
+    result = ex.execute(code)
+    sender.join()
+    assert result.stdout_tail == printed
+    assert (result.status, result.error) == ("interrupted", None)
+
+
+def test_interrupt_stops_the_connection_workers(
+    interruptible: Callable[[int], Executor],
+) -> None:
+    ex = interruptible(4)  # workers to run HEAVY's branches on
+    sender = interrupt_soon(ex)
+    result = ex.execute(f"_conn.sql({HEAVY!r}).pl()")
+    sender.join()
+    started = time.monotonic()
+    assert ex.execute("print(_conn.sql('SELECT 1').fetchall())").stdout_tail == "[(1,)]\n"
+    waited = time.monotonic() - started
+    assert (result.status, result.error) == ("interrupted", None)
+    # Far below what the workers' tasks have left, which only grows on a slower machine.
+    assert waited < 1.0
+
+
+def test_interrupt_with_no_query_running_leaves_the_next_query_working(
+    interruptible: Callable[[int], Executor],
+) -> None:
+    ex = interruptible(4)
+    sender = interrupt_soon(ex)
+    result = ex.execute(BUSY_LOOP)
+    sender.join()
+    assert result.status == "interrupted"
+    assert ex.execute("print(_conn.sql('SELECT 42').fetchall())").stdout_tail == "[(42,)]\n"
+
+
+def test_interrupt_while_describing_writes_leaves_them_undescribed(
+    interruptible: Callable[[int], Executor],
+) -> None:
+    ex = interruptible(1)
+    sender = interrupt_soon(ex)
+    result = ex.execute(f"heavy = _conn.sql({HEAVY!r})\nlight = pl.DataFrame({{'a': [1]}})")
+    sender.join()
+    assert (result.status, result.error) == ("interrupted", None)
+    assert result.writes == ["heavy", "light"]
+    metas = [(m.name, m.backing, m.error, m.schema_, m.rows) for m in result.datasets]
+    assert metas == [
+        ("heavy", "duckdb", "interrupted", [], None),
+        ("light", "polars", "interrupted", [], None),
+    ]
+    assert ex.running is False
+    assert ex.execute("x = 1").status == "ok"
 
 
 def test_describe_and_unknown_name() -> None:
@@ -241,7 +422,7 @@ def test_query_truncated_only_when_rows_beyond_cap_exist(
 
 def test_query_duckdb_relation() -> None:
     ex = make()
-    ex.execute("rel = _conn.sql(\"SELECT * FROM (VALUES (1, 'x'), (2, 'y')) t(n, s)\")")
+    ex.execute(RELATION_STEP)
     out = ex.query(QuerySpec(dataset="rel", filters=[Filter(col="n", op="eq", value=2)]))
     assert out.rows == [{"n": 2, "s": "y"}]
 
@@ -280,6 +461,55 @@ def test_query_duckdb_relation_pivot_unknown_select_raises_query_error() -> None
         ex.query(spec)
 
 
+@pytest.mark.parametrize(
+    ("spec", "fn"), [(spec, fn) for spec, fn, _ in ORDERED_SPECS], ids=ORDERED_IDS
+)
+def test_query_rejects_first_and_last_on_a_relation(spec: QuerySpec, fn: str) -> None:
+    ex = make()
+    ex.execute(f't = _conn.sql("{PIVOT_ROWS}")')
+    with pytest.raises(
+        QueryError, match=rf"^'{fn}' needs a row order.*'min' or 'max'.*\.pl\(\)"
+    ) as info:
+        ex.query(spec)
+    assert (info.value.dataset, info.value.column) == ("t", None)
+
+
+@pytest.mark.parametrize("convert", [".pl()", ".pl().lazy()"])
+@pytest.mark.parametrize(
+    ("spec", "rows"), [(spec, rows) for spec, _, rows in ORDERED_SPECS], ids=ORDERED_IDS
+)
+def test_query_runs_first_and_last_on_polars(
+    spec: QuerySpec, rows: list[dict[str, Json]], convert: str
+) -> None:
+    ex = make()
+    ex.execute(f't = _conn.sql("{PIVOT_ROWS}"){convert}')
+    assert ex.query(spec).rows == rows
+
+
+def test_query_drops_its_view_of_a_relation() -> None:
+    conn = duckdb.connect()
+    ex = make(conn)
+    ex.execute(RELATION_STEP)
+    assert ex.query(QuerySpec(dataset="rel", filters=[Filter(col="n", op="eq", value=2)])).rows
+    assert quarry_views(conn, "rel") == []
+
+
+def test_query_drops_its_view_of_a_relation_from_another_connection() -> None:
+    other = duckdb.connect()
+    ex = Executor({"rel": other.sql(RELATION_SQL)}, conn=duckdb.connect(), row_cap=3)
+    assert ex.query(QuerySpec(dataset="rel")).rows
+    assert quarry_views(other, "rel") == []
+
+
+def test_failing_query_drops_its_view_of_a_relation() -> None:
+    conn = duckdb.connect()
+    ex = make(conn)
+    ex.execute(RELATION_STEP)
+    with pytest.raises(duckdb.ConversionException):
+        ex.query(QuerySpec(dataset="rel", filters=[Filter(col="n", op="eq", value="two")]))
+    assert quarry_views(conn, "rel") == []
+
+
 def test_relation_with_interval_column_queries_and_snapshots(tmp_path: Path) -> None:
     ex = make()
     ex.execute("rel = _conn.sql(\"SELECT TIMESTAMP '2024-01-02' - TIMESTAMP '2024-01-01' AS gap\")")
@@ -300,6 +530,22 @@ def test_query_arrow_format() -> None:
     assert decoded["a"].to_list() == [1]
 
 
+def test_query_json_rows_null_non_finite_floats_and_arrow_keeps_them() -> None:
+    ex = make()
+    ex.execute(
+        "f = pl.DataFrame({'x': [float('inf'), float('-inf'), float('nan')]}).with_columns("
+        "x32=pl.col('x').cast(pl.Float32), xs=pl.concat_list('x'), st=pl.struct('x'))"
+    )
+    rows = ex.query(QuerySpec(dataset="f")).rows
+    assert rows == [{"x": None, "x32": None, "xs": [None], "st": {"x": None}}] * 3
+    arrow = ex.query(QuerySpec(dataset="f", format="arrow")).arrow_base64
+    assert arrow is not None
+    decoded = pl.read_ipc(io.BytesIO(base64.b64decode(arrow)))
+    assert repr(decoded.rows()) == repr(
+        [(v, v, [v], {"x": v}) for v in (float("inf"), float("-inf"), float("nan"))]
+    )
+
+
 def test_query_unknown_column_raises_query_error() -> None:
     ex = make()
     ex.execute("df = pl.DataFrame({'a': [1]})")
@@ -314,9 +560,40 @@ def test_query_result_serializes_schema_under_its_alias() -> None:
     assert dumped["schema"] == [{"name": "a", "dtype": "Int64"}]
 
 
-def test_snapshot_writes_parquet(tmp_path: Path) -> None:
+@pytest.mark.parametrize(("backing", "step"), SNAPSHOT_SOURCES)
+def test_snapshot_round_trips_each_backing(backing: Backing, step: str, tmp_path: Path) -> None:
     ex = make()
-    ex.execute("lf = pl.DataFrame({'a': [1, 2]}).lazy()")
-    meta = ex.snapshot("lf", tmp_path / "lf.parquet")
-    assert meta.rows == 2
-    assert pl.read_parquet(tmp_path / "lf.parquet")["a"].to_list() == [1, 2]
+    ex.execute(step)
+    path = tmp_path / "snapshots" / "prices[2024].parquet"  # one file, though it reads as a glob
+    meta = ex.snapshot("src", path)
+    rows = [{"a": 1, "s": "x"}, {"a": 2, "s": None}]
+    assert pl.read_parquet(path, glob=False).sort("a").to_dicts() == rows
+    assert (meta.name, meta.backing, meta.rows) == ("src", backing, 2)
+    assert [c.name for c in meta.schema_] == ["a", "s"]
+    assert list(path.parent.iterdir()) == [path]
+
+
+def test_relation_snapshot_keeps_the_types_describe_reports(tmp_path: Path) -> None:
+    ex = make()
+    ex.execute(
+        "rel = _conn.sql(\"SELECT sum(x) AS big, uuid '12345678-1234-5678-1234-567812345678' AS u"
+        ' FROM (VALUES (9007199254740993::BIGINT), (0::BIGINT)) t(x)")'
+    )
+    meta = ex.snapshot("rel", tmp_path / "rel.parquet")
+    back = pl.read_parquet(tmp_path / "rel.parquet")
+    assert back.schema == {"big": pl.Decimal(38, 0), "u": pl.String}
+    assert back.row(0) == (Decimal("9007199254740993"), "12345678-1234-5678-1234-567812345678")
+    assert meta.schema_ == ex.describe("rel").schema_
+
+
+def test_failed_snapshot_leaves_no_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def write_then_fail(self: pl.DataFrame, file: str | Path) -> None:
+        Path(file).write_bytes(b"PAR1")  # the partial file a full disk leaves behind
+        raise OSError("No space left on device")
+
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1]})")
+    monkeypatch.setattr(pl.DataFrame, "write_parquet", write_then_fail)
+    with pytest.raises(OSError, match="No space left"):
+        ex.snapshot("df", tmp_path / "df.parquet")
+    assert list(tmp_path.iterdir()) == []

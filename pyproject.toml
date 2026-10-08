@@ -5,9 +5,9 @@ description = "Agentic data exploration for quant researchers"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "polars>=1.0",
-    "duckdb>=1.0",
-    "pydantic>=2.0",
+    "polars>=2.0,<3",
+    "duckdb>=1.5,<2",
+    "pydantic>=2.5",
     "pyarrow>=15.0",
 ]
 

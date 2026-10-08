@@ -3,7 +3,16 @@ from pathlib import Path
 
 import pytest
 
-from quarry.config import ConfigError, QuarryConfig, api_key, load_config
+from quarry.config import CONFIG_FILENAME, ConfigError, QuarryConfig, api_key, load_config
+
+PASSWORD_DSN = "Driver={ODBC Driver 18 for SQL Server};Server=db;UID=me;PWD=hunter2"
+TRUSTED_DSN = "Driver={ODBC Driver 18 for SQL Server};Server=db;Trusted_Connection=yes"
+
+
+def write_dsn_config(root: Path, dsn: str, mode: int) -> None:
+    path = root / CONFIG_FILENAME
+    path.write_text(f'[data]\nmssql_dsn = "{dsn}"\n')
+    os.chmod(path, mode)
 
 
 def test_defaults_when_no_file(tmp_path: Path) -> None:
@@ -27,7 +36,7 @@ def test_reads_toml(tmp_path: Path) -> None:
 
 
 def test_env_overrides_mssql_dsn(tmp_path: Path) -> None:
-    (tmp_path / "config.toml").write_text('[data]\nmssql_dsn = "file-dsn"\n')
+    write_dsn_config(tmp_path, "file-dsn", 0o600)
     cfg = load_config(tmp_path, env={"QUARRY_MSSQL_DSN": "env-dsn"})
     assert cfg.data.mssql_dsn == "env-dsn"
 
@@ -74,3 +83,32 @@ def test_blank_paths_mean_unset(tmp_path: Path) -> None:
     assert cfg.libraries.team_components is None
     assert cfg.libraries.highcharts_path is None
     assert cfg.libraries.scichart_path is None
+
+
+@pytest.mark.parametrize(
+    "dsn",
+    [PASSWORD_DSN, "pwd=hunter2;Server=db", "Server=db; Password = hunter2"],
+    ids=["after_semicolon", "at_start", "spaced_password"],
+)
+def test_warns_on_a_shared_config_holding_a_dsn_password(dsn: str, tmp_path: Path) -> None:
+    write_dsn_config(tmp_path, dsn, 0o644)
+    with pytest.warns(UserWarning, match="chmod 600"):
+        load_config(tmp_path, env={})
+
+
+@pytest.mark.filterwarnings("error")
+@pytest.mark.parametrize(
+    ("dsn", "mode"), [(PASSWORD_DSN, 0o600), (TRUSTED_DSN, 0o644)], ids=["owner_only", "no_pwd"]
+)
+def test_no_warning_without_both_a_password_and_shared_permissions(
+    dsn: str, mode: int, tmp_path: Path
+) -> None:
+    write_dsn_config(tmp_path, dsn, mode)
+    load_config(tmp_path, env={})
+
+
+@pytest.mark.filterwarnings("error")
+def test_no_warning_for_a_password_only_in_the_environment(tmp_path: Path) -> None:
+    write_dsn_config(tmp_path, TRUSTED_DSN, 0o644)
+    cfg = load_config(tmp_path, env={"QUARRY_MSSQL_DSN": PASSWORD_DSN})
+    assert cfg.data.mssql_dsn == PASSWORD_DSN

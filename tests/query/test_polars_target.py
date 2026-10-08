@@ -28,6 +28,15 @@ def test_string_literal_against_date_column() -> None:
     assert out.height == 3
 
 
+def test_naive_string_against_tz_aware_column_raises() -> None:
+    # R27: polars reads a naive string in no zone at all; the string must carry its offset.
+    spec = QuerySpec(
+        dataset="trades", filters=[Filter(col="ts_utc", op="ge", value="2024-01-03T14:30:00")]
+    )
+    with pytest.raises(pl.exceptions.SchemaError):
+        to_polars(spec, trades()).collect()
+
+
 def test_group_by_agg_names() -> None:
     spec = QuerySpec(
         dataset="trades",
@@ -68,7 +77,8 @@ def test_unknown_filter_column_raises_query_error() -> None:
     spec = QuerySpec(dataset="trades", filters=[Filter(col="nope", op="eq", value=1)])
     with pytest.raises(QueryError) as info:
         to_polars(spec, trades())
-    assert info.value.column == "nope"
+    assert (info.value.column, info.value.dataset) == ("nope", "trades")
+    assert str(info.value) == "Column 'nope' does not exist in dataset 'trades'"
 
 
 def test_unknown_select_column_raises_query_error() -> None:

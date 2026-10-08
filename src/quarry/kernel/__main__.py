@@ -1,4 +1,4 @@
-"""Kernel subprocess entry: python -m quarry.kernel --socket PATH --root ROOT."""
+"""Kernel subprocess entry: python -m quarry.kernel --socket PATH --root ROOT --temp-dir DIR."""
 
 from __future__ import annotations
 
@@ -13,9 +13,9 @@ import sys
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from types import FrameType
-from typing import NoReturn
+from typing import NoReturn, cast
 
+import duckdb
 from pydantic import ValidationError
 
 from quarry.config import load_config
@@ -40,12 +40,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m quarry.kernel")
     parser.add_argument("--socket", required=True)
     parser.add_argument("--root", required=True)
+    parser.add_argument("--temp-dir", required=True)
     args = parser.parse_args()
     config = load_config(Path(args.root))
     if config.data.kernel_memory_mb > 0:
         apply_memory_cap(config.data.kernel_memory_mb)
-    namespace = build_namespace(config)
-    executor = Executor(namespace, row_cap=config.data.row_cap)
+    namespace = build_namespace(config, Path(args.temp_dir))
+    kernel_conn = cast(duckdb.DuckDBPyConnection, namespace["_conn"])
+    executor = Executor(namespace, conn=kernel_conn, row_cap=config.data.row_cap)
     conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     conn.connect(args.socket)
     serve(conn, executor)
@@ -83,7 +85,7 @@ def serve(
     reader calls `on_disconnect` at once, even mid-step; by default it ends the process.
     """
     service = KernelService(executor)
-    signal.signal(signal.SIGINT, _interrupt_handler(executor))
+    signal.signal(signal.SIGINT, executor.on_sigint)
     executing_thread = threading.get_ident()
     send = _sender(conn)
     requests: queue.Queue[Request | None] = queue.Queue()
@@ -131,16 +133,6 @@ def serve(
 def _refused(request: Request) -> Response:
     error = RpcError(type="KernelShutdown", message="the kernel is shutting down")
     return Response(id=request.id, error=error)
-
-
-def _interrupt_handler(executor: Executor) -> Callable[[int, FrameType | None], None]:
-    def on_sigint(signum: int, frame: FrameType | None) -> None:
-        # Outside user code (idle, describing a step's writes, writing a response) a
-        # KeyboardInterrupt would escape and end the kernel, so the signal is dropped there.
-        if executor.running:
-            raise KeyboardInterrupt
-
-    return on_sigint
 
 
 def _sender(conn: socket.socket) -> Send:

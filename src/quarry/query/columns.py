@@ -39,4 +39,5 @@ def _input_columns(spec: QuerySpec) -> list[str]:
 def _require_columns(spec: QuerySpec, names: Iterable[str], available: set[str]) -> None:
     for name in names:
         if name not in available:
-            raise QueryError(name, spec.dataset)
+            message = f"Column {name!r} does not exist in dataset {spec.dataset!r}"
+            raise QueryError(message, dataset=spec.dataset, column=name)

@@ -79,9 +79,29 @@ def test_describe_round_trips_through_json_mode() -> None:
     assert DatasetMeta.model_validate(wire) == meta
 
 
-def test_dataset_names_skips_private_and_non_datasets() -> None:
+def test_dataset_names_includes_underscore_names_and_skips_non_datasets() -> None:
     ns = {"a": frame(), "_b": frame(), "c": 3, "pl": pl}
-    assert dataset_names(ns) == {"a"}
+    assert dataset_names(ns) == {"a", "_b"}
+
+
+class Opaque:
+    """A proxy whose `__class__` raises, so `isinstance` cannot be asked about it."""
+
+    @property
+    def __class__(self) -> type:
+        raise RuntimeError("no class")
+
+
+class OpaqueLazyFrame(Opaque, pl.LazyFrame):
+    pass
+
+
+def test_dataset_detection_uses_the_type_not_its_class_attribute() -> None:
+    assert not is_dataset(Opaque())
+    assert dataset_names({"p": Opaque(), "a": frame()}) == {"a"}
+    lazy = OpaqueLazyFrame({"a": [1]})
+    assert is_dataset(lazy)
+    assert backing_of(lazy) == "polars_lazy"
 
 
 def test_dataset_names_ignores_non_string_keys() -> None:

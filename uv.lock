@@ -708,10 +708,10 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "arrow-odbc", marker = "extra == 'mssql'", specifier = ">=10" },
-    { name = "duckdb", specifier = ">=1.0" },
-    { name = "polars", specifier = ">=1.0" },
+    { name = "duckdb", specifier = ">=1.5,<2" },
+    { name = "polars", specifier = ">=2.0,<3" },
     { name = "pyarrow", specifier = ">=15.0" },
-    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pydantic", specifier = ">=2.5" },
 ]
 provides-extras = ["mssql"]
 

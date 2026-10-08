@@ -1,11 +1,10 @@
-"""DuckDB over the Hive-partitioned parquet cache, plus local frame registration."""
+"""DuckDB over the Hive-partitioned parquet cache, and DuckDB SQL over local datasets."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import duckdb
-import polars as pl
 from pydantic import BaseModel
 
 
@@ -27,9 +26,6 @@ class ParquetCatalog:
 
     def sql_local(self, query: str) -> duckdb.DuckDBPyRelation:
         return self._conn.sql(query)
-
-    def register(self, name: str, frame: pl.DataFrame) -> None:
-        self._conn.register(name, frame)
 
 
 def scan_layout(root: Path) -> list[PartitionLayout]:
