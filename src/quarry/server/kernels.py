@@ -1,0 +1,72 @@
+"""One kernel per session, with restart-and-replay."""
+
+from __future__ import annotations
+
+import threading
+from pathlib import Path
+
+from pydantic import BaseModel
+
+from quarry.kernel.client import KernelClient
+from quarry.server.models import KernelStatus, Step
+
+
+class ReplayReport(BaseModel):
+    replayed: int
+    failed_step: int | None
+    error: str | None
+
+
+class KernelManager:
+    def __init__(self, root: Path) -> None:
+        self._root = root
+        self._clients: dict[str, KernelClient] = {}
+        self._running: set[str] = set()
+        self._lock = threading.Lock()
+
+    def get(self, session_id: str) -> KernelClient:
+        with self._lock:
+            client = self._clients.get(session_id)
+            if client is None or not client.is_alive():
+                if client is not None:
+                    client.close()
+                client = KernelClient.spawn(self._root)
+                self._clients[session_id] = client
+            return client
+
+    def status(self, session_id: str) -> KernelStatus:
+        client = self._clients.get(session_id)
+        if client is None:
+            return KernelStatus(status="starting")
+        if not client.is_alive():
+            return KernelStatus(status="dead")
+        return KernelStatus(status="running" if session_id in self._running else "idle")
+
+    def mark_running(self, session_id: str, running: bool) -> None:
+        if running:
+            self._running.add(session_id)
+        else:
+            self._running.discard(session_id)
+
+    def restart(self, session_id: str, steps: list[Step]) -> ReplayReport:
+        """Replace the kernel and re-run `steps` in index order, stopping at the first failure.
+
+        `replayed` counts the steps that ran ok; indices may have gaps, so it is not an index.
+        """
+        with self._lock:
+            old = self._clients.pop(session_id, None)
+            if old is not None:
+                old.close()
+        client = self.get(session_id)
+        for replayed, step in enumerate(sorted(steps, key=lambda s: s.index)):
+            result = client.execute(step.code)
+            if result.status != "ok":
+                message = result.error.traceback if result.error else result.status
+                return ReplayReport(replayed=replayed, failed_step=step.index, error=message)
+        return ReplayReport(replayed=len(steps), failed_step=None, error=None)
+
+    def close_all(self) -> None:
+        with self._lock:
+            for client in self._clients.values():
+                client.close()
+            self._clients.clear()
