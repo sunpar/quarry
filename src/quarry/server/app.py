@@ -60,7 +60,9 @@ def create_app(
         yield
         service.shutdown()
 
-    app = FastAPI(title="Quarry", docs_url=None, redoc_url=None, lifespan=lifespan)
+    app = FastAPI(
+        title="Quarry", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
+    )
     app.state.service = service
 
     def authed(authorization: Annotated[str | None, Header()] = None) -> None:

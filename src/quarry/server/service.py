@@ -123,7 +123,6 @@ class SessionService:
         return step
 
     def status(self, session_id: str) -> SessionStatus:
-        self._store.get(session_id)
         running = self._running.get(session_id)
         return SessionStatus(
             session_id=session_id,
@@ -136,11 +135,9 @@ class SessionService:
         self._kernels.get(session_id).interrupt()
 
     def query(self, session_id: str, spec: QuerySpec) -> QueryResult:
-        self._store.get(session_id)
         return self._kernels.get(session_id).query(spec)
 
     def datasets(self, session_id: str) -> builtins.list[DatasetMeta]:
-        self._store.get(session_id)
         return self._kernels.get(session_id).list_datasets()
 
     def restart(self, session_id: str) -> ReplayReport:

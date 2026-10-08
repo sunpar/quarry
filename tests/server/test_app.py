@@ -1,8 +1,12 @@
+import re
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from starlette.routing import BaseRoute
 
 from quarry.agent.fake import FakeProvider
 from quarry.agent.types import AssistantTurn, Provider, ToolCall
@@ -59,6 +63,16 @@ def wait_kernel_running(client: TestClient, sid: str, timeout: float = 30.0) -> 
     raise AssertionError("kernel never started running the step")
 
 
+def api_routes(routes: list[BaseRoute]) -> Iterator[APIRoute]:
+    for route in routes:
+        if isinstance(route, APIRoute):
+            yield route
+        # FastAPI 0.14x keeps an included router as one entry instead of copying its routes.
+        nested = getattr(route, "original_router", None)
+        if nested is not None:
+            yield from api_routes(nested.routes)
+
+
 def test_auth_required(tmp_path: Path) -> None:
     client = make_client(tmp_path, [])
     assert client.get("/healthz").status_code == 200
@@ -66,6 +80,17 @@ def test_auth_required(tmp_path: Path) -> None:
     assert bare.get("/sessions").status_code == 401
     wrong = {"Authorization": "Bearer wrong"}
     assert bare.get("/sessions", headers=wrong).status_code == 401
+    assert bare.get("/openapi.json").status_code == 404
+    # A route registered outside the authed router would answer here without a token.
+    checked: list[str] = []
+    for route in api_routes(client.app.routes):
+        if route.path in {"/healthz", "/"}:
+            continue
+        path = re.sub(r"\{[^}]+\}", "x", route.path)
+        for method in route.methods:
+            assert bare.request(method, path).status_code == 401, f"{method} {route.path}"
+        checked.append(route.path)
+    assert "/sessions/{session_id}/restart" in checked  # the authed router's routes were walked
 
 
 def test_prompt_step_end_to_end(tmp_path: Path) -> None:
