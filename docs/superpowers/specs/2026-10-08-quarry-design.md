@@ -236,7 +236,8 @@ Durable checkpoints. A directory the researcher can copy, share, or commit.
 
 ```
 <quarry root>/projects/<slug>/
-  project.json            { name, description, created_at, updated_at }
+  project.json            { name, description, created_at, updated_at,
+                            canvas: [{ view: string, x, y, w, h }] }
   datasets/<name>/
     recipe.py             self-contained Python producing the dataset
     recipe.raw.py         the untidied concatenation, kept as fallback
@@ -504,6 +505,11 @@ useDatasetSchema(name: string): Column[] | null
 issued since the last change. Nothing else is importable from the hooks
 module.
 
+A `key` beginning with `shared:` is a linked key. On the project canvas the
+host keeps one value per linked key across every mounted view, so a date
+range or ticker chosen in one card re-queries every card that reads the same
+key. Inside a session each view's linked keys are private to that view.
+
 ### Built-in components
 
 Shipped in the package with manifests: data table (AG Grid), data table
@@ -552,6 +558,17 @@ Saves the step's frozen TSX, the current snapshot's state, and the
 component id. For each dataset the view's queries reference, saves that
 dataset into the project first if it isn't already there, prompting once for
 live versus pinned. The view's `meta.json` lists those dataset names.
+
+### Canvas
+
+Each project has a canvas tab: a snap-to-grid dashboard of saved views, each
+in its own iframe slot, draggable and resizable. Positions and sizes live in
+`project.json` under `canvas`. "Pin to canvas" on a step's view saves the
+view (if not already saved) and appends a card. The canvas is a grid, not an
+infinite pan-and-zoom surface, because data views need to render at legible
+native size. The session's step column stays linear and chronological; the
+canvas is the curated arrangement, the step column is the record. Linked
+keys (section 9, hooks) make cards cross-filter.
 
 ### Recall
 
@@ -675,7 +692,8 @@ Each stage is usable on its own before the next starts.
    and the Lightweight Charts time series built-ins, code drawer, interrupt.
    This is the milestone to put in front of a researcher.
 4. **Projects.** Save dataset with tidy and validation, pinned snapshots,
-   save view, recall, project browser in the rail.
+   save view, recall, project browser in the rail, the canvas tab with
+   drag and resize, pin to canvas, linked keys across cards.
 5. **Breadth.** Remaining built-ins, researcher and team libraries,
    `search_components`, to-code, Perspective with Arrow transport, export, the
    opt-in licensed libraries, CLI project commands.
