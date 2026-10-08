@@ -137,9 +137,15 @@ class QuerySpec(BaseModel):
 
 
 def _has_non_finite(value: Json) -> bool:
-    if isinstance(value, list):
-        return any(_has_non_finite(item) for item in value)
-    return isinstance(value, float) and not math.isfinite(value)
+    match value:
+        case list():
+            return any(_has_non_finite(item) for item in value)
+        case dict():
+            return any(_has_non_finite(item) for item in value.values())
+        case float():
+            return not math.isfinite(value)
+        case _:
+            return False
 
 
 def _require_unique(names: list[str], role: str) -> None:

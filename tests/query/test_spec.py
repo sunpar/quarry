@@ -205,6 +205,7 @@ NON_FINITE_FILTERS: list[tuple[FilterOp, Json]] = [
         ("ge", bad),
         ("in", [1.0, bad]),
         ("not_in", [bad]),
+        ("in", [{"threshold": bad}]),
         ("between", [bad, 1.0]),
         ("between", [0.0, bad]),
     ]

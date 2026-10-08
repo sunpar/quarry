@@ -83,7 +83,12 @@ def to_source(
             head=f"{spec.dataset}.lazy()",
             head_is_lazy=True,
         )
-        return f"{_import_lines(spec, schema)}{chain}\n"
+        imported = _imported_names(spec, schema)
+        if spec.dataset in imported:
+            raise ValueError(
+                f"dataset {spec.dataset!r} would be shadowed by the generated import; rename it"
+            )
+        return f"{_import_lines(imported)}{chain}\n"
     if result_name == spec.dataset:
         # The view is dropped through the dataset after the result is assigned.
         raise ValueError(f"result_name {result_name!r} must differ from the dataset for a relation")
@@ -271,13 +276,17 @@ def _infer_temporal(value: Json) -> object:
         return value
 
 
-def _import_lines(spec: QuerySpec, schema: Schema | None) -> str:
+def _imported_names(spec: QuerySpec, schema: Schema | None) -> list[str]:
+    """The names the generated import lines bind, for the temporal literals the filters need."""
     literals = [
         _literal(f.value, _dtype(schema, f.col)).value
         for f in spec.filters
         if f.op not in TEXT_OPS | NULL_OPS
     ]
-    names = sorted({name for value in literals for name in _temporal_names(value)})
+    return sorted({name for value in literals for name in _temporal_names(value)})
+
+
+def _import_lines(names: list[str]) -> str:
     lines = [
         f"from {module} import {', '.join(n for n in names if IMPORTED_FROM[n] == module)}\n"
         for module in sorted({IMPORTED_FROM[n] for n in names})

@@ -408,6 +408,23 @@ def test_names_must_be_python_identifiers(dataset: str, result_name: str) -> Non
         to_source(QuerySpec(dataset=dataset), "polars", result_name=result_name)
 
 
+@pytest.mark.parametrize(
+    ("dataset", "dtype", "value"),
+    [
+        ("date", pl.Date(), "2024-01-02"),
+        ("datetime", pl.Datetime(), "2024-01-02T09:30:00"),
+        ("ZoneInfo", pl.Datetime(time_zone="UTC"), "2024-01-02T09:30:00"),
+    ],
+)
+def test_dataset_named_like_a_generated_import_is_rejected(
+    dataset: str, dtype: pl.DataType, value: str
+) -> None:
+    # The import line would rebind the dataset before the chain reads it.
+    spec = QuerySpec(dataset=dataset, filters=[Filter(col="ts", op="ge", value=value)])
+    with pytest.raises(ValueError, match="shadowed by the generated import"):
+        to_source(spec, "polars", schema={"ts": dtype})
+
+
 def test_relation_source_needs_a_result_name_other_than_the_dataset() -> None:
     # The generated code drops its view through the dataset after assigning the result.
     with pytest.raises(ValueError, match="must differ from the dataset"):
