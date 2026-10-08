@@ -120,8 +120,7 @@ def create_app(
     @api.post("/sessions/{session_id}/interrupt")
     def interrupt(session_id: str) -> dict[str, bool]:
         session_or_404(session_id)
-        service.interrupt(session_id)
-        return {"ok": True}
+        return {"ok": service.interrupt(session_id)}
 
     # The body is validated here, not by FastAPI, so a rejected spec is a 400 rather than a 422.
     @api.post("/sessions/{session_id}/query")

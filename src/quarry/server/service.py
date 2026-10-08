@@ -131,8 +131,8 @@ class SessionService:
             last_error=self._last_error.get(session_id),
         )
 
-    def interrupt(self, session_id: str) -> None:
-        self._kernels.get(session_id).interrupt()
+    def interrupt(self, session_id: str) -> bool:
+        return self._kernels.get(session_id).interrupt()
 
     def query(self, session_id: str, spec: QuerySpec) -> QueryResult:
         return self._kernels.get(session_id).query(spec)

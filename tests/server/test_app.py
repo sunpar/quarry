@@ -238,3 +238,11 @@ def test_restart_replays_ok_code_of_a_prompt_step_the_kernel_died_in(tmp_path: P
         report = client.post(f"/sessions/{sid}/restart").json()
         assert report["failed_step"] is None and report["replayed"] == 1
         assert [d["name"] for d in client.get(f"/sessions/{sid}/datasets").json()] == ["df"]
+
+
+def test_interrupt_when_idle_reports_nothing_interrupted(tmp_path: Path) -> None:
+    with make_client(tmp_path, []) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps/manual", json={"code": "a = 1"})
+        wait_idle(client, sid)
+        assert client.post(f"/sessions/{sid}/interrupt").json() == {"ok": False}
