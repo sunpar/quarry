@@ -109,6 +109,7 @@ def run_agent_step(
             code = call.input.get("code")
             if not result.is_error and isinstance(code, str):
                 code_blocks.append(code)
+            # Needs a fresh ToolExecutor per step and a return on the first interrupted result.
             if any(r.status == "interrupted" for r in tools.exec_results):
                 transcript.append(Message(role="user", tool_results=results))
                 return finish("interrupted", error="interrupted by researcher")

@@ -68,6 +68,11 @@ def test_second_consecutive_python_error_ends_step(kernel: KernelClient, tmp_pat
     assert out.error_message is not None and "ZeroDivisionError" in out.error_message
     assert out.iterations == 2
     assert len(provider.calls) == 2
+    result_messages = [m for m in out.transcript if m.tool_results]
+    assert len(result_messages) == 2
+    for message in result_messages:
+        assert message.role == "user"
+        assert all(r.is_error and "ZeroDivisionError" in r.content for r in message.tool_results)
 
 
 def test_one_error_then_success_is_ok(kernel: KernelClient, tmp_path: Path) -> None:
