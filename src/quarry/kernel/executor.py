@@ -34,7 +34,7 @@ from quarry.query.sql_target import to_sql
 
 TAIL_BYTES: Final = 4096
 # Kernel-level exits and interrupts: a guard that turns failures into results lets these through.
-_NOT_FAILURES: Final = (KeyboardInterrupt, SystemExit, GeneratorExit)
+NOT_FAILURES: Final = (KeyboardInterrupt, SystemExit, GeneratorExit)
 _NOTHING_STORED: Final = CodeNames(frozenset(), frozenset(), frozenset())
 
 Status = Literal["ok", "error", "interrupted"]
@@ -167,7 +167,7 @@ class Executor:
         obj = self._dataset(name)
         try:
             return describe_dataset(name, obj, count_rows=False), None
-        except _NOT_FAILURES:
+        except NOT_FAILURES:
             raise
         except BaseException as exc:  # polars panics are BaseException, not Exception
             error = _exec_error(exc)
@@ -246,13 +246,14 @@ def _arrow_base64(frame: pl.DataFrame) -> str:
 def _exec_error(exc: BaseException) -> ExecError:
     # format_exception already survives a failing __str__ ("<exception str() failed>").
     trace = "".join(traceback.format_exception(exc))
-    return ExecError(type=type(exc).__name__, message=_message(exc), traceback=trace)
+    return ExecError(type=type(exc).__name__, message=exception_message(exc), traceback=trace)
 
 
-def _message(exc: BaseException) -> str:
+def exception_message(exc: BaseException) -> str:
+    """`str(exc)`, or a placeholder when the exception cannot print itself."""
     try:
         return str(exc)
-    except _NOT_FAILURES:
+    except NOT_FAILURES:
         raise
     except BaseException:  # user code's exception can fail in its own __str__
         return f"<unprintable {type(exc).__name__}>"
