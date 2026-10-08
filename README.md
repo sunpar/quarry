@@ -52,7 +52,7 @@ also has `describe`, `list_datasets`, `query`, `interrupt` and `snapshot`.
 ## Driving the server from curl (Stage 2)
 
 ```bash
-export QUARRY_ANTHROPIC_API_KEY=...   # or QUARRY_OPENAI_API_KEY with provider.name = "openai" in config.toml
+export QUARRY_ANTHROPIC_API_KEY=...   # or QUARRY_OPENAI_API_KEY, with provider.name = "openai" and provider.model = "gpt-5" in config.toml
 quarry serve --root ~/.quarry          # prints the port and token
 T="Bearer <token>"; U=http://127.0.0.1:<port>
 SID=$(curl -s -X POST $U/sessions -H "Authorization: $T" -H 'Content-Type: application/json' -d '{"title":"demo"}' | jq -r .id)
