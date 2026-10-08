@@ -97,6 +97,39 @@ def test_from_openai_response_length_and_refusal() -> None:
     )
     turn = from_openai_response(refusal)
     assert turn.stop == "refusal" and turn.refusal_reason == "no"
+    filtered = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                finish_reason="content_filter",
+                message=SimpleNamespace(content=None, tool_calls=None),
+            )
+        ]
+    )
+    blocked = from_openai_response(filtered)
+    assert blocked.stop == "refusal"
+    assert blocked.refusal_reason == "response blocked by content filter"
+
+
+def test_from_openai_response_truncated_tool_call_is_max_tokens() -> None:
+    response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                finish_reason="length",
+                message=SimpleNamespace(
+                    content=None,
+                    tool_calls=[
+                        SimpleNamespace(
+                            id="c1",
+                            function=SimpleNamespace(name="run_python", arguments='{"code": "x='),
+                        )
+                    ],
+                ),
+            )
+        ]
+    )
+    turn = from_openai_response(response)
+    assert turn.stop == "max_tokens"
+    assert turn.tool_calls == []
 
 
 def test_complete_maps_errors() -> None:

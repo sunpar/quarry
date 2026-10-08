@@ -19,7 +19,9 @@ FINISH_MAP: Final[dict[str, StopReason]] = {
     "stop": "end",
     "tool_calls": "tool_use",
     "length": "max_tokens",
+    "content_filter": "refusal",
 }
+FILTER_REASON: Final = "response blocked by content filter"
 
 
 class OpenAIProvider:
@@ -98,14 +100,16 @@ def to_openai_tools(tools: list[ToolDef]) -> list[dict[str, Json]]:
 def from_openai_response(response: object) -> AssistantTurn:
     choice = response.choices[0]  # type: ignore[attr-defined]
     message = choice.message
-    refusal = getattr(message, "refusal", None)
+    stop = FINISH_MAP.get(str(choice.finish_reason), "end")
+    refusal = getattr(message, "refusal", None) or (FILTER_REASON if stop == "refusal" else None)
     if refusal:
         return AssistantTurn(text="", tool_calls=[], stop="refusal", refusal_reason=str(refusal))
+    if stop == "max_tokens":
+        return AssistantTurn(text=str(message.content or ""), tool_calls=[], stop="max_tokens")
     calls = [
         ToolCall(
             id=str(c.id), name=str(c.function.name), input=json.loads(c.function.arguments or "{}")
         )
         for c in (message.tool_calls or [])
     ]
-    stop = FINISH_MAP.get(str(choice.finish_reason), "end")
     return AssistantTurn(text=str(message.content or ""), tool_calls=calls, stop=stop)
