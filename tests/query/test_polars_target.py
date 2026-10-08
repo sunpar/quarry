@@ -3,9 +3,11 @@ from datetime import date
 import polars as pl
 import pytest
 
-from quarry.query import Agg, AggFn, Filter, Pivot, QueryError, QuerySpec, Sort
-from quarry.query.polars_target import to_polars
+from quarry.query import Agg, AggFn, Filter, Json, Pivot, QueryError, QuerySpec, Sort
+from quarry.query.polars_target import CoercedLiteral, coerce_literal, to_polars
 from tests.query.fixtures import SPECS, trades
+
+VOLUME_BY_TICKER = Pivot(index=["date"], columns="ticker", values="volume", agg="sum")
 
 
 def test_passthrough_returns_lazyframe() -> None:
@@ -111,6 +113,70 @@ def test_pivot_absent_cell_is_null_for_sum_and_zero_for_count() -> None:
 
     assert msft_on_jan_4("volume", "sum") is None
     assert msft_on_jan_4("ret", "count") == 0
+
+
+def test_pivot_columns_are_sorted() -> None:
+    frame = pl.DataFrame(
+        {"date": [date(2024, 1, 2)] * 2, "ticker": ["ZZZ", "MSFT"], "volume": [1, 2]}
+    )
+    pivot = Pivot(index=["date"], columns="ticker", values="volume", agg="sum")
+    out = to_polars(QuerySpec(dataset="t", pivot=pivot), frame).collect()
+    assert out.columns == ["date", "MSFT", "ZZZ"]
+
+
+def test_pivot_unknown_select_raises_query_error() -> None:
+    spec = QuerySpec(dataset="trades", pivot=VOLUME_BY_TICKER, select=["nope"])
+    with pytest.raises(QueryError) as info:
+        to_polars(spec, trades())
+    assert info.value.column == "nope"
+
+
+def test_pivot_unknown_sort_raises_query_error() -> None:
+    spec = QuerySpec(dataset="trades", pivot=VOLUME_BY_TICKER, sort=[Sort(col="nope")])
+    with pytest.raises(QueryError) as info:
+        to_polars(spec, trades())
+    assert info.value.column == "nope"
+
+
+@pytest.mark.parametrize(
+    ("value", "dtype", "expected"),
+    [
+        (0, pl.Float64(), CoercedLiteral(0.0, compare_as_float=False)),
+        ([1, 2.5], pl.Float32(), CoercedLiteral([1.0, 2.5], compare_as_float=False)),
+        (100.0, pl.Int64(), CoercedLiteral(100, compare_as_float=False)),
+        ([100, 200.5], pl.Int64(), CoercedLiteral([100.0, 200.5], compare_as_float=True)),
+        ("2024-01-03", pl.Date(), CoercedLiteral(date(2024, 1, 3), compare_as_float=False)),
+        (True, pl.Float64(), CoercedLiteral(True, compare_as_float=False)),
+        ("AAPL", pl.String(), CoercedLiteral("AAPL", compare_as_float=False)),
+    ],
+)
+def test_coerce_literal(value: Json, dtype: pl.DataType, expected: CoercedLiteral) -> None:
+    # Compare reprs: 0 == 0.0 in Python, so plain equality would hide a missed coercion.
+    assert repr(coerce_literal(value, dtype)) == repr(expected)
+
+
+@pytest.mark.parametrize(
+    ("flt", "height"),
+    [
+        (Filter(col="ret", op="in", value=[0]), 1),
+        (Filter(col="ret", op="eq", value=0), 1),
+        (Filter(col="volume", op="in", value=[100.0]), 1),
+        (Filter(col="volume", op="in", value=[100, 200.5]), 1),
+        (Filter(col="volume", op="eq", value=100.5), 0),
+        (Filter(col="volume", op="gt", value=399.5), 2),
+        (Filter(col="volume", op="between", value=[100.0, 250.5]), 2),
+    ],
+    ids=lambda flt: flt.model_dump_json() if isinstance(flt, Filter) else str(flt),
+)
+def test_numeric_literal_matches_column_dtype(flt: Filter, height: int) -> None:
+    out = to_polars(QuerySpec(dataset="trades", filters=[flt]), trades()).collect()
+    assert out.height == height
+
+
+def test_not_in_excludes_null_like_sql() -> None:
+    spec = QuerySpec(dataset="trades", filters=[Filter(col="ret", op="not_in", value=[0])])
+    out = to_polars(spec, trades()).collect()
+    assert out["ret"].to_list() == [0.01, -0.02, 0.03]
 
 
 @pytest.mark.parametrize("spec", SPECS, ids=[s.model_dump_json() for s in SPECS])

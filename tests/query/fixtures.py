@@ -85,4 +85,7 @@ SPECS: list[QuerySpec] = [
         pivot=Pivot(index=["ticker"], columns="sector", values="volume", agg="std"),
         sort=[Sort(col="ticker")],
     ),
+    QuerySpec(dataset="trades", filters=[Filter(col="ret", op="in", value=[0])]),
+    QuerySpec(dataset="trades", filters=[Filter(col="ret", op="not_in", value=[0])]),
+    QuerySpec(dataset="trades", filters=[Filter(col="volume", op="in", value=[100.0, 300])]),
 ]

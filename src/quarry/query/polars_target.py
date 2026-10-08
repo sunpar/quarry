@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Literal
 
 import polars as pl
 
 from quarry.query.spec import Agg, AggFn, Filter, Json, Pivot, QueryError, QuerySpec
+
+CompareOp = Literal["eq", "ne", "lt", "le", "gt", "ge", "in", "not_in", "between"]
+
+
+@dataclass(frozen=True, slots=True)
+class CoercedLiteral:
+    """A filter's JSON literal as plain Python values its column can be compared with."""
+
+    value: object
+    compare_as_float: bool
 
 
 def to_polars(spec: QuerySpec, frame: pl.DataFrame | pl.LazyFrame) -> pl.LazyFrame:
@@ -19,6 +32,8 @@ def to_polars(spec: QuerySpec, frame: pl.DataFrame | pl.LazyFrame) -> pl.LazyFra
         lf = lf.group_by(spec.group_by).agg([agg_expr(a) for a in spec.aggs])
     elif spec.pivot is not None:
         lf = _pivot(lf, spec.pivot)
+        # Pivot output columns come from the data, so they can only be checked now.
+        _require_columns(spec, _output_columns(spec), set(lf.collect_schema().names()))
     if spec.sort:
         lf = lf.sort([s.col for s in spec.sort], descending=[s.desc for s in spec.sort])
     if spec.limit is not None or spec.offset:
@@ -31,25 +46,6 @@ def to_polars(spec: QuerySpec, frame: pl.DataFrame | pl.LazyFrame) -> pl.LazyFra
 def filter_expr(f: Filter, dtype: pl.DataType) -> pl.Expr:
     col = pl.col(f.col)
     match f.op:
-        case "eq":
-            return col == _lit(f.value, dtype)
-        case "ne":
-            return col != _lit(f.value, dtype)
-        case "lt":
-            return col < _lit(f.value, dtype)
-        case "le":
-            return col <= _lit(f.value, dtype)
-        case "gt":
-            return col > _lit(f.value, dtype)
-        case "ge":
-            return col >= _lit(f.value, dtype)
-        case "in":
-            return col.is_in(_py_list(f.value, dtype))
-        case "not_in":
-            return ~col.is_in(_py_list(f.value, dtype))
-        case "between":
-            lo, hi = _py_list(f.value, dtype)
-            return col.is_between(pl.lit(lo), pl.lit(hi))
         case "contains":
             return col.str.contains(str(f.value), literal=True)
         case "starts_with":
@@ -58,6 +54,73 @@ def filter_expr(f: Filter, dtype: pl.DataType) -> pl.Expr:
             return col.is_null()
         case "not_null":
             return col.is_not_null()
+        case op:
+            literal = coerce_literal(f.value, dtype)
+            operand = col.cast(pl.Float64) if literal.compare_as_float else col
+            return _compare(op, operand, literal.value)
+
+
+def coerce_literal(value: Json, dtype: pl.DataType) -> CoercedLiteral:
+    """Coerce a JSON literal, or each item of a list literal, to match `dtype`.
+
+    polars 2.0 `is_in` is strictly typed, and JSON from JS drops the `.0` of whole floats.
+    An integer column compared with a fractional number must be compared as Float64,
+    which `compare_as_float` signals; whole floats against it simply become ints.
+    """
+    items = value if isinstance(value, list) else [value]
+    as_float = dtype.is_integer() and any(_is_fractional(item) for item in items)
+    target = pl.Float64() if as_float else dtype
+    coerced = [_coerce_item(item, target) for item in items]
+    return CoercedLiteral(coerced if isinstance(value, list) else coerced[0], as_float)
+
+
+def _compare(op: CompareOp, col: pl.Expr, value: object) -> pl.Expr:
+    match op:
+        case "eq":
+            return col == pl.lit(value)
+        case "ne":
+            return col != pl.lit(value)
+        case "lt":
+            return col < pl.lit(value)
+        case "le":
+            return col <= pl.lit(value)
+        case "gt":
+            return col > pl.lit(value)
+        case "ge":
+            return col >= pl.lit(value)
+        case "in":
+            return col.is_in(_as_list(value))
+        case "not_in":
+            return ~col.is_in(_as_list(value))
+        case "between":
+            lo, hi = _as_list(value)
+            return col.is_between(pl.lit(lo), pl.lit(hi))
+
+
+def _is_fractional(item: Json) -> bool:
+    return isinstance(item, float) and not item.is_integer()
+
+
+def _coerce_item(item: Json, dtype: pl.DataType) -> object:
+    match item:
+        case bool():
+            return item
+        case int() if dtype.is_float():
+            return float(item)
+        case float() if dtype.is_integer() and item.is_integer():
+            return int(item)
+        case str() if dtype == pl.Date:
+            return date.fromisoformat(item)
+        case str() if isinstance(dtype, pl.Datetime):
+            return datetime.fromisoformat(item)
+        case _:
+            return item
+
+
+def _as_list(value: object) -> list[object]:
+    if not isinstance(value, list):
+        raise TypeError("expected a list value")
+    return value
 
 
 def agg_expr(a: Agg) -> pl.Expr:
@@ -94,46 +157,35 @@ def _pivot(lf: pl.LazyFrame, pivot: Pivot) -> pl.LazyFrame:
         index=pivot.index,
         values=pivot.values,
         aggregate_function=_aggregate(pivot.agg, pl.element()),
+        sort_columns=True,
     )
     return wide.lazy()
 
 
-def _lit(value: Json, dtype: pl.DataType) -> pl.Expr:
-    return pl.lit(_py(value, dtype))
-
-
-def _py(value: Json, dtype: pl.DataType) -> object:
-    """Convert a JSON literal to the Python value polars should compare against."""
-    if isinstance(value, str):
-        if dtype == pl.Date:
-            return date.fromisoformat(value)
-        if isinstance(dtype, pl.Datetime):
-            return datetime.fromisoformat(value)
-    return value
-
-
-def _py_list(value: Json, dtype: pl.DataType) -> list[object]:
-    if not isinstance(value, list):
-        raise TypeError("expected a list value")
-    return [_py(item, dtype) for item in value]
-
-
 def _check_columns(spec: QuerySpec, names: set[str]) -> None:
-    referenced: list[str] = [f.col for f in spec.filters]
-    if spec.group_by is not None:
-        referenced += spec.group_by
-        referenced += [a.col for a in spec.aggs]
-    if spec.pivot is not None:
-        referenced += [*spec.pivot.index, spec.pivot.columns, spec.pivot.values]
-    for name in referenced:
-        if name not in names:
-            raise QueryError(name, spec.dataset)
-    # sort and select run after aggregation, so they see only the columns it produced.
-    produced = names if spec.group_by is None else {*spec.group_by, *(a.name for a in spec.aggs)}
+    _require_columns(spec, _input_columns(spec), names)
     if spec.pivot is None:
-        for s in spec.sort:
-            if s.col not in produced:
-                raise QueryError(s.col, spec.dataset)
-        for name in spec.select or []:
-            if name not in produced:
-                raise QueryError(name, spec.dataset)
+        # sort and select run after any group_by, so they see only the columns it produced.
+        produced = names
+        if spec.group_by is not None:
+            produced = {*spec.group_by, *(a.name for a in spec.aggs)}
+        _require_columns(spec, _output_columns(spec), produced)
+
+
+def _input_columns(spec: QuerySpec) -> list[str]:
+    names = [f.col for f in spec.filters]
+    if spec.group_by is not None:
+        names += [*spec.group_by, *(a.col for a in spec.aggs)]
+    if spec.pivot is not None:
+        names += [*spec.pivot.index, spec.pivot.columns, spec.pivot.values]
+    return names
+
+
+def _output_columns(spec: QuerySpec) -> list[str]:
+    return [*(s.col for s in spec.sort), *(spec.select or [])]
+
+
+def _require_columns(spec: QuerySpec, names: Iterable[str], available: set[str]) -> None:
+    for name in names:
+        if name not in available:
+            raise QueryError(name, spec.dataset)
