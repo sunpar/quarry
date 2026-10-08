@@ -1,5 +1,8 @@
 import json
+import logging
 from pathlib import Path
+
+import pytest
 
 from quarry.components.library import ComponentLibrary, dtype_class
 from quarry.kernel.datasets import Column, DatasetMeta
@@ -24,6 +27,15 @@ def write_component(
             }
         )
     )
+
+
+def write_broken_components(root: Path) -> None:
+    """A manifest that fails validation and one that is not JSON, each with a source file."""
+    for cid, manifest in (("badschema", '{"id": "badschema"}'), ("badjson", "{not json")):
+        d = root / cid
+        d.mkdir(parents=True)
+        (d / "component.tsx").write_text("export default function V() { return null }")
+        (d / "manifest.json").write_text(manifest)
 
 
 def meta(cols: list[tuple[str, str]]) -> DatasetMeta:
@@ -73,3 +85,18 @@ def test_search_filters_by_schema_and_ranks_by_tags(tmp_path: Path) -> None:
     numeric_only = meta([("a", "Int64"), ("b", "Int64")])
     assert [m.id for m in lib.search(dataset=numeric_only, tags=[])] == ["scatter", "table"]
     assert lib.search(dataset=None, tags=["table"])[0].id == "table"
+
+
+def test_broken_manifests_are_skipped_with_a_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    write_component(tmp_path, "table", ["table"], [])
+    write_broken_components(tmp_path)
+    lib = ComponentLibrary([tmp_path])
+    with caplog.at_level(logging.WARNING, logger="quarry.components.library"):
+        assert [e.manifest.id for e in lib.entries()] == ["table"]
+    assert "badschema" in caplog.text and "badjson" in caplog.text
+    table = lib.get("table")
+    assert table is not None
+    assert lib.get("badschema") is None
+    assert [m.id for m in lib.search(dataset=meta([("a", "Int64")]), tags=[])] == ["table"]

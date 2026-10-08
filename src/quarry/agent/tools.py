@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Final
+from collections.abc import Callable
+from typing import Any, Final
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
@@ -39,7 +40,10 @@ SEARCH_COMPONENTS: Final[dict[str, Json]] = {
     "properties": {
         "dataset": {
             "type": "string",
-            "description": "Dataset the component should render; filters by schema compatibility.",
+            "description": (
+                "Dataset the component should render; filters by schema compatibility. "
+                "An empty string searches without a dataset."
+            ),
         },
         "tags": {"type": "array", "items": {"type": "string"}},
     },
@@ -171,22 +175,22 @@ class ToolExecutor:
         self.exec_results: list[ExecResult] = []
 
     def run(self, call: ToolCall) -> ToolResult:
+        routes: dict[str, tuple[type[BaseModel], Callable[[ToolCall, Any], ToolResult]]] = {
+            "run_python": (_RunPython, self._run_python),
+            "describe_dataset": (_Describe, self._describe),
+            "search_components": (_Search, self._search),
+            "render_view": (_Render, self._render),
+            "write_view": (_Write, self._write),
+        }
+        route = routes.get(call.name)
+        if route is None:
+            return _error(call, f"unknown tool {call.name!r}")
+        model, handler = route
         try:
-            match call.name:
-                case "run_python":
-                    return self._run_python(call, _RunPython.model_validate(call.input))
-                case "describe_dataset":
-                    return self._describe(call, _Describe.model_validate(call.input))
-                case "search_components":
-                    return self._search(call, _Search.model_validate(call.input))
-                case "render_view":
-                    return self._render(call, _Render.model_validate(call.input))
-                case "write_view":
-                    return self._write(call, _Write.model_validate(call.input))
-                case _:
-                    return _error(call, f"unknown tool {call.name!r}")
+            args = model.model_validate(call.input)
         except ValidationError as exc:
             return _error(call, f"invalid arguments: {exc}")
+        return handler(call, args)
 
     def _run_python(self, call: ToolCall, args: _RunPython) -> ToolResult:
         result = self._kernel.execute(args.code)
@@ -205,10 +209,12 @@ class ToolExecutor:
         return ToolResult(call_id=call.id, content=meta.model_dump_json(by_alias=True))
 
     def _search(self, call: ToolCall, args: _Search) -> ToolResult:
-        try:
-            meta = self._kernel.describe(args.dataset)
-        except RpcFailure as exc:
-            return _error(call, str(exc))
+        meta = None
+        if args.dataset:
+            try:
+                meta = self._kernel.describe(args.dataset)
+            except RpcFailure as exc:
+                return _error(call, str(exc))
         found = self._library.search(dataset=meta, tags=args.tags)
         return ToolResult(
             call_id=call.id, content=json.dumps([m.model_dump(by_alias=True) for m in found])

@@ -10,7 +10,7 @@ from quarry.agent.transpile import CommandTranspiler, NoopTranspiler, Transpiler
 from quarry.agent.types import ToolCall
 from quarry.components.library import ComponentLibrary
 from quarry.kernel.client import KernelClient
-from tests.components.test_library import write_component
+from tests.components.test_library import write_broken_components, write_component
 
 MAKE_DF = {"code": "df = pl.DataFrame({'a': [1]})"}
 
@@ -151,3 +151,33 @@ def test_unknown_tool_and_bad_args(kernel: KernelClient, tmp_path: Path) -> None
     ex = executor(kernel, tmp_path)
     assert ex.run(ToolCall(id="1", name="fly", input={})).is_error is True
     assert ex.run(ToolCall(id="2", name="run_python", input={})).is_error is True
+
+
+def test_search_without_dataset_browses_by_tags(kernel: KernelClient, tmp_path: Path) -> None:
+    ex = executor(kernel, tmp_path)
+    found = ex.run(
+        ToolCall(id="1", name="search_components", input={"dataset": "", "tags": ["table"]})
+    )
+    assert found.is_error is False
+    assert [m["id"] for m in json.loads(found.content)] == ["table"]
+
+
+def test_broken_manifests_do_not_break_render_or_search(
+    kernel: KernelClient, tmp_path: Path
+) -> None:
+    ex = executor(kernel, tmp_path)
+    write_broken_components(tmp_path / "lib")
+    ex.run(ToolCall(id="1", name="run_python", input=MAKE_DF))
+    found = ex.run(
+        ToolCall(id="2", name="search_components", input={"dataset": "df", "tags": ["table"]})
+    )
+    assert [m["id"] for m in json.loads(found.content)] == ["table"]
+    rendered = ex.run(
+        ToolCall(
+            id="3",
+            name="render_view",
+            input={"component_id": "table", "datasets": ["df"], "initial_state": "{}"},
+        )
+    )
+    assert rendered.is_error is False
+    assert ex.view is not None and ex.view.component_id == "table"

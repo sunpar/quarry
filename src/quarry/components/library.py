@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Literal
 
@@ -11,6 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from quarry.kernel.datasets import DatasetMeta
 
 DtypeClass = Literal["datetime", "numeric", "string", "other"]
+
+log = logging.getLogger(__name__)
 
 
 class SchemaRequirement(BaseModel):
@@ -58,7 +61,14 @@ class ComponentLibrary:
                 source = manifest_path.parent / "component.tsx"
                 if not source.exists():
                     continue
-                manifest = ComponentManifest.model_validate(json.loads(manifest_path.read_text()))
+                try:
+                    manifest = ComponentManifest.model_validate(
+                        json.loads(manifest_path.read_text())
+                    )
+                # JSONDecodeError and pydantic's ValidationError are both ValueErrors.
+                except ValueError as exc:
+                    log.warning("skipping component manifest %s: %s", manifest_path, exc)
+                    continue
                 seen.setdefault(manifest.id, ComponentEntry(manifest=manifest, source_path=source))
         return list(seen.values())
 
