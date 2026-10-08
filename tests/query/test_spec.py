@@ -1,7 +1,7 @@
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
-from quarry.query import Agg, Filter, Pivot, QuerySpec
+from quarry.query import Agg, Filter, FilterOp, Json, Pivot, QuerySpec, Sort
 
 
 def test_minimal_spec() -> None:
@@ -70,3 +70,62 @@ def test_round_trips_json() -> None:
         limit=10,
     )
     assert QuerySpec.model_validate_json(spec.model_dump_json()) == spec
+
+
+@pytest.mark.parametrize(
+    ("model", "data"),
+    [
+        (QuerySpec, {"dataset": "r", "filtr": []}),
+        (Filter, {"col": "x", "op": "eq", "value": 1, "vale": 2}),
+        (Agg, {"col": "x", "fn": "sum", "alais": "s"}),
+        (Pivot, {"index": ["a"], "columns": "b", "values": "x", "agg": "sum", "aggs": "sum"}),
+        (Sort, {"col": "x", "descending": True}),
+    ],
+)
+def test_unknown_keys_rejected(model: type[BaseModel], data: dict[str, Json]) -> None:
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        model.model_validate(data)
+
+
+@pytest.mark.parametrize("op", ["eq", "ne", "lt", "le", "gt", "ge", "contains", "starts_with"])
+@pytest.mark.parametrize("value", [None, [1, 2], {"a": 1}])
+def test_scalar_ops_require_scalar_value(op: FilterOp, value: Json) -> None:
+    with pytest.raises(ValidationError, match="scalar"):
+        Filter(col="x", op=op, value=value)
+
+
+@pytest.mark.parametrize("value", [1, 2.5, "tech", True])
+def test_comparison_ops_accept_scalars(value: Json) -> None:
+    assert Filter(col="x", op="eq", value=value).value == value
+
+
+@pytest.mark.parametrize("op", ["contains", "starts_with"])
+def test_text_ops_require_string(op: FilterOp) -> None:
+    with pytest.raises(ValidationError, match="string"):
+        Filter(col="x", op=op, value=1)
+    assert Filter(col="x", op=op, value="te").value == "te"
+
+
+@pytest.mark.parametrize("op", ["in", "not_in"])
+def test_list_ops_reject_empty_list(op: FilterOp) -> None:
+    with pytest.raises(ValidationError, match="non-empty"):
+        Filter(col="x", op=op, value=[])
+
+
+def test_empty_select_rejected() -> None:
+    with pytest.raises(ValidationError, match="at least 1 item"):
+        QuerySpec(dataset="r", select=[])
+
+
+def test_empty_group_by_rejected() -> None:
+    with pytest.raises(ValidationError, match="at least 1 item"):
+        QuerySpec(dataset="r", group_by=[], aggs=[Agg(col="x", fn="sum")])
+
+
+def test_pivot_requires_index() -> None:
+    with pytest.raises(ValidationError, match="at least 1 item"):
+        Pivot(index=[], columns="b", values="x", agg="sum")
+
+
+def test_pivot_accepts_std() -> None:
+    assert Pivot(index=["a"], columns="b", values="x", agg="std").agg == "std"

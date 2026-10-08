@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, JsonValue, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 FilterOp = Literal[
     "eq",
@@ -22,11 +22,14 @@ FilterOp = Literal[
     "not_null",
 ]
 AggFn = Literal["sum", "mean", "min", "max", "count", "median", "std", "first", "last"]
-PivotAggFn = Literal["sum", "mean", "min", "max", "count", "median", "first", "last"]
 Json = JsonValue
 
 LIST_OPS: frozenset[str] = frozenset({"in", "not_in"})
 NULL_OPS: frozenset[str] = frozenset({"is_null", "not_null"})
+SCALAR_OPS: frozenset[str] = frozenset(
+    {"eq", "ne", "lt", "le", "gt", "ge", "contains", "starts_with"}
+)
+TEXT_OPS: frozenset[str] = frozenset({"contains", "starts_with"})
 
 
 class QueryError(Exception):
@@ -39,24 +42,31 @@ class QueryError(Exception):
 
 
 class Filter(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     col: str
     op: FilterOp
     value: Json = None
 
     @model_validator(mode="after")
     def _check_value_shape(self) -> Filter:
-        if self.op == "between":
-            if not isinstance(self.value, list) or len(self.value) != 2:
-                raise ValueError("between requires a two-element list value")
-        elif self.op in LIST_OPS:
-            if not isinstance(self.value, list):
-                raise ValueError(f"{self.op} requires a list value")
-        elif self.op in NULL_OPS and self.value is not None:
-            raise ValueError(f"{self.op} takes no value")
+        op, value = self.op, self.value
+        if op == "between" and not (isinstance(value, list) and len(value) == 2):
+            raise ValueError("between requires a two-element list value")
+        if op in LIST_OPS and not (isinstance(value, list) and value):
+            raise ValueError(f"{op} requires a non-empty list value")
+        if op in NULL_OPS and value is not None:
+            raise ValueError(f"{op} takes no value")
+        if op in SCALAR_OPS and (value is None or isinstance(value, list | dict)):
+            raise ValueError(f"{op} requires a scalar value")
+        if op in TEXT_OPS and not isinstance(value, str):
+            raise ValueError(f"{op} requires a string value")
         return self
 
 
 class Agg(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     col: str
     fn: AggFn
     alias: str | None = None
@@ -67,22 +77,28 @@ class Agg(BaseModel):
 
 
 class Pivot(BaseModel):
-    index: list[str]
+    model_config = ConfigDict(extra="forbid")
+
+    index: list[str] = Field(min_length=1)
     columns: str
     values: str
-    agg: PivotAggFn
+    agg: AggFn
 
 
 class Sort(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     col: str
     desc: bool = False
 
 
 class QuerySpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     dataset: str
-    select: list[str] | None = None
+    select: list[str] | None = Field(default=None, min_length=1)
     filters: list[Filter] = Field(default_factory=list)
-    group_by: list[str] | None = None
+    group_by: list[str] | None = Field(default=None, min_length=1)
     aggs: list[Agg] = Field(default_factory=list)
     pivot: Pivot | None = None
     sort: list[Sort] = Field(default_factory=list)
