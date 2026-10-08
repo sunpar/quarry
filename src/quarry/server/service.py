@@ -147,7 +147,12 @@ class SessionService:
             self._running[session_id] = None
             self._kernels.mark_running(session_id, True)
         try:
-            steps = [s for s in self._store.get(session_id).steps if s.status == "ok" and s.code]
+            # A prompt step's code holds only blocks that ran ok, so it replays whatever its status.
+            steps = [
+                s
+                for s in self._store.get(session_id).steps
+                if s.code and (s.status == "ok" or s.kind == "prompt")
+            ]
             return self._kernels.restart(session_id, steps)
         finally:
             with self._lock:

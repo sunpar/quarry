@@ -211,3 +211,30 @@ def test_interrupt_running_step(tmp_path: Path) -> None:
         assert client.post(f"/sessions/{sid}/interrupt").json() == {"ok": True}
         wait_idle(client, sid)
         assert client.get(f"/sessions/{sid}").json()["steps"][0]["status"] == "interrupted"
+
+
+def test_restart_replays_ok_code_of_a_failed_prompt_step(tmp_path: Path) -> None:
+    load = "df = pl.DataFrame({'a': [1]})"
+    turns = [py("c1", load), py("c2", "1/0"), py("c3", "1/0"), end()]
+    with make_client(tmp_path, turns) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps", json={"prompt": "load"})
+        wait_idle(client, sid)
+        client.post(f"/sessions/{sid}/steps/manual", json={"code": "n = df.height"})
+        wait_idle(client, sid)
+        steps = client.get(f"/sessions/{sid}").json()["steps"]
+        assert [s["status"] for s in steps] == ["error", "ok"] and steps[0]["code"] == load
+        report = client.post(f"/sessions/{sid}/restart").json()
+        assert report["failed_step"] is None and report["replayed"] == 2
+        assert [d["name"] for d in client.get(f"/sessions/{sid}/datasets").json()] == ["df"]
+
+
+def test_restart_replays_ok_code_of_a_prompt_step_the_kernel_died_in(tmp_path: Path) -> None:
+    turns = [py("c1", "df = pl.DataFrame({'a': [1]})"), py("c2", "import os\nos._exit(2)\n")]
+    with make_client(tmp_path, turns) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps", json={"prompt": "load"})
+        assert wait_idle(client, sid)["kernel"]["status"] == "dead"
+        report = client.post(f"/sessions/{sid}/restart").json()
+        assert report["failed_step"] is None and report["replayed"] == 1
+        assert [d["name"] for d in client.get(f"/sessions/{sid}/datasets").json()] == ["df"]
