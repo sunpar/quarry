@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Literal
 
 import polars as pl
 
-from quarry.query.spec import Agg, AggFn, Filter, Json, Pivot, QueryError, QuerySpec
+from quarry.query.columns import check_columns, check_output_columns
+from quarry.query.spec import Agg, AggFn, Filter, Json, Pivot, QuerySpec
 
 CompareOp = Literal["eq", "ne", "lt", "le", "gt", "ge", "in", "not_in", "between"]
 
@@ -25,7 +25,7 @@ class CoercedLiteral:
 def to_polars(spec: QuerySpec, frame: pl.DataFrame | pl.LazyFrame) -> pl.LazyFrame:
     lf = frame.lazy()
     schema = lf.collect_schema()
-    _check_columns(spec, set(schema.names()))
+    check_columns(spec, set(schema.names()))
     if spec.filters:
         lf = lf.filter(pl.all_horizontal([filter_expr(f, schema[f.col]) for f in spec.filters]))
     if spec.group_by is not None:
@@ -33,7 +33,7 @@ def to_polars(spec: QuerySpec, frame: pl.DataFrame | pl.LazyFrame) -> pl.LazyFra
     elif spec.pivot is not None:
         lf = _pivot(lf, spec.pivot)
         # Pivot output columns come from the data, so they can only be checked now.
-        _require_columns(spec, _output_columns(spec), set(lf.collect_schema().names()))
+        check_output_columns(spec, set(lf.collect_schema().names()))
     if spec.sort:
         lf = lf.sort([s.col for s in spec.sort], descending=[s.desc for s in spec.sort])
     if spec.limit is not None or spec.offset:
@@ -160,32 +160,3 @@ def _pivot(lf: pl.LazyFrame, pivot: Pivot) -> pl.LazyFrame:
         sort_columns=True,
     )
     return wide.lazy()
-
-
-def _check_columns(spec: QuerySpec, names: set[str]) -> None:
-    _require_columns(spec, _input_columns(spec), names)
-    if spec.pivot is None:
-        # sort and select run after any group_by, so they see only the columns it produced.
-        produced = names
-        if spec.group_by is not None:
-            produced = {*spec.group_by, *(a.name for a in spec.aggs)}
-        _require_columns(spec, _output_columns(spec), produced)
-
-
-def _input_columns(spec: QuerySpec) -> list[str]:
-    names = [f.col for f in spec.filters]
-    if spec.group_by is not None:
-        names += [*spec.group_by, *(a.col for a in spec.aggs)]
-    if spec.pivot is not None:
-        names += [*spec.pivot.index, spec.pivot.columns, spec.pivot.values]
-    return names
-
-
-def _output_columns(spec: QuerySpec) -> list[str]:
-    return [*(s.col for s in spec.sort), *(spec.select or [])]
-
-
-def _require_columns(spec: QuerySpec, names: Iterable[str], available: set[str]) -> None:
-    for name in names:
-        if name not in available:
-            raise QueryError(name, spec.dataset)

@@ -10,6 +10,7 @@ from quarry.query.spec import (
     QuerySpec,
     Sort,
 )
+from quarry.query.sql_target import to_sql
 
 __all__ = [
     "Agg",
@@ -22,4 +23,5 @@ __all__ = [
     "QuerySpec",
     "Sort",
     "to_polars",
+    "to_sql",
 ]
