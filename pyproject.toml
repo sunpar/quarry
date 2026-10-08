@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-mssql = ["arrow-odbc>=4.0"]
+mssql = ["arrow-odbc>=10"]
 
 [dependency-groups]
 dev = [

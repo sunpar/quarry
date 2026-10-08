@@ -3,6 +3,7 @@ from pathlib import Path
 import polars as pl
 
 from quarry.config import DataConfig, QuarryConfig
+from quarry.data.loaders import LoaderRegistry
 from quarry.data.namespace import build_namespace
 from quarry.kernel.executor import Executor
 
@@ -33,8 +34,9 @@ def test_sql_local_sees_step_frames_by_name(tmp_path: Path) -> None:
     r = ex.execute("s_r18 = sql_local('SELECT sum(a) AS s FROM df_r18').pl()")
     assert r.status == "ok"
     assert ns["s_r18"]["s"].to_list() == [3]
-    ex.execute("df_r18 = None")
-    gone = ex.execute("t_r18 = sql_local('SELECT * FROM df_r18').pl()")
+    rebind = ex.execute("df_r18 = None")
+    assert rebind.status == "ok"
+    gone = ex.execute("t_r18 = sql_local('SELECT sum(a) AS s FROM df_r18').pl()")
     assert gone.status == "error"
     assert gone.error is not None and "df_r18" in gone.error.message
 
@@ -49,3 +51,12 @@ def test_pq_relations_are_visible_to_duckdb_sql(tmp_path: Path) -> None:
     r = ex.execute("n_r15 = duckdb.sql('SELECT count(*) AS n FROM rel_r15').pl()")
     assert r.status == "ok"
     assert ns["n_r15"]["n"].to_list() == [3]
+
+
+def test_namespace_builds_when_loaders_toml_is_malformed(tmp_path: Path) -> None:
+    (tmp_path / "loaders.toml").write_text('[[loader]\nname = "daily_returns"\n')
+    ns = build_namespace(QuarryConfig(root=tmp_path))
+    registry = ns["_registry"]
+    assert isinstance(registry, LoaderRegistry)
+    assert [f.name for f in registry.failures] == ["loaders.toml"]
+    assert vars(ns["loaders"]) == {}

@@ -20,10 +20,9 @@ def make_sql(dsn: str, reader: BatchReader | None = None) -> SqlFn:
             raise RuntimeError(
                 "SQL Server DSN not configured: set data.mssql_dsn or QUARRY_MSSQL_DSN"
             )
-        batches = list(read(query, dsn, params))
-        if not batches:
+        table = _table(read(query, dsn, params))
+        if table is None:
             return pl.DataFrame()
-        table = pa.Table.from_batches(batches)
         frame = pl.from_arrow(table)
         if not isinstance(frame, pl.DataFrame):
             raise TypeError("expected a DataFrame from Arrow table")
@@ -32,12 +31,20 @@ def make_sql(dsn: str, reader: BatchReader | None = None) -> SqlFn:
     return sql
 
 
+def _table(batches: Iterable[pa.RecordBatch]) -> pa.Table | None:
+    """The batches as one table; None when there are none and nothing gives their schema."""
+    if isinstance(batches, pa.RecordBatchReader):
+        return batches.read_all()  # carries the schema even when the query returns no rows
+    collected = list(batches)
+    return pa.Table.from_batches(collected) if collected else None
+
+
 def _odbc_reader(query: str, dsn: str, params: Sequence[object] | None) -> Iterable[pa.RecordBatch]:
     from arrow_odbc import read_arrow_batches_from_odbc
 
     # arrow-odbc binds every parameter as VARCHAR, so it accepts only str, or None for NULL.
     parameters = None if params is None else [None if p is None else str(p) for p in params]
-    batches: Iterable[pa.RecordBatch] = read_arrow_batches_from_odbc(
-        query=query, connection_string=dsn, parameters=parameters
-    )
+    reader = read_arrow_batches_from_odbc(query=query, connection_string=dsn, parameters=parameters)
+    # A pyarrow reader keeps the result's schema, which a bare iterator loses when no rows come.
+    batches: Iterable[pa.RecordBatch] = reader.into_pyarrow_record_batch_reader()
     return batches

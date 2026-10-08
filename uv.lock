@@ -707,7 +707,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "arrow-odbc", marker = "extra == 'mssql'", specifier = ">=4.0" },
+    { name = "arrow-odbc", marker = "extra == 'mssql'", specifier = ">=10" },
     { name = "duckdb", specifier = ">=1.0" },
     { name = "polars", specifier = ">=1.0" },
     { name = "pyarrow", specifier = ">=15.0" },
