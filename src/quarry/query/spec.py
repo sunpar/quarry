@@ -55,6 +55,9 @@ class Filter(BaseModel):
             raise ValueError("between requires a two-element list value")
         if op in LIST_OPS and not (isinstance(value, list) and value):
             raise ValueError(f"{op} requires a non-empty list value")
+        if op in LIST_OPS and isinstance(value, list) and any(item is None for item in value):
+            # SQL `NOT IN (..., NULL)` is never true while polars ignores the null.
+            raise ValueError(f"{op} does not accept null items; use is_null")
         if op in NULL_OPS and value is not None:
             raise ValueError(f"{op} takes no value")
         if op in SCALAR_OPS and (value is None or isinstance(value, list | dict)):

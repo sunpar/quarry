@@ -129,3 +129,16 @@ def test_pivot_requires_index() -> None:
 
 def test_pivot_accepts_std() -> None:
     assert Pivot(index=["a"], columns="b", values="x", agg="std").agg == "std"
+
+
+@pytest.mark.parametrize(
+    ("op", "value"), [("in", [1, None]), ("not_in", [None])], ids=["in", "not_in"]
+)
+def test_list_ops_reject_null_items(op: FilterOp, value: Json) -> None:
+    # SQL `NOT IN (..., NULL)` is never true while polars ignores the null: is_null covers it.
+    with pytest.raises(ValidationError, match="does not accept null items; use is_null"):
+        Filter(col="x", op=op, value=value)
+
+
+def test_list_ops_accept_non_null_items() -> None:
+    assert Filter(col="x", op="in", value=[1, 2]).value == [1, 2]
