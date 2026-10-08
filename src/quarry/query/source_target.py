@@ -14,6 +14,9 @@ valid ISO date renders as `date.fromisoformat`, a whole valid ISO datetime as
 `datetime.fromisoformat`, any other string (even "2024-99-99") as a plain literal, and
 numbers as given. polars 2.0 `is_in` is strictly typed, so without a schema `ret in [0]`
 against a float column fails when run.
+
+`sum` depends on `schema` too. When it is given, an integer column sums as Decimal(38, 0),
+as in `to_polars`. Without it, the source sums plainly, so an Int64 sum can wrap on overflow.
 """
 
 from __future__ import annotations
@@ -102,10 +105,10 @@ def filter_source(f: Filter, dtype: pl.DataType | None = None) -> str:
             return _compare_source(op, operand, literal.value)
 
 
-def agg_source(a: Agg) -> str:
+def agg_source(a: Agg, dtype: pl.DataType | None = None) -> str:
     """Render one aggregate, mirroring `polars_target.agg_expr`."""
     values = f"pl.col({py_literal(a.col)})"
-    return f"{_aggregate_source(a.fn, values)}.alias({py_literal(a.name)})"
+    return f"{_aggregate_source(a.fn, values, dtype)}.alias({py_literal(a.name)})"
 
 
 def py_literal(value: object) -> str:
@@ -139,7 +142,7 @@ def _chain_source(
     lines = [
         head,
         *_filter_steps(spec, schema),
-        *_reshape_steps(spec, head_is_lazy),
+        *_reshape_steps(spec, schema, head_is_lazy),
         *_tail_steps(spec),
         ".collect()",
     ]
@@ -156,19 +159,20 @@ def _filter_steps(spec: QuerySpec, schema: Schema | None) -> list[str]:
     return [_method_call("filter", predicates)]
 
 
-def _reshape_steps(spec: QuerySpec, head_is_lazy: bool) -> list[str]:
+def _reshape_steps(spec: QuerySpec, schema: Schema | None, head_is_lazy: bool) -> list[str]:
     if spec.group_by is not None:
-        aggs = _method_call("agg", [agg_source(a) for a in spec.aggs])
+        aggs = _method_call("agg", [agg_source(a, _dtype(schema, a.col)) for a in spec.aggs])
         return [f".group_by({py_literal(spec.group_by)})", aggs]
     if spec.pivot is None:
         return []
+    values_dtype = _dtype(schema, spec.pivot.values)
     pivot = _method_call(
         "pivot",
         [
             f"on={py_literal(spec.pivot.columns)}",
             f"index={py_literal(spec.pivot.index)}",
             f"values={py_literal(spec.pivot.values)}",
-            f"aggregate_function={_aggregate_source(spec.pivot.agg, 'pl.element()')}",
+            f"aggregate_function={_aggregate_source(spec.pivot.agg, 'pl.element()', values_dtype)}",
             "sort_columns=True",
         ],
     )
@@ -196,11 +200,13 @@ def _method_call(method: str, args: list[str]) -> str:
     return f".{method}(" + "".join(f"\n    {arg}," for arg in args) + "\n)"
 
 
-def _aggregate_source(fn: AggFn, values: str) -> str:
+def _aggregate_source(fn: AggFn, values: str, dtype: pl.DataType | None) -> str:
     """Mirror `polars_target._aggregate`: every other AggFn is a polars method of its name."""
     if fn == "sum":
+        exact = dtype is not None and dtype.is_integer()
+        total = f"{values}.cast(pl.Decimal(38, 0))" if exact else values
         # SQL SUM over no non-null values is NULL; polars would return 0.
-        return f"pl.when({values}.count() > 0).then({values}.sum())"
+        return f"pl.when({values}.count() > 0).then({total}.sum())"
     return f"{values}.{fn}()"
 
 

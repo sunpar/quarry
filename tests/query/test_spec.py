@@ -36,6 +36,32 @@ def test_group_by_requires_aggs() -> None:
         QuerySpec(dataset="r", group_by=["a"])
 
 
+@pytest.mark.parametrize(
+    ("group_by", "aggs", "duplicate"),
+    [
+        (["a"], [Agg(col="x", fn="sum", alias="s"), Agg(col="y", fn="mean", alias="s")], "s"),
+        (["a"], [Agg(col="x", fn="sum", alias="a")], "a"),
+        (["a"], [Agg(col="x", fn="sum"), Agg(col="x", fn="sum")], "x_sum"),
+        (["a"], [Agg(col="x", fn="mean"), Agg(col="y", fn="sum", alias="x_mean")], "x_mean"),
+        (["a", "a"], [Agg(col="x", fn="sum")], "a"),
+    ],
+    ids=["two_aliases", "alias_is_group_key", "same_default", "alias_is_default", "group_keys"],
+)
+def test_duplicate_output_names_rejected(
+    group_by: list[str], aggs: list[Agg], duplicate: str
+) -> None:
+    # polars raises a duplicate-column error at run time, and SQL gets an ambiguous schema.
+    with pytest.raises(ValidationError, match=f"duplicate output column {duplicate!r}"):
+        QuerySpec(dataset="r", group_by=group_by, aggs=aggs)
+
+
+def test_same_column_with_different_fns_is_allowed() -> None:
+    spec = QuerySpec(
+        dataset="r", group_by=["a"], aggs=[Agg(col="x", fn="sum"), Agg(col="x", fn="mean")]
+    )
+    assert [a.name for a in spec.aggs] == ["x_sum", "x_mean"]
+
+
 def test_between_requires_pair() -> None:
     with pytest.raises(ValidationError, match="between"):
         Filter(col="x", op="between", value=[1])

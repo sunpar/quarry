@@ -136,3 +136,49 @@ def test_no_warning_for_a_password_only_in_the_environment(tmp_path: Path) -> No
     write_dsn_config(tmp_path, TRUSTED_DSN, 0o644)
     cfg = load_config(tmp_path, env={"QUARRY_MSSQL_DSN": PASSWORD_DSN})
     assert cfg.data.mssql_dsn == PASSWORD_DSN
+
+
+# Spec §11's config.toml, every key with a value of its type.
+SPEC_TEMPLATE = """
+[provider]
+name = "anthropic"
+model = "claude-sonnet-5-5"
+api_key_file = "~/.quarry/anthropic.key"
+
+[data]
+parquet_root = "/data/cache"
+mssql_dsn = ""
+row_cap = 50000
+kernel_memory_mb = 0
+
+[libraries]
+team_components = ""
+highcharts_license = ""
+highcharts_path = ""
+scichart_license = ""
+scichart_path = ""
+"""
+
+
+def test_spec_template_is_accepted(tmp_path: Path) -> None:
+    (tmp_path / "config.toml").write_text(SPEC_TEMPLATE)
+    cfg = load_config(tmp_path, env={})
+    assert cfg.provider.api_key_file == Path("~/.quarry/anthropic.key")
+    assert cfg.data.parquet_root == Path("/data/cache")
+
+
+@pytest.mark.parametrize(
+    ("text", "key"),
+    [
+        ("[data]\nkernel_memorry_mb = 512\n", "kernel_memorry_mb"),
+        ('[provider]\nmodle = "gpt-5"\n', "modle"),
+        ('[libraries]\nhighchart_license = "x"\n', "highchart_license"),
+        ("[ui]\ntheme = 1\n", "ui"),
+    ],
+    ids=["data_key", "provider_key", "libraries_key", "top_level_section"],
+)
+def test_unknown_keys_are_rejected(text: str, key: str, tmp_path: Path) -> None:
+    # A misspelled key would otherwise be dropped silently, e.g. leaving the kernel uncapped.
+    (tmp_path / "config.toml").write_text(text)
+    with pytest.raises(ValidationError, match=key):
+        load_config(tmp_path, env={})

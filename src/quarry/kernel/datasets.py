@@ -119,7 +119,7 @@ def to_json_rows(df: pl.DataFrame) -> list[dict[str, Json]]:
 
     Non-finite floats (inf, -inf, NaN) become null at any depth; the arrow format keeps them.
     Decimals stay exact decimal strings at any depth, as write_json emits them ("1.50"), so
-    DuckDB integer sums (Decimal(38, 0)) arrive as strings; a float would silently round them.
+    integer sums (Decimal(38, 0) on every target) arrive as strings; a float would round them.
     """
     # pl.nth, not pl.col: a column named like a regex (`^a.*$`) or `*` would select others.
     converted = [

@@ -22,7 +22,14 @@ from quarry.query import (
 )
 from quarry.query.source_target import py_literal
 from quarry.query.sql_target import relation_view
-from tests.query.fixtures import SPECS, trades, utc_connection
+from tests.query.fixtures import (
+    INT_SUM_IDS,
+    INT_SUM_SPECS,
+    SPECS,
+    overflowing,
+    trades,
+    utc_connection,
+)
 
 BACKINGS: list[Backing] = ["polars", "polars_lazy", "duckdb"]
 
@@ -277,6 +284,23 @@ def test_schema_compares_an_integer_column_with_a_fraction_as_float() -> None:
     spec = QuerySpec(dataset="trades", filters=[Filter(col="volume", op="lt", value=300.5)])
     src = to_source(spec, "polars", schema=trades().schema)
     assert 'pl.col("volume").cast(pl.Float64) < 300.5' in src
+
+
+@pytest.mark.parametrize("backing", BACKINGS)
+@pytest.mark.parametrize("spec", INT_SUM_SPECS, ids=INT_SUM_IDS)
+def test_schema_sums_integers_without_overflow(spec: QuerySpec, backing: Backing) -> None:
+    frame = overflowing()
+    out = execute(to_source(spec, backing, schema=frame.schema), {"nums": bind(frame, backing)})
+    assert out.dtypes[1] == pl.Decimal(38, 0)
+    assert out.rows() == [("a", 2**63), ("b", None)]  # Decimal equals int exactly
+
+
+def test_integer_sum_casts_only_with_a_schema() -> None:
+    spec = INT_SUM_SPECS[0]
+    plain = 'pl.when(pl.col("n").count() > 0).then(pl.col("n").sum())'
+    exact = 'pl.when(pl.col("n").count() > 0).then(pl.col("n").cast(pl.Decimal(38, 0)).sum())'
+    assert exact in to_source(spec, "polars", schema=overflowing().schema)
+    assert plain in to_source(spec, "polars")
 
 
 def test_unknown_column_raises_when_schema_given() -> None:

@@ -142,3 +142,24 @@ SPECS: list[QuerySpec] = [
         sort=[Sort(col="ticker")],
     ),
 ]
+
+
+def overflowing(
+    top: int = 2**62, dtype: pl.DataType | type[pl.DataType] = pl.Int64
+) -> pl.DataFrame:
+    """Group "a" sums `top` twice, past Int64 at the default; group "b" sums only a null."""
+    return pl.DataFrame(
+        {"k": ["a", "a", "b"], "c": ["x", "x", "x"], "n": pl.Series([top, top, None], dtype=dtype)}
+    )
+
+
+# Over `overflowing()`: each gives the rows [("a", 2 * top), ("b", None)].
+INT_SUM_SPECS: list[QuerySpec] = [
+    QuerySpec(dataset="nums", group_by=["k"], aggs=[Agg(col="n", fn="sum")], sort=[Sort(col="k")]),
+    QuerySpec(
+        dataset="nums",
+        pivot=Pivot(index=["k"], columns="c", values="n", agg="sum"),
+        sort=[Sort(col="k")],
+    ),
+]
+INT_SUM_IDS = ["group_by", "pivot"]

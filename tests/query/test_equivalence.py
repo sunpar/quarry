@@ -7,7 +7,14 @@ from polars.testing import assert_frame_equal
 from quarry.query import QuerySpec
 from quarry.query.polars_target import to_polars
 from quarry.query.sql_target import to_sql
-from tests.query.fixtures import SPECS, trades, utc_connection
+from tests.query.fixtures import (
+    INT_SUM_IDS,
+    INT_SUM_SPECS,
+    SPECS,
+    overflowing,
+    trades,
+    utc_connection,
+)
 
 
 def normalize(df: pl.DataFrame) -> pl.DataFrame:
@@ -25,3 +32,32 @@ def test_targets_agree(spec: QuerySpec) -> None:
     conn.register("trades", frame)
     via_sql = conn.sql(to_sql(spec, "trades")).pl()
     assert_frame_equal(normalize(via_polars), normalize(via_sql), check_dtypes=False, rel_tol=1e-9)
+
+
+# Each integer dtype DuckDB can read from polars, with its largest value.
+INT_MAX: dict[pl.DataType, int] = {
+    pl.Int8(): 2**7 - 1,
+    pl.Int16(): 2**15 - 1,
+    pl.Int32(): 2**31 - 1,
+    pl.Int64(): 2**63 - 1,
+    pl.UInt8(): 2**8 - 1,
+    pl.UInt16(): 2**16 - 1,
+    pl.UInt32(): 2**32 - 1,
+    pl.UInt64(): 2**64 - 1,
+}
+
+
+@pytest.mark.parametrize("dtype", INT_MAX, ids=str)
+@pytest.mark.parametrize("spec", INT_SUM_SPECS, ids=INT_SUM_IDS)
+def test_integer_sums_agree_exactly(spec: QuerySpec, dtype: pl.DataType) -> None:
+    # DuckDB sums every integer type as HUGEINT, which .pl() reads as Decimal(38, 0). No
+    # normalize: a Float64 cast would round 2 * (2**64 - 1) and hide the dtypes.
+    top = INT_MAX[dtype]
+    frame = overflowing(top, dtype)
+    via_polars = to_polars(spec, frame).collect()
+    conn = utc_connection()
+    conn.register("nums", frame)
+    via_sql = conn.sql(to_sql(spec, "nums")).pl()
+    assert_frame_equal(via_polars, via_sql)
+    assert via_sql.dtypes[1] == pl.Decimal(38, 0)
+    assert via_polars.rows() == [("a", 2 * top), ("b", None)]

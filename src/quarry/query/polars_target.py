@@ -29,9 +29,9 @@ def to_polars(spec: QuerySpec, frame: pl.DataFrame | pl.LazyFrame) -> pl.LazyFra
     if spec.filters:
         lf = lf.filter(pl.all_horizontal([filter_expr(f, schema[f.col]) for f in spec.filters]))
     if spec.group_by is not None:
-        lf = lf.group_by(spec.group_by).agg([agg_expr(a) for a in spec.aggs])
+        lf = lf.group_by(spec.group_by).agg([agg_expr(a, schema[a.col]) for a in spec.aggs])
     elif spec.pivot is not None:
-        lf = _pivot(lf, spec.pivot)
+        lf = _pivot(lf, spec.pivot, schema[spec.pivot.values])
         # Pivot output columns come from the data, so they can only be checked now.
         check_output_columns(spec, set(lf.collect_schema().names()))
     if spec.sort:
@@ -123,16 +123,22 @@ def _as_list(value: object) -> list[object]:
     return value
 
 
-def agg_expr(a: Agg) -> pl.Expr:
-    return _aggregate(a.fn, pl.col(a.col)).alias(a.name)
+def agg_expr(a: Agg, dtype: pl.DataType) -> pl.Expr:
+    return _aggregate(a.fn, pl.col(a.col), dtype).alias(a.name)
 
 
-def _aggregate(fn: AggFn, values: pl.Expr) -> pl.Expr:
-    """Aggregate with SQL semantics, shared by group_by (`pl.col`) and pivot (`pl.element`)."""
+def _aggregate(fn: AggFn, values: pl.Expr, dtype: pl.DataType) -> pl.Expr:
+    """Aggregate with SQL semantics, shared by group_by (`pl.col`) and pivot (`pl.element`).
+
+    `dtype` is the type of the column `values` reads.
+    """
     match fn:
         case "sum":
+            # polars sums an Int64 in Int64 and wraps silently on overflow; DuckDB sums every
+            # integer type as HUGEINT, which `.pl()` reads as Decimal(38, 0).
+            total = values.cast(pl.Decimal(38, 0)) if dtype.is_integer() else values
             # SQL SUM over no non-null values is NULL; polars would return 0.
-            return pl.when(values.count() > 0).then(values.sum())
+            return pl.when(values.count() > 0).then(total.sum())
         case "mean":
             return values.mean()
         case "min":
@@ -151,7 +157,7 @@ def _aggregate(fn: AggFn, values: pl.Expr) -> pl.Expr:
             return values.last()
 
 
-def _pivot(lf: pl.LazyFrame, pivot: Pivot) -> pl.LazyFrame:
+def _pivot(lf: pl.LazyFrame, pivot: Pivot, dtype: pl.DataType) -> pl.LazyFrame:
     # pivot is eager: without the select, every column of every filtered row is collected.
     wide = (
         lf.select(pivot.inputs)
@@ -160,7 +166,7 @@ def _pivot(lf: pl.LazyFrame, pivot: Pivot) -> pl.LazyFrame:
             on=pivot.columns,
             index=pivot.index,
             values=pivot.values,
-            aggregate_function=_aggregate(pivot.agg, pl.element()),
+            aggregate_function=_aggregate(pivot.agg, pl.element(), dtype),
             sort_columns=True,
         )
     )

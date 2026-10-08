@@ -40,7 +40,8 @@ ORDERED_SPECS: list[tuple[QuerySpec, str, list[dict[str, Json]]]] = [
             sort=[Sort(col="k")],
         ),
         "last",
-        [{"k": "a", "v_sum": 3, "v_last": 2}, {"k": "b", "v_sum": 43, "v_last": 40}],
+        # An integer sum is a Decimal(38, 0), which JSON carries as an exact string.
+        [{"k": "a", "v_sum": "3", "v_last": 2}, {"k": "b", "v_sum": "43", "v_last": 40}],
     ),
     (
         QuerySpec(
@@ -506,7 +507,8 @@ def test_query_duckdb_relation_pivot() -> None:
         sort=[{"col": "k"}],
     )
     out = ex.query(spec)
-    assert out.rows == [{"k": "a", "x": 1, "y": 2}, {"k": "b", "x": 3, "y": None}]
+    # The pivot runs in polars, whose integer sums are Decimal(38, 0) like DuckDB's.
+    assert out.rows == [{"k": "a", "x": "1", "y": "2"}, {"k": "b", "x": "3", "y": None}]
     assert [c.name for c in out.schema_] == ["k", "x", "y"]
 
 

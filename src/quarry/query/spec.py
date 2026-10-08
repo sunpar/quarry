@@ -123,4 +123,11 @@ class QuerySpec(BaseModel):
             raise ValueError("aggs require group_by")
         if self.group_by is not None and not self.aggs:
             raise ValueError("group_by requires at least one entry in aggs")
+        if self.group_by is not None:
+            # polars raises DuplicateError on a repeated name; DuckDB renames it (`s_1`).
+            seen: set[str] = set()
+            for name in [*self.group_by, *(a.name for a in self.aggs)]:
+                if name in seen:
+                    raise ValueError(f"duplicate output column {name!r}")
+                seen.add(name)
         return self

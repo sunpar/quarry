@@ -5,7 +5,7 @@ import pytest
 
 from quarry.query import Agg, AggFn, Filter, Json, Pivot, QueryError, QuerySpec, Sort
 from quarry.query.polars_target import CoercedLiteral, coerce_literal, to_polars
-from tests.query.fixtures import SPECS, trades
+from tests.query.fixtures import INT_SUM_IDS, INT_SUM_SPECS, SPECS, overflowing, trades
 
 VOLUME_BY_TICKER = Pivot(index=["date"], columns="ticker", values="volume", agg="sum")
 
@@ -112,6 +112,28 @@ def test_sum_of_all_null_group_is_null() -> None:
     )
     out = to_polars(spec, trades()).collect()
     assert out.rows() == [("AAPL", None)]
+
+
+@pytest.mark.parametrize("spec", INT_SUM_SPECS, ids=INT_SUM_IDS)
+def test_integer_sum_does_not_overflow(spec: QuerySpec) -> None:
+    # polars sums Int64 in Int64 and wraps: 2**62 + 2**62 came out as -2**63.
+    out = to_polars(spec, overflowing()).collect()
+    assert out.dtypes[1] == pl.Decimal(38, 0)
+    assert out.rows() == [("a", 2**63), ("b", None)]  # Decimal equals int exactly
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        *(pl.Int8(), pl.Int16(), pl.Int32(), pl.Int64(), pl.Int128()),
+        *(pl.UInt8(), pl.UInt16(), pl.UInt32(), pl.UInt64(), pl.UInt128()),
+    ],
+    ids=str,
+)
+def test_every_integer_width_sums_as_decimal(dtype: pl.DataType) -> None:
+    out = to_polars(INT_SUM_SPECS[0], overflowing(100, dtype)).collect()
+    assert out.schema["n_sum"] == pl.Decimal(38, 0)
+    assert out["n_sum"].to_list() == [200, None]
 
 
 def test_pivot_absent_cell_is_null_for_sum_and_zero_for_count() -> None:

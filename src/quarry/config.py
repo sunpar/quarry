@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Final, Literal
 
-from pydantic import BaseModel, BeforeValidator, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 CONFIG_FILENAME: Final = "config.toml"
 ENV_MSSQL_DSN: Final = "QUARRY_MSSQL_DSN"
@@ -35,13 +35,19 @@ def _blank_to_none(value: object) -> object:
 OptionalPath = Annotated[Path | None, BeforeValidator(_blank_to_none)]
 
 
+# Every model forbids unknown keys: a misspelled `kernel_memorry_mb` would otherwise be
+# dropped silently, leaving the kernel uncapped.
 class ProviderConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: Literal["anthropic", "openai"] = "anthropic"
     model: str = "claude-sonnet-5-5"
     api_key_file: OptionalPath = None
 
 
 class DataConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     parquet_root: OptionalPath = None
     mssql_dsn: str = ""
     row_cap: int = Field(default=50000, ge=1)
@@ -49,6 +55,8 @@ class DataConfig(BaseModel):
 
 
 class LibrariesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     team_components: OptionalPath = None
     highcharts_license: str = ""
     highcharts_path: OptionalPath = None
@@ -57,6 +65,8 @@ class LibrariesConfig(BaseModel):
 
 
 class QuarryConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     root: Path
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
     data: DataConfig = Field(default_factory=DataConfig)
