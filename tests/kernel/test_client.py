@@ -4,14 +4,30 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import polars as pl
 import pytest
 
 from quarry.kernel.client import KernelClient, KernelDead, RpcFailure
+from quarry.kernel.executor import ExecResult
 from quarry.query import QuerySpec
+
+BUSY_LOOP = "import time\nwhile True:\n    time.sleep(0.01)\n"
+# Streams 3M rows from the default DuckDB connection; a query on that connection mid-stream
+# used to end the stream early without an error.
+STREAM_STEP = (
+    "import time\n"
+    "res = duckdb.sql('select range as a from range(3000000)')\n"
+    "streamed = 0\n"
+    "while batch := res.fetchmany(1000):\n"
+    "    streamed += len(batch)\n"
+    "    time.sleep(0.0005)\n"
+    "print(streamed)\n"
+)
+
+StandIn = Callable[[float], tuple[KernelClient, socket.socket]]
 
 
 @pytest.fixture
@@ -22,14 +38,37 @@ def kernel(tmp_path: Path) -> Iterator[KernelClient]:
 
 
 @pytest.fixture
-def stand_in() -> Iterator[tuple[KernelClient, socket.socket]]:
-    """A client whose "kernel" sleeps for a second and whose socket peer the test drives."""
-    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(1)"])
-    client_end, peer = socket.socketpair()
-    client = KernelClient(process, client_end, tempfile.TemporaryDirectory())
-    yield client, peer
-    client.close()
-    peer.close()
+def stand_in() -> Iterator[StandIn]:
+    """Makes clients whose "kernel" sleeps `lifetime` seconds and whose socket peer the test
+    drives."""
+    made: list[tuple[KernelClient, socket.socket]] = []
+
+    def make(lifetime: float) -> tuple[KernelClient, socket.socket]:
+        process = subprocess.Popen([sys.executable, "-c", f"import time; time.sleep({lifetime})"])
+        client_end, peer = socket.socketpair()
+        made.append((KernelClient(process, client_end, tempfile.TemporaryDirectory()), peer))
+        return made[-1]
+
+    yield make
+    for client, peer in made:
+        client.close()
+        peer.close()
+
+
+def run_in_thread(kernel: KernelClient, code: str) -> tuple[threading.Thread, list[ExecResult]]:
+    """Execute `code` on a thread; the list receives its result."""
+    results: list[ExecResult] = []
+    thread = threading.Thread(target=lambda: results.append(kernel.execute(code)))
+    thread.start()
+    return thread, results
+
+
+def interrupt_running_step(kernel: KernelClient) -> None:
+    """Interrupt until the signal reaches the step: one sent before it starts is dropped."""
+    deadline = time.monotonic() + 10
+    while not kernel.interrupt():
+        assert time.monotonic() < deadline, "the step never started"
+        time.sleep(0.05)
 
 
 def test_execute_round_trip(kernel: KernelClient) -> None:
@@ -59,40 +98,45 @@ def test_error_response_raises_rpc_failure(kernel: KernelClient) -> None:
 
 
 def test_interrupt_busy_loop(kernel: KernelClient) -> None:
-    holder: dict[str, object] = {}
-
-    def run() -> None:
-        holder["result"] = kernel.execute("import time\nwhile True:\n    time.sleep(0.01)\n")
-
-    thread = threading.Thread(target=run)
-    thread.start()
-    time.sleep(0.5)
-    kernel.interrupt()
+    thread, results = run_in_thread(kernel, BUSY_LOOP)
+    interrupt_running_step(kernel)
     thread.join(timeout=10)
     assert not thread.is_alive()
-    result = holder["result"]
-    assert getattr(result, "status", None) == "interrupted"
+    assert results[0].status == "interrupted"
     assert kernel.execute("x = 1").status == "ok"
-
-
-def test_requests_are_answered_while_a_step_runs(kernel: KernelClient) -> None:
-    kernel.execute("df = pl.DataFrame({'a': [1]})")
-    busy = threading.Thread(
-        target=kernel.execute, args=("import time\nwhile True:\n    time.sleep(0.01)\n",)
-    )
-    busy.start()
-    time.sleep(0.2)
-    assert kernel.describe("df").rows == 1
-    assert [m.name for m in kernel.list_datasets()] == ["df"]
-    kernel.interrupt()
-    busy.join(timeout=10)
-    assert not busy.is_alive()
 
 
 def test_interrupt_while_idle_is_ignored(kernel: KernelClient) -> None:
-    kernel.interrupt()
+    assert kernel.interrupt() is False
     assert kernel.execute("x = 1").status == "ok"
     assert kernel.is_alive()
+
+
+def test_namespace_requests_wait_for_the_running_step(kernel: KernelClient) -> None:
+    kernel.execute("df = pl.DataFrame({'a': [1]})")
+    step = "import time\ntime.sleep(1)\ndf = pl.DataFrame({'a': [1, 2]})\nnew = df\n"
+    thread, results = run_in_thread(kernel, step)
+    time.sleep(0.2)
+    started = time.monotonic()
+    names = [m.name for m in kernel.list_datasets()]
+    waited = time.monotonic() - started
+    rows = kernel.query(QuerySpec(dataset="df")).rows
+    thread.join(timeout=10)
+    assert results[0].status == "ok"
+    assert names == ["df", "new"]
+    assert rows == [{"a": 1}, {"a": 2}]
+    assert waited > 0.5
+
+
+def test_concurrent_query_does_not_cut_a_streaming_step_short(kernel: KernelClient) -> None:
+    kernel.execute("small = duckdb.sql('select 1 as a')")
+    thread, results = run_in_thread(kernel, STREAM_STEP)
+    time.sleep(0.2)
+    rows = [kernel.query(QuerySpec(dataset="small")).rows for _ in range(5)]
+    thread.join(timeout=30)
+    assert results[0].status == "ok"
+    assert results[0].stdout_tail == "3000000\n"
+    assert rows == [[{"a": 1}]] * 5
 
 
 def test_kernel_crash_is_detected(kernel: KernelClient) -> None:
@@ -111,6 +155,20 @@ def test_shutdown(kernel: KernelClient) -> None:
     assert not kernel.is_alive()
 
 
+def test_calls_after_shutdown_raise_kernel_dead(kernel: KernelClient) -> None:
+    kernel.shutdown()
+    started = time.monotonic()
+    with pytest.raises(KernelDead):
+        kernel.execute("x = 1")
+    assert time.monotonic() - started < 0.5
+
+
+def test_kernel_runs_in_its_own_session(kernel: KernelClient) -> None:
+    # A terminal Ctrl-C reaches the server's process group, never a kernel in a new session.
+    result = kernel.execute("import os\nprint(os.getsid(0) == os.getpid())")
+    assert result.stdout_tail == "True\n"
+
+
 def test_printing_a_lone_surrogate_keeps_the_kernel(kernel: KernelClient) -> None:
     result = kernel.execute("print('\\udcff')")
     assert result.status == "ok"
@@ -126,10 +184,8 @@ def test_spawn_reports_a_kernel_that_exits_before_connecting(tmp_path: Path) -> 
     assert time.monotonic() - started < 10
 
 
-def test_undecodable_response_marks_kernel_dead(
-    stand_in: tuple[KernelClient, socket.socket],
-) -> None:
-    client, peer = stand_in
+def test_undecodable_response_marks_kernel_dead(stand_in: StandIn) -> None:
+    client, peer = stand_in(60)  # outlives the test, so only the garbage can end the call
 
     def answer_with_garbage() -> None:
         peer.recv(65536)
@@ -141,10 +197,8 @@ def test_undecodable_response_marks_kernel_dead(
     assert not client.is_alive()
 
 
-def test_call_fails_when_kernel_exits_with_its_socket_still_open(
-    stand_in: tuple[KernelClient, socket.socket],
-) -> None:
-    client, _ = stand_in  # the peer stays open, as when a forked child inherited the socket
+def test_call_fails_when_kernel_exits_with_its_socket_still_open(stand_in: StandIn) -> None:
+    client, _ = stand_in(1)  # the peer stays open, as when a forked child inherited the socket
     started = time.monotonic()
     with pytest.raises(KernelDead, match="exited"):
         client.list_datasets()

@@ -18,7 +18,14 @@ from pydantic import ValidationError
 
 from quarry.kernel.datasets import DatasetMeta
 from quarry.kernel.executor import ExecResult, QueryResult
-from quarry.kernel.protocol import Request, Response, decode_response, encode, read_lines
+from quarry.kernel.protocol import (
+    InterruptResult,
+    Request,
+    Response,
+    decode_response,
+    encode,
+    read_lines,
+)
 from quarry.query.spec import Json, QuerySpec
 
 # How often a waiting caller checks that the kernel process still exists. The socket closing is
@@ -68,7 +75,8 @@ class KernelClient:
                 listener.bind(str(socket_path))
                 listener.listen(1)
                 # stdout and stderr are inherited: C-level output from user code goes to those
-                # fds, and a pipe nobody drains would block the kernel once it fills.
+                # fds, and a pipe nobody drains would block the kernel once it fills. A new
+                # session keeps a terminal Ctrl-C aimed at the server away from kernel steps.
                 process = subprocess.Popen(
                     [
                         sys.executable,
@@ -80,6 +88,7 @@ class KernelClient:
                         str(root),
                     ],
                     stdin=subprocess.DEVNULL,
+                    start_new_session=True,
                 )
                 conn = _accept(listener, process, startup_timeout)
         except BaseException:
@@ -90,8 +99,9 @@ class KernelClient:
     def execute(self, code: str) -> ExecResult:
         return ExecResult.model_validate(self._call("execute", {"code": code}))
 
-    def interrupt(self) -> None:
-        self._call("interrupt", {})
+    def interrupt(self) -> bool:
+        """Interrupt the running step; False when none was running, so nothing was."""
+        return InterruptResult.model_validate(self._call("interrupt", {})).delivered
 
     def describe(self, name: str) -> DatasetMeta:
         return DatasetMeta.model_validate(self._call("describe", {"name": name}))
@@ -111,8 +121,11 @@ class KernelClient:
         return DatasetMeta.model_validate(self._call("snapshot", {"name": name, "path": str(path)}))
 
     def shutdown(self) -> None:
+        """Stop the kernel, interrupting a running step; later calls raise KernelDead."""
         with contextlib.suppress(KernelDead):  # already gone is as good as shut down
             self._call("shutdown", {})
+        with self._lock:
+            self._dead = True  # calls already in flight still get their answers
 
     def is_alive(self) -> bool:
         return not self._dead and self._process.poll() is None

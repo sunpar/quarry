@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import queue
 import resource
 import signal
@@ -13,6 +14,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 from types import FrameType
+from typing import NoReturn
 
 import duckdb
 import polars as pl
@@ -21,6 +23,7 @@ from pydantic import ValidationError
 from quarry.config import load_config
 from quarry.kernel.executor import Executor
 from quarry.kernel.protocol import (
+    InterruptResult,
     Request,
     Response,
     RpcError,
@@ -47,6 +50,7 @@ def main() -> None:
     conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     conn.connect(args.socket)
     serve(conn, executor)
+    _exit_now()
 
 
 def apply_memory_cap(megabytes: int) -> None:
@@ -55,52 +59,79 @@ def apply_memory_cap(megabytes: int) -> None:
     try:
         resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
     except (ValueError, OSError) as exc:
-        print(f"quarry kernel: memory cap of {megabytes} MB not applied: {exc}", file=sys.stderr)
+        _warn(f"memory cap of {megabytes} MB not applied: {exc}")
 
 
-def serve(conn: socket.socket, executor: Executor) -> None:
-    """Answer requests on `conn` until it closes or a `shutdown` arrives, then close it.
+def _exit_now() -> NoReturn:
+    """End the process, even while a step runs or a thread a step started is still alive."""
+    try:
+        for stream in (sys.stdout, sys.stderr, sys.__stdout__, sys.__stderr__):
+            if stream is not None:
+                stream.flush()
+    finally:  # a stream that cannot flush must not keep the process alive
+        os._exit(0)
 
-    Call on the main thread: it runs every `execute`, the one place an interrupt may land.
-    A reader thread answers every other request at once, even while a step runs.
+
+def serve(
+    conn: socket.socket, executor: Executor, *, on_disconnect: Callable[[], None] = _exit_now
+) -> None:
+    """Answer requests on `conn` until a `shutdown`, then close it.
+
+    Call on the main thread. Every request that touches the namespace runs here, in arrival
+    order, so none races a running step, and `execute` is the one place an interrupt may land.
+    A reader thread frames requests and answers `interrupt` and `shutdown` itself, even
+    mid-step. When the client closes the socket nobody is left to receive a result, so the
+    reader calls `on_disconnect` at once, even mid-step; by default it ends the process.
     """
     service = KernelService(executor)
     signal.signal(signal.SIGINT, _interrupt_handler(executor))
     executing_thread = threading.get_ident()
     send = _sender(conn)
-    executes: queue.Queue[Request | None] = queue.Queue()
+    requests: queue.Queue[Request | None] = queue.Queue()
+    stopping = threading.Event()
 
-    def answer(request: Request) -> bool:
-        """Answer `request`, or queue it for the main thread; False when reading should stop."""
+    def interrupt_step() -> bool:
+        """Signal the running step, if there is one; whether there was."""
+        if not executor.running:
+            return False
+        signal.pthread_kill(executing_thread, signal.SIGINT)
+        return True
+
+    def answer(request: Request) -> None:
         match request.method:
-            case "execute":
-                executes.put(request)
-                return True
             case "interrupt":
-                signal.pthread_kill(executing_thread, signal.SIGINT)
-                return send(Response(id=request.id))
+                delivered = InterruptResult(delivered=interrupt_step())
+                send(Response(id=request.id, result=delivered.model_dump()))
             case "shutdown":
-                send(service.handle(request))
-                return False
+                send(service.handle(request))  # answered before the main thread can exit
+                stopping.set()
+                interrupt_step()
+                requests.put(None)
             case _:
-                return send(service.handle(request))
+                requests.put(request)
 
     def reader() -> None:
         try:
             for line in read_lines(conn):
                 request = _decode(line, send)
-                if request is not None and not answer(request):
-                    return
+                if request is not None:
+                    answer(request)
+            on_disconnect()
         finally:
-            # EOF, shutdown, or a reader that died: the main thread finishes the queue and exits,
-            # and the client sees the socket close instead of waiting forever.
-            executes.put(None)
+            # A reader that died still ends the main loop, so the client sees the socket close.
+            requests.put(None)
 
     threading.Thread(target=reader, daemon=True).start()
-    while (request := executes.get()) is not None:
-        if not send(service.handle(request)):
+    while (request := requests.get()) is not None:
+        response = _refused(request) if stopping.is_set() else service.handle(request)
+        if not send(response):
             break
     conn.close()
+
+
+def _refused(request: Request) -> Response:
+    error = RpcError(type="KernelShutdown", message="the kernel is shutting down")
+    return Response(id=request.id, error=error)
 
 
 def _interrupt_handler(executor: Executor) -> Callable[[int, FrameType | None], None]:
@@ -135,8 +166,7 @@ def _decode(line: bytes, send: Send) -> Request | None:
     except ValidationError as exc:
         request_id = _request_id(line)
         if request_id is None:
-            reason = exc.errors()[0]["msg"]
-            print(f"quarry kernel: skipped an undecodable request: {reason}", file=sys.stderr)
+            _warn(f"skipped an undecodable request: {exc.errors()[0]['msg']}")
         else:
             error = RpcError(type=type(exc).__name__, message=str(exc))
             send(Response(id=request_id, error=error))
@@ -153,6 +183,11 @@ def _request_id(line: bytes) -> int | None:
     if isinstance(request_id, bool) or not isinstance(request_id, int):  # `true` is no id
         return None
     return request_id
+
+
+def _warn(message: str) -> None:
+    # The real stderr: while a step runs, sys.stderr is the step's own captured output.
+    print(f"quarry kernel: {message}", file=sys.__stderr__)
 
 
 if __name__ == "__main__":

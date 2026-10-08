@@ -32,6 +32,11 @@ class Response(BaseModel):
     error: RpcError | None = None
 
 
+class InterruptResult(BaseModel):
+    # False when no step was running: the interrupt is dropped, never saved for the next step.
+    delivered: bool
+
+
 def encode(msg: BaseModel) -> bytes:
     """`msg` as one UTF-8 JSON line; a lone surrogate, which UTF-8 cannot carry, becomes "?"."""
     try:
