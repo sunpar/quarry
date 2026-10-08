@@ -748,7 +748,7 @@ git commit -m "feat: openai provider adapter over chat completions"
 - Produces (in `quarry.agent.tools`):
   - `TOOL_DEFS: list[ToolDef]` for `run_python`, `describe_dataset`, `search_components`, `render_view`, `write_view`, with the JSON schemas below.
   - `class PendingView(BaseModel)`: `component_id: str`, `source: str`, `initial_state: dict[str, Json]`, `datasets: list[str]`
-  - `class ToolExecutor`: `__init__(self, *, kernel: KernelClient, library: ComponentLibrary, transpiler: Transpiler)`; `run(self, call: ToolCall) -> ToolResult`; attribute `view: PendingView | None` set by `render_view`/`write_view`; attribute `last_python_failed: bool`. Unknown tool or bad arguments → `ToolResult(is_error=True)`. `KernelDead` propagates (the loop handles it).
+  - `class ToolExecutor`: `__init__(self, *, kernel: KernelClient, library: ComponentLibrary, transpiler: Transpiler)`; `run(self, call: ToolCall) -> ToolResult`; attribute `view: PendingView | None` set by `render_view`/`write_view`; attribute `last_python_failed: bool`; attribute `exec_results: list[ExecResult]`, one entry per `run_python` call in order. Unknown tool or bad arguments → `ToolResult(is_error=True)`. `KernelDead` propagates (the loop handles it).
 
 Tool schemas:
 
@@ -756,11 +756,11 @@ Tool schemas:
 RUN_PYTHON = {"type": "object", "properties": {"code": {"type": "string", "description": "Python to execute in the session kernel. polars is `pl`, duckdb is `duckdb`, loaders under `loaders.*`, `sql(query)`, `pq(glob)`, `sql_local(query)`. Assign results to well-named top-level variables; every top-level DataFrame, LazyFrame or DuckDB relation becomes a dataset."}}, "required": ["code"]}
 DESCRIBE_DATASET = {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}
 SEARCH_COMPONENTS = {"type": "object", "properties": {"dataset": {"type": "string", "description": "Dataset the component should render; filters by schema compatibility."}, "tags": {"type": "array", "items": {"type": "string"}}}, "required": ["dataset", "tags"]}
-RENDER_VIEW = {"type": "object", "properties": {"component_id": {"type": "string"}, "datasets": {"type": "array", "items": {"type": "string"}}, "initial_state": {"type": "object", "additionalProperties": True}}, "required": ["component_id", "datasets", "initial_state"]}
-WRITE_VIEW = {"type": "object", "properties": {"source": {"type": "string", "description": "A TSX module whose default export is the component. Only `react`, the design system, the chart libraries listed in the guide, and the hooks module may be imported."}, "datasets": {"type": "array", "items": {"type": "string"}}, "initial_state": {"type": "object", "additionalProperties": True}}, "required": ["source", "datasets", "initial_state"]}
+RENDER_VIEW = {"type": "object", "properties": {"component_id": {"type": "string"}, "datasets": {"type": "array", "items": {"type": "string"}}, "initial_state": {"type": "string", "description": "JSON object encoded as a string, e.g. \"{}\""}}, "required": ["component_id", "datasets", "initial_state"]}
+WRITE_VIEW = {"type": "object", "properties": {"source": {"type": "string", "description": "A TSX module whose default export is the component. Only `react`, the design system, the chart libraries listed in the guide, and the hooks module may be imported."}, "datasets": {"type": "array", "items": {"type": "string"}}, "initial_state": {"type": "string", "description": "JSON object encoded as a string, e.g. \"{}\""}}, "required": ["source", "datasets", "initial_state"]}
 ```
 
-`initial_state` is the one schema with `additionalProperties: True`; `to_api_tools` overwrites only the top level, so the nested `True` survives. Strict mode requires every property in `required`, which is why `tags` and `datasets` are required arrays (possibly empty).
+Strict mode (both providers) requires every property to be required and every nested object to be closed, so `initial_state` travels as a JSON string and is parsed by a validator; `tags` and `datasets` are required arrays that may be empty.
 
 - [ ] **Step 1: Write the failing library tests**
 
@@ -891,6 +891,7 @@ def test_run_python_success_and_failure(kernel: KernelClient, tmp_path: Path):
     assert bad.is_error is True
     assert "ZeroDivisionError" in bad.content
     assert ex.last_python_failed is True
+    assert [r.status for r in ex.exec_results] == ["ok", "error"]
 
 
 def test_describe_dataset(kernel: KernelClient, tmp_path: Path):
@@ -907,12 +908,12 @@ def test_search_and_render_view(kernel: KernelClient, tmp_path: Path):
     ex.run(ToolCall(id="1", name="run_python", input={"code": "df = pl.DataFrame({'a': [1]})"}))
     found = ex.run(ToolCall(id="2", name="search_components", input={"dataset": "df", "tags": ["table"]}))
     assert json.loads(found.content)[0]["id"] == "table"
-    rendered = ex.run(ToolCall(id="3", name="render_view", input={"component_id": "table", "datasets": ["df"], "initial_state": {}}))
+    rendered = ex.run(ToolCall(id="3", name="render_view", input={"component_id": "table", "datasets": ["df"], "initial_state": "{}"}))
     assert rendered.is_error is False
     assert ex.view is not None and ex.view.component_id == "table" and ex.view.source.startswith("export default")
-    unknown = ex.run(ToolCall(id="4", name="render_view", input={"component_id": "nope", "datasets": ["df"], "initial_state": {}}))
+    unknown = ex.run(ToolCall(id="4", name="render_view", input={"component_id": "nope", "datasets": ["df"], "initial_state": "{}"}))
     assert unknown.is_error is True
-    missing_ds = ex.run(ToolCall(id="5", name="render_view", input={"component_id": "table", "datasets": ["zz"], "initial_state": {}}))
+    missing_ds = ex.run(ToolCall(id="5", name="render_view", input={"component_id": "table", "datasets": ["zz"], "initial_state": "{}"}))
     assert missing_ds.is_error is True
 
 
@@ -922,11 +923,13 @@ def test_write_view_uses_transpiler(kernel: KernelClient, tmp_path: Path):
     failing = CommandTranspiler([sys.executable, "-c", "import sys; sys.stderr.write('bad jsx'); sys.exit(1)"])
     ex = executor(kernel, tmp_path, transpiler=failing)
     ex.run(ToolCall(id="1", name="run_python", input={"code": "df = pl.DataFrame({'a': [1]})"}))
-    out = ex.run(ToolCall(id="2", name="write_view", input={"source": "<", "datasets": ["df"], "initial_state": {}}))
+    out = ex.run(ToolCall(id="2", name="write_view", input={"source": "<", "datasets": ["df"], "initial_state": "{}"}))
     assert out.is_error is True and "bad jsx" in out.content
     assert ex.view is None
     ok = executor(kernel, tmp_path)
-    good = ok.run(ToolCall(id="3", name="write_view", input={"source": "export default () => null", "datasets": ["df"], "initial_state": {"k": 1}}))
+    good = ok.run(ToolCall(id="3", name="write_view", input={"source": "export default () => null", "datasets": ["df"], "initial_state": '{"k": 1}'}))
+    bad_json = ok.run(ToolCall(id="4", name="write_view", input={"source": "export default () => null", "datasets": ["df"], "initial_state": "[1]"}))
+    assert bad_json.is_error is True
     assert good.is_error is False
     assert ok.view is not None and ok.view.component_id == "inline" and ok.view.initial_state == {"k": 1}
 
@@ -1093,12 +1096,13 @@ from __future__ import annotations
 import json
 from typing import Final
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from quarry.agent.transpile import Transpiler
 from quarry.agent.types import ToolCall, ToolDef, ToolResult
 from quarry.components.library import ComponentLibrary
 from quarry.kernel.client import KernelClient, RpcFailure
+from quarry.kernel.executor import ExecResult
 from quarry.query.spec import Json
 
 RUN_PYTHON: Final[dict[str, Json]] = {
@@ -1130,7 +1134,7 @@ RENDER_VIEW: Final[dict[str, Json]] = {
     "properties": {
         "component_id": {"type": "string"},
         "datasets": {"type": "array", "items": {"type": "string"}},
-        "initial_state": {"type": "object", "additionalProperties": True},
+        "initial_state": {"type": "string", "description": 'JSON object encoded as a string, e.g. "{}"'},
     },
     "required": ["component_id", "datasets", "initial_state"],
 }
@@ -1145,7 +1149,7 @@ WRITE_VIEW: Final[dict[str, Json]] = {
             ),
         },
         "datasets": {"type": "array", "items": {"type": "string"}},
-        "initial_state": {"type": "object", "additionalProperties": True},
+        "initial_state": {"type": "string", "description": 'JSON object encoded as a string, e.g. "{}"'},
     },
     "required": ["source", "datasets", "initial_state"],
 }
@@ -1179,16 +1183,37 @@ class _Search(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+def _parse_state(value: object) -> dict[str, Json]:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        raise ValueError("initial_state must be a JSON object string")
+    parsed = json.loads(value or "{}")
+    if not isinstance(parsed, dict):
+        raise ValueError("initial_state must encode a JSON object")
+    return parsed
+
+
 class _Render(BaseModel):
     component_id: str
     datasets: list[str]
     initial_state: dict[str, Json] = Field(default_factory=dict)
+
+    @field_validator("initial_state", mode="before")
+    @classmethod
+    def _state(cls, value: object) -> dict[str, Json]:
+        return _parse_state(value)
 
 
 class _Write(BaseModel):
     source: str
     datasets: list[str]
     initial_state: dict[str, Json] = Field(default_factory=dict)
+
+    @field_validator("initial_state", mode="before")
+    @classmethod
+    def _state(cls, value: object) -> dict[str, Json]:
+        return _parse_state(value)
 
 
 class ToolExecutor:
@@ -1198,6 +1223,7 @@ class ToolExecutor:
         self._transpiler = transpiler
         self.view: PendingView | None = None
         self.last_python_failed = False
+        self.exec_results: list[ExecResult] = []
 
     def run(self, call: ToolCall) -> ToolResult:
         try:
@@ -1219,6 +1245,7 @@ class ToolExecutor:
 
     def _run_python(self, call: ToolCall, args: _RunPython) -> ToolResult:
         result = self._kernel.execute(args.code)
+        self.exec_results.append(result)
         self.last_python_failed = result.status != "ok"
         content = result.model_dump(by_alias=True, mode="json")
         return ToolResult(call_id=call.id, content=json.dumps(content), is_error=result.status != "ok")
@@ -1782,7 +1809,8 @@ git commit -m "feat: agent system prompt, library guide, and collapsing session 
 
 - Consumes: `Provider`, `AssistantTurn`, `Message`, `ToolResult`, `ProviderError` (Task 2); `ToolExecutor`, `TOOL_DEFS`, `PendingView` (Task 5); `KernelDead`.
 - Produces:
-  - `class StepOutcome(BaseModel)`: `status: Literal["ok", "error", "interrupted"]`, `note: str`, `transcript: list[Message]`, `error_message: str | None`, `view: PendingView | None`, `code: str` (every `run_python` code joined by two newlines, in order), `iterations: int`
+  - `class StepOutcome(BaseModel)`: `status: Literal["ok", "error", "interrupted"]`, `note: str`, `transcript: list[Message]`, `error_message: str | None`, `view: PendingView | None`, `code: str` (every `run_python` code joined by two newlines, in order), `iterations: int`, `exec_results: list[ExecResult]` (copied from the executor)
+  - `def step_lineage(results: list[ExecResult]) -> Lineage` with `class Lineage(BaseModel)`: `reads`, `writes`, `defines: list[str]`, `datasets: list[DatasetMeta]`. `writes` = union of call writes; `reads` = union of call reads minus names written by an earlier call in the same step; `defines` = union; `datasets` = the last `DatasetMeta` per written name. All sorted by name.
   - `def run_agent_step(*, prompt: str, system: str, summary: str, provider: Provider, tools: ToolExecutor, max_iterations: int = 12) -> StepOutcome`. Rules: first user message is `summary + "\n\n# Request\n" + prompt`; loop until `stop == "end"`; `refusal` → error with the reason; `max_tokens` → error "response truncated"; a `ProviderError` → error with its message; `KernelDead` → error "kernel died" with status `error`; a `run_python` result whose `status` is `interrupted` → outcome `interrupted`; two consecutive `run_python` errors → stop, status `error`, `error_message` from the last traceback; after `max_iterations` provider calls → error "iteration cap reached". Every tool result for one turn goes back in a single user message.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1796,7 +1824,7 @@ from pathlib import Path
 import pytest
 
 from quarry.agent.fake import FakeProvider
-from quarry.agent.loop import run_agent_step
+from quarry.agent.loop import run_agent_step, step_lineage
 from quarry.agent.tools import ToolExecutor
 from quarry.agent.transpile import NoopTranspiler
 from quarry.agent.types import AssistantTurn, ProviderError, ToolCall
@@ -1880,10 +1908,23 @@ def test_interrupted_python_marks_step_interrupted(kernel, tmp_path):
     assert run(provider, kernel, tmp_path).status == "interrupted"
 
 
+def test_step_lineage_self_rebinding_keeps_read_edge():
+    from quarry.agent.loop import step_lineage
+    from quarry.kernel.executor import ExecResult
+
+    def res(reads, writes):
+        return ExecResult(status="ok", stdout_tail="", stderr_tail="", error=None, reads=reads, writes=writes, defines=[], datasets=[], duration_ms=0)
+
+    one = step_lineage([res(["df"], ["df"])])
+    assert one.reads == ["df"] and one.writes == ["df"]
+    two = step_lineage([res([], ["tmp"]), res(["tmp", "prices"], ["out"])])
+    assert two.reads == ["prices"] and two.writes == ["out", "tmp"]
+
+
 def test_view_is_captured(kernel, tmp_path):
     turns = [
         py("c1", "df = pl.DataFrame({'a': [1]})"),
-        AssistantTurn(text="", tool_calls=[ToolCall(id="c2", name="write_view", input={"source": "export default () => null", "datasets": ["df"], "initial_state": {}})], stop="tool_use"),
+        AssistantTurn(text="", tool_calls=[ToolCall(id="c2", name="write_view", input={"source": "export default () => null", "datasets": ["df"], "initial_state": "{}"})], stop="tool_use"),
         end(),
     ]
     out = run(FakeProvider(turns), kernel, tmp_path)
@@ -1911,6 +1952,8 @@ from pydantic import BaseModel
 from quarry.agent.tools import TOOL_DEFS, PendingView, ToolExecutor
 from quarry.agent.types import Message, Provider, ProviderError, ToolResult
 from quarry.kernel.client import KernelDead
+from quarry.kernel.datasets import DatasetMeta
+from quarry.kernel.executor import ExecResult
 
 MAX_ITERATIONS: Final = 12
 
@@ -1923,6 +1966,34 @@ class StepOutcome(BaseModel):
     view: PendingView | None
     code: str
     iterations: int
+    exec_results: list[ExecResult]
+
+
+class Lineage(BaseModel):
+    reads: list[str]
+    writes: list[str]
+    defines: list[str]
+    datasets: list[DatasetMeta]
+
+
+def step_lineage(results: list[ExecResult]) -> Lineage:
+    written_so_far: set[str] = set()
+    reads: set[str] = set()
+    writes: set[str] = set()
+    defines: set[str] = set()
+    latest: dict[str, DatasetMeta] = {}
+    for r in results:
+        reads |= {n for n in r.reads if n not in written_so_far}
+        writes |= set(r.writes)
+        defines |= set(r.defines)
+        latest.update({m.name: m for m in r.datasets})
+        written_so_far |= set(r.writes)
+    return Lineage(
+        reads=sorted(reads),
+        writes=sorted(writes),
+        defines=sorted(defines),
+        datasets=[latest[n] for n in sorted(writes) if n in latest],
+    )
 
 
 def run_agent_step(
@@ -1948,6 +2019,7 @@ def run_agent_step(
             view=tools.view,
             code="\n\n".join(code_blocks),
             iterations=iterations,
+            exec_results=list(tools.exec_results),
         )
 
     while iterations < max_iterations:
@@ -2358,7 +2430,7 @@ from pydantic import BaseModel
 
 from quarry.agent.anthropic_provider import AnthropicProvider
 from quarry.agent.context import SystemContext, build_summary, build_system, enabled_libraries
-from quarry.agent.loop import run_agent_step
+from quarry.agent.loop import run_agent_step, step_lineage
 from quarry.agent.openai_provider import OpenAIProvider
 from quarry.agent.tools import ToolExecutor
 from quarry.agent.transpile import Transpiler
@@ -2508,7 +2580,7 @@ class SessionService:
             outcome = run_agent_step(
                 prompt=prompt, system=self._system, summary=summary, provider=self._provider_factory(self._config), tools=tools
             )
-            lineage = _lineage_from_kernel(kernel, outcome.code) if outcome.code else None
+            lineage = step_lineage(outcome.exec_results)
             done = step.model_copy(
                 update={
                     "status": outcome.status,
@@ -2517,10 +2589,10 @@ class SessionService:
                     "error": ExecError(type="StepError", message=outcome.error_message, traceback="") if outcome.error_message else None,
                     "transcript": outcome.transcript,
                     "view": View.from_pending(outcome.view) if outcome.view else None,
-                    "reads": lineage.reads if lineage else [],
-                    "writes": lineage.writes if lineage else [],
-                    "defines": lineage.defines if lineage else [],
-                    "datasets": lineage.datasets if lineage else [],
+                    "reads": lineage.reads,
+                    "writes": lineage.writes,
+                    "defines": lineage.defines,
+                    "datasets": lineage.datasets,
                     "duration_ms": int((time.monotonic() - started) * 1000),
                 }
             )
@@ -2557,24 +2629,6 @@ class SessionService:
         )
 
 
-class _Lineage(BaseModel):
-    reads: list[str]
-    writes: list[str]
-    defines: list[str]
-    datasets: list[DatasetMeta]
-
-
-def _lineage_from_kernel(kernel: KernelClient, code: str) -> _Lineage:
-    """Lineage for a prompt step is the union over its run_python calls, recorded by the tool results."""
-    from quarry.kernel.lineage import analyze
-
-    names = analyze(code)
-    known = {m.name: m for m in kernel.list_datasets()}
-    writes = sorted(n for n in names.stores if n in known)
-    reads = sorted(n for n in names.loads if n in known and n not in names.stores)
-    return _Lineage(reads=reads, writes=writes, defines=sorted(names.defines), datasets=[known[n] for n in writes])
-
-
 def _apply_exec(step: Step, result: ExecResult, started: float) -> Step:
     return step.model_copy(
         update={
@@ -2608,7 +2662,7 @@ def _safe_datasets(kernel: KernelClient) -> list[DatasetMeta]:
         return []
 ```
 
-Why `_lineage_from_kernel` re-analyzes the joined code rather than reading each tool result: a prompt step may run several `run_python` calls, and a dataset written by call one and read by call two is internal to the step. Analyzing the concatenation against the kernel's current dataset list yields the step-level reads (datasets that existed before and are loaded but never stored here) and writes (stored names that are datasets now), which is what the dependency graph needs.
+Prompt-step lineage comes from `step_lineage` over the kernel's per-call `ExecResult`s, so a self-rebinding like `df = df.filter(...)` records both a read and a write of `df` (the dependency graph in Stage 4 needs that read edge), while a name written by call one and read by call two stays internal to the step.
 
 - [ ] **Step 4: Write app.py**
 
@@ -2950,7 +3004,7 @@ from pathlib import Path
 import pytest
 
 from quarry.agent.anthropic_provider import AnthropicProvider
-from quarry.agent.loop import run_agent_step
+from quarry.agent.loop import run_agent_step, step_lineage
 from quarry.agent.openai_provider import OpenAIProvider
 from quarry.agent.tools import ToolExecutor
 from quarry.agent.transpile import NoopTranspiler
@@ -3024,6 +3078,7 @@ git commit -m "test: gated live provider smoke tests; document curl flow"
 
 - Spec coverage: section 4 request flow (Task 10), section 5 Session/Step/View (Task 6), section 6 restart-and-replay (Tasks 9, 10), section 8 provider interface, loop, five tools, context, library guide (Tasks 2 to 8), section 11 sessions layout (Task 6), section 12 loopback plus bearer token (Tasks 10, 11), section 13 provider errors, kernel crash, repair-once, transpile error (Tasks 3, 8, 9, 10), section 14 fake provider and live smoke (Tasks 2, 12). The browser-side mount error and "fix this" repair step belong to Stage 3.
 - `search_components` ships working against an empty builtin directory; Stage 3 adds manifests and the `transpile-check.mjs` bundle.
-- Prompt-step lineage is derived by re-analyzing the concatenated `run_python` code against the kernel's dataset list after the step (Task 10); manual steps take lineage straight from `ExecResult`.
+- Prompt-step lineage is the fold of per-call `ExecResult`s (`step_lineage`, Task 8); manual steps take lineage straight from one `ExecResult`.
+- `initial_state` is a JSON string in the tool schemas because strict mode on both providers rejects open nested objects.
 - Anthropic requests enable server-side refusal fallbacks (`fallbacks="default"`); the README says so.
 - Model default moved to `claude-opus-5-5` in both the config and the spec (Task 1).
