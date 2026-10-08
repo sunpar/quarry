@@ -18,6 +18,9 @@ dependencies = [
 [project.optional-dependencies]
 mssql = ["arrow-odbc>=10"]
 
+[project.scripts]
+quarry = "quarry.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
