@@ -82,7 +82,7 @@ class KernelManager:
             old = self._clients.pop(session_id, None)
             if old is not None:
                 old.close()
-        client = self.get(session_id)
+        client = self.get(session_id, has_steps=bool(steps))
         for replayed, step in enumerate(sorted(steps, key=lambda s: s.index)):
             for run in step.runs:
                 if run.status == "interrupted":
