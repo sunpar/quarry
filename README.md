@@ -2,6 +2,9 @@
 
 Agentic data exploration for quant researchers. See the [design spec](docs/superpowers/specs/2026-10-08-quarry-design.md).
 
+Project docs, starting with the current working state, are indexed in
+[docs/README.md](docs/README.md).
+
 ## Development
 
 ```bash
