@@ -152,7 +152,10 @@ class SessionService:
         return self._kernels.get(session_id).query(spec)
 
     def datasets(self, session_id: str) -> builtins.list[DatasetMeta]:
-        return self._kernels.get(session_id).list_datasets()
+        listed = self._kernels.get(session_id).list_datasets()
+        # Later steps overwrite earlier ones, so each name keeps its latest writer.
+        origins = {n: step.id for step in self._store.get(session_id).steps for n in step.writes}
+        return [d.model_copy(update={"origin_step": origins.get(d.name)}) for d in listed]
 
     def restart(self, session_id: str) -> ReplayReport:
         """Replace the kernel and replay the session's steps. Killing the old kernel stops code
@@ -278,6 +281,9 @@ class SessionService:
         self._finish(session_id, done)
 
     def _finish(self, session_id: str, step: Step) -> None:
+        # The kernel describes datasets without knowing steps; this step wrote the ones it lists.
+        listed = [d.model_copy(update={"origin_step": step.id}) for d in step.datasets]
+        step = step.model_copy(update={"datasets": listed})
         with self._lock:
             # A restart cancels its running step and kills the kernel, so the step ends
             # interrupted, whichever of the two stopped it.

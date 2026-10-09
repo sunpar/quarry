@@ -75,6 +75,14 @@ def test_describe_serializes_schema_key() -> None:
     assert DatasetMeta.model_validate(meta.model_dump(by_alias=True)) == meta
 
 
+def test_describe_leaves_origin_step_to_the_server() -> None:
+    meta = describe("f", frame(), count_rows=False)
+    assert meta.origin_step is None
+    stamped = meta.model_copy(update={"origin_step": "abc123"})
+    wire = json.loads(json.dumps(stamped.model_dump(by_alias=True, mode="json")))
+    assert DatasetMeta.model_validate(wire).origin_step == "abc123"
+
+
 def test_describe_round_trips_through_json_mode() -> None:
     meta = describe("f", frame(), count_rows=True)
     wire = json.loads(json.dumps(meta.model_dump(by_alias=True, mode="json")))

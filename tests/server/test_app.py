@@ -22,6 +22,7 @@ from quarry.server.app import create_app
 from quarry.server.kernels import ReplayReport
 from quarry.server.models import Step
 from quarry.server.service import ProviderFactory
+from quarry.server.store import SessionStore
 
 TOKEN = "t0k3n"
 RESTARTED = "stopped by a restart"
@@ -157,6 +158,45 @@ def test_prompt_step_end_to_end(tmp_path: Path) -> None:
         datasets = client.get(f"/sessions/{sid}/datasets").json()
         assert datasets[0]["name"] == "df"
         assert "schema" in datasets[0] and "schema_" not in datasets[0]
+
+
+def test_finished_steps_carry_their_own_id_as_dataset_origin(tmp_path: Path) -> None:
+    turns = [py("c1", "df = pl.DataFrame({'a': [1]})"), end()]
+    with make_client(tmp_path, turns) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps", json={"prompt": "load"})
+        wait_idle(client, sid)
+        client.post(f"/sessions/{sid}/steps/manual", json={"code": "other = df.select('a')"})
+        wait_idle(client, sid)
+        failing = {"code": "late = df.select('a')\n1/0"}
+        client.post(f"/sessions/{sid}/steps/manual", json=failing)
+        wait_idle(client, sid)
+        steps = client.get(f"/sessions/{sid}").json()["steps"]
+        assert [s["kind"] for s in steps] == ["prompt", "manual", "manual"]
+        assert steps[2]["status"] == "error" and steps[2]["writes"] == ["late"]
+        for s in steps:
+            assert [d["origin_step"] for d in s["datasets"]] == [s["id"]]
+        # What is saved carries it too, not just the response.
+        saved = SessionStore(tmp_path).get(sid).steps
+        assert [d.origin_step for s in saved for d in s.datasets] == [s.id for s in saved]
+
+
+def test_datasets_origin_is_the_latest_step_that_wrote_the_name(tmp_path: Path) -> None:
+    turns = [py("c1", "df = pl.DataFrame({'a': [1]})"), end()]
+    with make_client(tmp_path, turns) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps", json={"prompt": "load"})
+        wait_idle(client, sid)
+        for code in ["other = df.select('a')", "df = pl.DataFrame({'a': [2]})", "n = df.height"]:
+            client.post(f"/sessions/{sid}/steps/manual", json={"code": code})
+            wait_idle(client, sid)
+        # No step wrote this one.
+        client.app.state.service._kernels.get(sid).execute("orphan = pl.DataFrame({'a': [3]})")
+        ids = [s["id"] for s in client.get(f"/sessions/{sid}").json()["steps"]]
+        origins = {
+            d["name"]: d["origin_step"] for d in client.get(f"/sessions/{sid}/datasets").json()
+        }
+        assert origins == {"df": ids[2], "other": ids[1], "orphan": None}
 
 
 def test_second_step_while_running_is_409(tmp_path: Path) -> None:
