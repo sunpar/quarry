@@ -263,8 +263,9 @@ class SessionService:
             )
         except KernelDead as exc:
             done = _died(step, exc, cancel, started)
-        # The step thread's boundary: anything else would leave the session busy for good.
-        except Exception as exc:
+        # The step thread's boundary: anything else would leave the session busy for good. It
+        # takes NOT_FAILURES and polars panics too, since nothing above this thread can.
+        except BaseException as exc:
             # What ran stays with the step: restart replays it, and its writes name this step.
             done = _recorded(_failed(step, ExecError.from_exception(exc), started), ran)
         self._finish(session_id, done)
@@ -280,8 +281,7 @@ class SessionService:
                 done = _apply_exec(step, kernel.execute(step.code), started)
         except KernelDead as exc:
             done = _died(step, exc, cancel, started)
-        # The step thread's boundary: anything else would leave the session busy for good.
-        except Exception as exc:
+        except BaseException as exc:  # the boundary, as in _run_prompt
             done = _failed(step, ExecError.from_exception(exc), started)
         self._finish(session_id, done)
 
@@ -298,8 +298,10 @@ class SessionService:
             error = step.error.message if step.error is not None else None
             try:
                 self._store.append_step(session_id, step)
-            except Exception as exc:
+            except BaseException as exc:
                 error = f"failed to save step: {exc}"
+                # The files lack what the kernel ran: dead until a restart replays the files.
+                self._kernels.kill(session_id)
                 raise
             finally:
                 self._release(session_id, error)

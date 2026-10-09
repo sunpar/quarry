@@ -438,11 +438,16 @@ them.
   arguments. A truncated call had raised `JSONDecodeError` out of the loop, and
   a filtered reply had ended the step as `ok`.
 - **Each step thread has one boundary**: the prompt and manual step threads turn
-  any `Exception` into a failed step, and the session is freed even when saving
-  the step or starting the thread fails. An escaped exception had left the
-  session answering 409 for good. A crashed prompt step keeps the runs recorded
-  before the crash and their lineage, so restart replays them and `/datasets`
-  credits the step.
+  any `BaseException` into a failed step, since a polars panic or a
+  `KeyboardInterrupt` raised by firm code is not an `Exception`. The session is
+  freed even when saving the step or starting the thread fails. An escaped
+  exception had left the session answering 409 for good. A crashed prompt step
+  keeps the runs recorded before the crash and their lineage, so restart replays
+  them and `/datasets` credits the step.
+- **A step that fails to save kills the kernel**: the kernel ran code the
+  session's files lack, so it stays dead until a restart rebuilds it from them.
+  Later steps had built on state that no restart could bring back. Cost: the
+  unsaved step's work is lost.
 - **One step or restart at a time**: a step posted while another step or a
   restart runs gets 409, and so does a second restart. `/query`, `/datasets` and
   `/interrupt` get 409 during a restart too, since a half-replayed namespace is
@@ -526,7 +531,8 @@ them.
   invalid manifest gets a logged warning, and the library loads the rest. One
   bad manifest had made every component search fail. A manifest whose
   `contract_version` is not 1 is skipped too, since 1 is the only contract the
-  runtime mounts.
+  runtime mounts, and so is one with a key the spec does not list: a misspelled
+  key had fallen back to its default.
 
 ## Packaging and CI
 

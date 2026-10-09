@@ -16,17 +16,22 @@ DtypeClass = Literal["datetime", "numeric", "string", "other"]
 log = logging.getLogger(__name__)
 
 
-class SchemaRequirement(BaseModel):
+# Manifest models forbid unknown keys: a misspelled one would fall back to its default silently.
+class _Manifest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class SchemaRequirement(_Manifest):
     role: str
     dtype: Literal["datetime", "numeric", "string", "any"]
     min: int = 1
 
 
-class ComponentSchema(BaseModel):
+class ComponentSchema(_Manifest):
     requires: list[SchemaRequirement] = Field(default_factory=list)
 
 
-class ComponentManifest(BaseModel):
+class ComponentManifest(_Manifest):
     model_config = ConfigDict(populate_by_name=True)
 
     id: str

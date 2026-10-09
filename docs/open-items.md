@@ -117,7 +117,9 @@ has made yet. Decisions already made are in
 - **Saving a step stalls every route**: `_finish` writes and fsyncs the step
   file and its directory under the service lock that every route takes. With a 1
   s fsync in a probe, another session's `/status` took 2 s, so a slow filesystem
-  such as an NFS home directory stalls all sessions. Silent.
+  such as an NFS home directory stalls all sessions. A failed save also kills
+  the kernel under that lock, which can wait up to 5 s for the process to exit.
+  Silent.
 - **A kernel never started reads as `starting`**: after a server restart,
   `/status` reports `starting` for a session whose kernel was never spawned, so
   a client cannot tell that its namespace is empty. Silent.
