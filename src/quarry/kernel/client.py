@@ -84,10 +84,16 @@ class KernelClient:
         env = {k: v for k, v in os.environ.items() if k not in ENV_API_KEY.values()}
         if threads > 0:
             env["POLARS_MAX_THREADS"] = str(threads)
-        tmpdir = tempfile.TemporaryDirectory(prefix="quarry-kernel-")
-        socket_path = Path(tmpdir.name) / "kernel.sock"
+        tmpdir: tempfile.TemporaryDirectory[str] | None = None
         process: subprocess.Popen[bytes] | None = None
+        conn: socket.socket | None = None
         try:
+            # A process the kernel started in its own session, which the group kill misses, can
+            # still write here, and then removing the directory fails.
+            tmpdir = tempfile.TemporaryDirectory(
+                prefix="quarry-kernel-", ignore_cleanup_errors=True
+            )
+            socket_path = Path(tmpdir.name) / "kernel.sock"
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
                 listener.bind(str(socket_path))
                 listener.listen(1)
@@ -111,16 +117,19 @@ class KernelClient:
                     start_new_session=True,
                 )
                 conn = _accept(listener, process, startup_timeout)
+            return cls(process, conn, tmpdir)
         except BaseException as exc:
             # Not when `_accept` already killed and reaped it: the group's id may be reused.
             if process is not None and process.returncode is None:
                 _kill_group(process)
                 process.wait()
-            tmpdir.cleanup()
+            if conn is not None:
+                conn.close()
+            if tmpdir is not None:
+                tmpdir.cleanup()
             if isinstance(exc, OSError):  # a long TMPDIR ("AF_UNIX path too long"), no fork
                 raise KernelDead(f"cannot start the kernel: {exc}") from exc
             raise
-        return cls(process, conn, tmpdir)
 
     def execute(self, code: str) -> ExecResult:
         return self._call_as(ExecResult.model_validate, "execute", {"code": code})

@@ -106,8 +106,15 @@ class Executor:
 
     def stop(self) -> None:
         """Interrupt every step from now on: the one running, found by a SIGINT sent after this,
-        or one about to start, which sees the flag as soon as it is running and never runs."""
+        and each guarded region that starts after it (a step's exec, a describe of its writes),
+        which ends as soon as it is running. A step about to start never runs."""
         self._stopped = True
+
+    def _check_stopped(self) -> None:
+        """Called in a guarded region, after `_running` is set: end it as an interrupt would."""
+        if self._stopped:
+            self._interrupted = True
+            raise KeyboardInterrupt
 
     def on_sigint(self, signum: int, frame: FrameType | None) -> None:
         """The kernel's SIGINT handler: interrupt the step's guarded region, and record it.
@@ -220,9 +227,7 @@ class Executor:
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 self._running = True
                 try:
-                    # After `_running`, so a SIGINT that missed this step came after `stop`.
-                    if self._stopped:
-                        raise KeyboardInterrupt
+                    self._check_stopped()  # a SIGINT that missed this step came after `stop`
                     exec(compiled, self._ns)  # executing researcher code is the kernel's job
                 finally:
                     self._running = False
@@ -242,6 +247,7 @@ class Executor:
                 # signal's handler with the flag still set, outside this try.
                 self._running = True
                 try:
+                    self._check_stopped()
                     described = self._describe_guarded(name)
                 finally:
                     self._running = False

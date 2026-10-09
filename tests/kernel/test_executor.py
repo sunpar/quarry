@@ -202,6 +202,16 @@ def test_stopped_executor_interrupts_a_step_before_it_runs() -> None:
     assert "x" not in namespace
 
 
+def test_executor_stopped_during_a_step_leaves_its_writes_undescribed() -> None:
+    namespace: dict[str, object] = {"pl": pl}
+    ex = Executor(namespace, conn=duckdb.connect(), row_cap=3)
+    namespace["stop"] = ex.stop
+    result = ex.execute("stop()\ndf = pl.DataFrame({'a': [1]})")
+    assert (result.status, result.error, result.writes) == ("interrupted", None, ["df"])
+    assert [(m.name, m.error, m.schema_) for m in result.datasets] == [("df", "interrupted", [])]
+    assert ex.running is False
+
+
 def test_execute_system_exit_is_structured_error() -> None:
     result = make().execute("raise SystemExit(3)")
     assert result.status == "error"

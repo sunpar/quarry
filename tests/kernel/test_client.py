@@ -1,3 +1,4 @@
+import errno
 import json
 import math
 import os
@@ -11,6 +12,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 import pytest
@@ -459,6 +461,62 @@ def test_spawn_reports_a_kernel_that_cannot_be_started(
             KernelClient.spawn(tmp_path)
         assert isinstance(info.value.__cause__, FileNotFoundError)
         assert list(Path(scratch).iterdir()) == []  # the temp directory is gone
+
+
+def test_spawn_reports_a_temp_directory_it_cannot_make(monkeypatch: pytest.MonkeyPatch) -> None:
+    def full_disk(*args: object, **kwargs: object) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(tempfile, "TemporaryDirectory", full_disk)
+    with pytest.raises(KernelDead, match="cannot start the kernel") as info:
+        KernelClient.spawn(Path("."))
+    assert isinstance(info.value.__cause__, OSError)
+
+
+def test_spawn_that_fails_building_the_client_leaves_no_kernel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started: list[tuple[subprocess.Popen[bytes], socket.socket, str]] = []
+    real_accept = _accept
+
+    def recording_accept(
+        listener: socket.socket, process: subprocess.Popen[bytes], timeout: float
+    ) -> socket.socket:
+        conn = real_accept(listener, process, timeout)
+        started.append((process, conn, listener.getsockname()))
+        return conn
+
+    def no_thread(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(client_module, "_accept", recording_accept)
+    monkeypatch.setattr(KernelClient, "__init__", no_thread)
+    with pytest.raises(RuntimeError, match="new thread"):
+        KernelClient.spawn(tmp_path)
+    [(process, conn, socket_path)] = started
+    assert process.returncode == -signal.SIGKILL
+    assert conn.fileno() == -1
+    assert not Path(socket_path).parent.exists()
+
+
+def test_close_does_not_raise_when_the_temp_directory_will_not_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = KernelClient.spawn(tmp_path)
+    tmpdir = Path(client._tmpdir.name)
+    rmdir = os.rmdir
+
+    def still_written_to(path: str, **kwargs: Any) -> None:
+        # What a process the kernel started in its own session, which the group kill misses,
+        # causes by adding a file while the directory is removed.
+        if path == str(tmpdir):
+            raise OSError(errno.ENOTEMPTY, "Directory not empty")
+        rmdir(path, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "rmdir", still_written_to)
+        client.close()
+    tmpdir.rmdir()  # what the failed removal left behind
 
 
 def answer_next_request_with(peer: socket.socket, result: object) -> None:

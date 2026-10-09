@@ -140,12 +140,15 @@ def shut_down_during_first_request(
     """Serve `codes` as executes ids 1..n, with a shutdown (id 0) arriving once `executor` holds
     the first and has not started it; release it after `serve` tried to interrupt."""
     kernel_end, client_end = socket.socketpair()
+    client_end.settimeout(10)  # a missing response fails the test instead of hanging it
 
     def drive() -> None:
         for i, code in enumerate(codes, start=1):
             client_end.sendall(encode(Request(id=i, method="execute", params={"code": code})))
         executor.entered.wait(timeout=10)
         client_end.sendall(encode(Request(id=0, method="shutdown", params={})))
+        # Closing `kernel_end` under its reader sends no EOF on Linux; the reader must end first.
+        client_end.shutdown(socket.SHUT_WR)
         executor.polled.wait(timeout=10)
         executor.release.set()
 
