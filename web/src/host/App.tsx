@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { readToken } from "./api/auth";
 import { ApiClient } from "./api/client";
 import { ApiProvider } from "./api/context";
@@ -14,11 +14,19 @@ export function App() {
   const [client] = useState(() =>
     token === null ? null : new ApiClient(token),
   );
-  if (client === null) return <TokenMissing />;
+  // A pasted link with a new token must not keep the old one in memory; replaceState never fires this.
+  useEffect(() => {
+    const onHashChange = () => {
+      if (readToken(window.location.hash) !== token) window.location.reload();
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [token]);
+  if (token === null || client === null) return <TokenMissing />;
   return (
     <QueryClientProvider client={queryClient}>
       <ApiProvider client={client}>
-        <SessionPage />
+        <SessionPage token={token} />
       </ApiProvider>
     </QueryClientProvider>
   );

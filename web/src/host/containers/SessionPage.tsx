@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { readSession, sessionHash } from "../api/auth";
+import { ApiError } from "../api/client";
 import { KernelBanner } from "../components/KernelBanner";
 import { PromptBox } from "../components/PromptBox";
 import { SessionRail } from "../components/SessionRail";
@@ -14,21 +16,38 @@ import {
 import { StepList } from "./StepList";
 import { ViewFrameContainer } from "./ViewFrameContainer";
 
-export function SessionPage() {
+interface SessionPageProps {
+  token: string;
+}
+
+export function SessionPage({ token }: SessionPageProps) {
   const sessions = useSessions();
   const create = useCreateSession();
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState(() =>
+    readSession(window.location.hash),
+  );
   const current = activeId ?? sessions.data?.[0]?.id ?? null;
+  const select = (id: string) => {
+    setActiveId(id);
+    history.replaceState(null, "", sessionHash(token, id));
+  };
+
+  if (sessions.error instanceof ApiError && sessions.error.status === 401)
+    return (
+      <main className="mx-auto max-w-[560px] px-8 py-16 text-sm text-destructive">
+        The token was rejected. Open the link that quarry serve printed.
+      </main>
+    );
 
   return (
     <div className="flex h-screen">
       <SessionRail
         sessions={sessions.data ?? []}
         activeId={current}
-        onSelect={setActiveId}
+        onSelect={select}
         onCreate={() =>
           create.mutate("Untitled", {
-            onSuccess: (meta) => setActiveId(meta.id),
+            onSuccess: (meta) => select(meta.id),
           })
         }
       />
