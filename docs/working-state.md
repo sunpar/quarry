@@ -38,7 +38,7 @@ in [open-items.md](open-items.md).
 
 - Neither provider adapter has called its real API yet; see the
   [open questions](open-items.md#open-questions).
-- The fixes for four Codex reviews are in, and CI Auto-fix is on.
+- The fixes for five Codex reviews are in, and CI Auto-fix is on.
 - The Stage 2 deferred items landed in sunpar/quarry#2 as seven reviewed tasks:
   config hardening, unreadable data paths, the `RLIMIT_DATA` and thread caps,
   kernel client failures, metadata caching, restart that stops a running step,
@@ -49,8 +49,8 @@ in [open-items.md](open-items.md).
 `main` at `023a5c1` on 2026-10-08: 721 tests passed, and `ruff check`,
 `ruff format --check` and `mypy src` were clean.
 
-`claude/quarry-stage2-server-agent-66853b` on 2026-10-09, with the fourth Codex
-review's fixes: 932 tests passed and 3 skipped (the two live provider tests,
+`claude/quarry-stage2-server-agent-66853b` on 2026-10-09, with the fifth Codex
+review's fixes: 937 tests passed and 3 skipped (the two live provider tests,
 which need API keys, and the memory-cap test, which macOS refuses), and
 `ruff check`, `ruff format --check`, `mypy src`, `uv lock --check` and the docs
 prettier check were clean.

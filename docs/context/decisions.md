@@ -532,7 +532,12 @@ them.
   bad manifest had made every component search fail. A manifest whose
   `contract_version` is not 1 is skipped too, since 1 is the only contract the
   runtime mounts, and so is one with a key the spec does not list: a misspelled
-  key had fallen back to its default.
+  key had fallen back to its default. A schema requirement's `min` must be at
+  least 1, since 0 matched datasets without the column.
+- **Each component role needs its own columns**: a dataset fits a component when
+  it has enough columns of each dtype for all its typed roles together, and
+  enough left over for its `any` roles. Each requirement had been checked alone,
+  so one numeric column met both an `x` and a `y` role.
 
 ## Packaging and CI
 
