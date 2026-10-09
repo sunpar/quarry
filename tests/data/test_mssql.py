@@ -1,5 +1,6 @@
 import sys
 from collections.abc import Iterable, Sequence
+from pathlib import Path
 
 import polars as pl
 import pyarrow as pa
@@ -53,3 +54,15 @@ def test_sql_without_the_mssql_extra_says_to_install_it(monkeypatch: pytest.Monk
     ) as raised:
         make_sql("dsn-x")("SELECT 1")
     assert isinstance(raised.value.__cause__, ModuleNotFoundError)
+
+
+def test_sql_reraises_another_missing_module_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "arrow_odbc.py").write_text("import quarry_test_no_such_dependency\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, "arrow_odbc", raising=False)
+    with pytest.raises(ModuleNotFoundError) as raised:
+        make_sql("dsn-x")("SELECT 1")
+    assert raised.value.name == "quarry_test_no_such_dependency"
+    assert "mssql" not in str(raised.value)

@@ -7,6 +7,7 @@ import duckdb
 import polars as pl
 import pytest
 
+from quarry.data import parquet
 from quarry.data.parquet import ParquetCatalog, scan_layout
 
 
@@ -80,11 +81,37 @@ def test_scan_layout_skips_a_dataset_whose_entries_cannot_be_inspected(tmp_path:
 
 
 @root_ignores_modes
-def test_scan_layout_keeps_the_keys_found_above_an_unreadable_partition(tmp_path: Path) -> None:
+def test_scan_layout_takes_the_next_key_from_the_sibling_of_an_unreadable_partition(
+    tmp_path: Path,
+) -> None:
     build_cache(tmp_path)
     with mode(tmp_path / "prices" / "year=2023", 0o000):
         layout = scan_layout(tmp_path)
+    assert [(entry.dataset, entry.keys) for entry in layout] == [("prices", ["year", "month"])]
+
+
+@root_ignores_modes
+def test_scan_layout_keeps_the_first_key_when_no_partition_can_be_read(tmp_path: Path) -> None:
+    build_cache(tmp_path)
+    with mode(tmp_path / "prices" / "year=2023", 0o000), mode(tmp_path / "prices" / "year=2024", 0):
+        layout = scan_layout(tmp_path)
     assert [(entry.dataset, entry.keys) for entry in layout] == [("prices", ["year"])]
+
+
+def test_scan_layout_does_not_read_the_leaf_partitions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    build_cache(tmp_path)
+    read: list[str] = []
+    list_dir = parquet._read_dir
+
+    def spy(path: Path) -> tuple[list[Path], list[Path]] | None:
+        read.append(path.name)
+        return list_dir(path)
+
+    monkeypatch.setattr(parquet, "_read_dir", spy)
+    assert [entry.keys for entry in scan_layout(tmp_path)] == [["year", "month"]]
+    assert not [name for name in read if name.startswith("month=")]
 
 
 @root_ignores_modes

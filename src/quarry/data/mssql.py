@@ -43,6 +43,8 @@ def _odbc_reader(query: str, dsn: str, params: Sequence[object] | None) -> Itera
     try:
         from arrow_odbc import read_arrow_batches_from_odbc
     except ModuleNotFoundError as exc:
+        if exc.name != "arrow_odbc":  # arrow_odbc is installed but lacks a dependency
+            raise
         raise ModuleNotFoundError(
             "sql() needs the mssql extra: uv pip install 'quarry[mssql]'", name="arrow_odbc"
         ) from exc

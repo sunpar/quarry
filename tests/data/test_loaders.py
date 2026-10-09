@@ -1,6 +1,9 @@
 import os
-import time
+import sys
+import threading
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -222,6 +225,10 @@ def slow_module(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, seconds: float)
         f"import time\ntime.sleep({seconds})\n\ndef fn():\n    return 1\n"
     )
     monkeypatch.syspath_prepend(str(tmp_path))
+    # setitem remembers the module as absent, so teardown drops it again after the import adds it
+    # and a rerun in the same process imports it afresh.
+    monkeypatch.setitem(sys.modules, "quarry_test_slow_import", ModuleType("placeholder"))
+    monkeypatch.delitem(sys.modules, "quarry_test_slow_import")
     return write(tmp_path, entry("slow", "quarry_test_slow_import:fn"))
 
 
@@ -236,21 +243,41 @@ def test_slow_import_is_named_on_stderr(
     )
 
 
-def test_import_that_returns_in_time_is_silent(
+def record_timers(monkeypatch: pytest.MonkeyPatch) -> list[threading.Timer]:
+    timers: list[threading.Timer] = []
+
+    class RecordedTimer(threading.Timer):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            timers.append(self)
+
+    monkeypatch.setattr(threading, "Timer", RecordedTimer)
+    return timers
+
+
+def test_import_that_returns_in_time_cancels_its_notice(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(loaders, "IMPORT_NOTICE_SECONDS", 0.2)
+    # A threshold no import reaches, so nothing here depends on how fast the machine is: a timer
+    # still waiting after the load returned was not cancelled.
+    monkeypatch.setattr(loaders, "IMPORT_NOTICE_SECONDS", 60)
+    timers = record_timers(monkeypatch)
     reg = load_loaders(write(tmp_path, entry("daily_returns")))
-    time.sleep(0.4)  # a timer that was not cancelled would fire in this wait
     assert list(reg.functions) == ["daily_returns"]
+    assert len(timers) == 1
+    timers[0].join(timeout=5)
+    assert not timers[0].is_alive()
     assert capsys.readouterr().err == ""
 
 
 def test_failed_import_cancels_its_notice(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(loaders, "IMPORT_NOTICE_SECONDS", 0.2)
+    monkeypatch.setattr(loaders, "IMPORT_NOTICE_SECONDS", 60)
+    timers = record_timers(monkeypatch)
     reg = load_loaders(write(tmp_path, entry("broken", "no.such.module:fn")))
-    time.sleep(0.4)
     assert [f.name for f in reg.failures] == ["broken"]
+    assert len(timers) == 1
+    timers[0].join(timeout=5)
+    assert not timers[0].is_alive()
     assert capsys.readouterr().err == ""
