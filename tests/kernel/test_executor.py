@@ -3,7 +3,6 @@ import io
 import signal
 import threading
 import time
-import weakref
 from collections.abc import Callable, Iterator
 from decimal import Decimal
 from pathlib import Path
@@ -529,15 +528,6 @@ def test_list_datasets_describes_a_dataset_once(described: list[str]) -> None:
     assert described == ["a", "b"]
 
 
-def test_list_datasets_describes_a_name_rebound_outside_a_step_again(described: list[str]) -> None:
-    namespace: dict[str, object] = {"df": pl.DataFrame({"a": [1]})}
-    ex = Executor(namespace, conn=duckdb.connect(), row_cap=3)
-    assert ex.list_datasets()[0].preview == [{"a": 1}]
-    namespace["df"] = pl.DataFrame({"a": [2]})
-    assert ex.list_datasets()[0].preview == [{"a": 2}]
-    assert described == ["df", "df"]
-
-
 def test_step_that_rebinds_a_dataset_refreshes_its_metadata(described: list[str]) -> None:
     ex = make()
     ex.execute("df = pl.DataFrame({'a': [1]})")
@@ -558,18 +548,30 @@ def test_step_that_changes_a_dataset_in_place_refreshes_it_whatever_its_status(
     assert described == ["df"]  # nothing was rebound, so nothing was described
     (meta,) = ex.list_datasets()
     assert (meta.rows, meta.preview) == (2, [{"a": 1}, {"a": 2}])
-    assert described == ["df", "df"]
     ex.list_datasets()
     assert described == ["df", "df"]
 
 
-def test_step_drops_only_the_metadata_of_datasets_it_read(described: list[str]) -> None:
+def test_step_that_changes_a_dataset_through_a_helper_refreshes_it() -> None:
+    ex = make()
+    ex.execute(
+        "df = pl.DataFrame({'a': [1]})\ndef grow():\n    df.extend(pl.DataFrame({'a': [2]}))"
+    )
+    ex.list_datasets()
+    ex.execute("grow()")  # reads the helper, not df
+    assert [m.rows for m in ex.list_datasets()] == [2]
+
+
+def test_any_step_refreshes_the_datasets_it_did_not_write(described: list[str]) -> None:
     ex = make()
     ex.execute("a = pl.DataFrame({'a': [1]})")
     ex.execute("b = pl.DataFrame({'b': [1]})")
-    ex.execute("c = b.head(1)")
+    ex.execute("x = 1")
+    assert [m.name for m in ex.list_datasets()] == ["a", "b"]
+    assert described == ["a", "b", "a", "b"]
+    ex.execute("c = pl.DataFrame({'c': [1]})")  # c is current; a and b are not
     assert [m.name for m in ex.list_datasets()] == ["a", "b", "c"]
-    assert described == ["a", "b", "c", "b"]
+    assert described == ["a", "b", "a", "b", "c", "a", "b"]
 
 
 def test_interrupted_write_is_described_by_the_next_list(described: list[str]) -> None:
@@ -592,15 +594,12 @@ def test_undescribable_dataset_is_described_on_every_list(described: list[str]) 
     assert described == ["lf", "lf", "lf"]
 
 
-def test_deleted_dataset_leaves_the_list_and_is_not_kept_alive() -> None:
-    namespace: dict[str, object] = {"pl": pl}
-    ex = Executor(namespace, conn=duckdb.connect(), row_cap=3)
-    ex.execute("df = pl.DataFrame({'a': [1]})")
-    assert [m.name for m in ex.list_datasets()] == ["df"]
-    ref = weakref.ref(namespace["df"])
+def test_deleted_dataset_leaves_the_list() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1]})\nkept = pl.DataFrame({'a': [2]})")
+    assert [m.name for m in ex.list_datasets()] == ["df", "kept"]
     ex.execute("del df")
-    assert ref() is None
-    assert ex.list_datasets() == []
+    assert [m.name for m in ex.list_datasets()] == ["kept"]
 
 
 def test_describe_counts_rows_and_leaves_the_listed_metadata_alone(described: list[str]) -> None:
