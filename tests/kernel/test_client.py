@@ -1,5 +1,6 @@
 import math
 import os
+import shutil
 import socket
 import stat
 import subprocess
@@ -349,8 +350,10 @@ def test_printing_a_lone_surrogate_keeps_the_kernel(kernel: KernelClient) -> Non
     assert kernel.is_alive()
 
 
-def test_spawn_reports_a_kernel_that_exits_before_connecting(tmp_path: Path) -> None:
-    (tmp_path / "config.toml").write_text('[data]\nrow_cap = "lots"\n')
+def test_spawn_reports_a_kernel_that_exits_before_connecting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "executable", str(shutil.which("false")))  # exits 1 at once
     started = time.monotonic()
     with pytest.raises(KernelDead, match="exited with code 1"):
         KernelClient.spawn(tmp_path)

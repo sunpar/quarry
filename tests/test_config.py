@@ -69,6 +69,18 @@ def test_kernel_memory_mb_of_zero_is_accepted(tmp_path: Path) -> None:
     assert load_config(tmp_path, env={}).data.kernel_memory_mb == 0
 
 
+def test_negative_kernel_threads_is_rejected(tmp_path: Path) -> None:
+    (tmp_path / "config.toml").write_text("[data]\nkernel_threads = -1\n")
+    with pytest.raises(ValidationError, match="kernel_threads"):
+        load_config(tmp_path, env={})
+
+
+def test_kernel_threads_defaults_to_zero_and_accepts_a_count(tmp_path: Path) -> None:
+    assert load_config(tmp_path, env={}).data.kernel_threads == 0
+    (tmp_path / "config.toml").write_text("[data]\nkernel_threads = 4\n")
+    assert load_config(tmp_path, env={}).data.kernel_threads == 4
+
+
 def test_env_overrides_mssql_dsn(tmp_path: Path) -> None:
     write_dsn_config(tmp_path, "file-dsn", 0o600)
     cfg = load_config(tmp_path, env={"QUARRY_MSSQL_DSN": "env-dsn"})
@@ -160,6 +172,7 @@ parquet_root = "/data/cache"
 mssql_dsn = ""
 row_cap = 50000
 kernel_memory_mb = 0
+kernel_threads = 0
 
 [libraries]
 team_components = ""

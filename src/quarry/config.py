@@ -54,6 +54,7 @@ class DataConfig(_Model):
     mssql_dsn: str = Field(default="", repr=False)
     row_cap: int = Field(default=50000, ge=1)
     kernel_memory_mb: int = Field(default=0, ge=0)  # 0 = unlimited
+    kernel_threads: int = Field(default=0, ge=0)  # 0 = the libraries' defaults, every core
 
 
 class LibrariesConfig(_Model):

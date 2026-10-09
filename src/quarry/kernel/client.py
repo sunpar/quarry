@@ -18,7 +18,7 @@ from typing import Final
 
 from pydantic import TypeAdapter, ValidationError
 
-from quarry.config import ENV_API_KEY
+from quarry.config import ENV_API_KEY, load_config
 from quarry.kernel.datasets import DatasetMeta
 from quarry.kernel.executor import ExecResult, QueryResult
 from quarry.kernel.protocol import (
@@ -73,10 +73,13 @@ class KernelClient:
     @classmethod
     def spawn(cls, root: Path, *, startup_timeout: float = 30.0) -> KernelClient:
         """Start a kernel for `root`; KernelDead if it exits or does not connect in time."""
-        tmpdir = tempfile.TemporaryDirectory(prefix="quarry-kernel-")
-        socket_path = Path(tmpdir.name) / "kernel.sock"
         # No provider API keys: step code can print its environment into a persisted result.
         env = {k: v for k, v in os.environ.items() if k not in ENV_API_KEY.values()}
+        # polars sizes its thread pool when it is imported, before the kernel reads its config.
+        if threads := load_config(root).data.kernel_threads:
+            env["POLARS_MAX_THREADS"] = str(threads)
+        tmpdir = tempfile.TemporaryDirectory(prefix="quarry-kernel-")
+        socket_path = Path(tmpdir.name) / "kernel.sock"
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
                 listener.bind(str(socket_path))

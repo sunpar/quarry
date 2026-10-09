@@ -18,7 +18,7 @@ def build_namespace(config: QuarryConfig, temp_dir: Path) -> dict[str, object]:
     # One connection for everything: DuckDB cannot scan a relation made on another connection,
     # so `pq`, `sql_local`, `duckdb.sql` and `_conn` must agree on it for step code to mix them.
     conn = duckdb.default_connection()
-    configure_connection(conn, temp_dir, config.data.kernel_memory_mb)
+    configure_connection(conn, temp_dir, config.data.kernel_memory_mb, config.data.kernel_threads)
     registry = load_loaders(config.root / "loaders.toml")
     catalog = ParquetCatalog(config.data.parquet_root, conn)
     return {
@@ -33,8 +33,13 @@ def build_namespace(config: QuarryConfig, temp_dir: Path) -> dict[str, object]:
     }
 
 
-def configure_connection(conn: duckdb.DuckDBPyConnection, temp_dir: Path, memory_mb: int) -> None:
-    """Set `conn` up as the kernel's connection, in a kernel capped at `memory_mb` (0: uncapped)."""
+def configure_connection(
+    conn: duckdb.DuckDBPyConnection, temp_dir: Path, memory_mb: int, threads: int
+) -> None:
+    """Set `conn` up as the kernel's connection, in a kernel capped at `memory_mb` and `threads`.
+
+    Each cap of 0 leaves DuckDB's default.
+    """
     # `sql_local` is called from step code, so its query's table names are the step's
     # variables, one frame up from the call DuckDB would otherwise look in.
     conn.execute("SET python_scan_all_frames = true")
@@ -46,3 +51,5 @@ def configure_connection(conn: duckdb.DuckDBPyConnection, temp_dir: Path, memory
     if memory_mb > 0:
         # DuckDB's default, 80% of RAM, ignores the cap: past the cap it fails instead of spilling.
         conn.execute("SET memory_limit = ?", [f"{memory_mb * 7 // 10}MiB"])
+    if threads > 0:
+        conn.execute("SET threads = ?", [threads])
