@@ -6,7 +6,8 @@ import builtins
 import logging
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Final
 
 from pydantic import BaseModel
@@ -109,6 +110,8 @@ class SessionService:
         self._cancels: dict[str, threading.Event] = {}
         # A session in here is restarting: stopping its running step, then replaying.
         self._restarts: set[str] = set()
+        # A session in here lends its idle kernel to a save.
+        self._holds: set[str] = set()
         self._last_error: dict[str, str] = {}
         self._lock = threading.Lock()
         # Notified each time a step frees its session, which a restart waits for.
@@ -210,7 +213,7 @@ class SessionService:
         no interrupt reaches, and a running step is cancelled too; it saves itself as interrupted
         before the replay. A step waiting on the model stops once the model answers."""
         with self._lock:
-            if session_id in self._restarts:
+            if session_id in self._restarts or session_id in self._holds:
                 raise SessionBusy(session_id)
             self._restarts.add(session_id)
             cancel = self._cancels.get(session_id)
@@ -226,6 +229,26 @@ class SessionService:
             with self._lock:
                 self._kernels.mark_running(session_id, False)
                 self._restarts.discard(session_id)
+
+    @contextmanager
+    def hold(self, session_id: str) -> Iterator[KernelClient]:
+        """Lend the idle session kernel to the caller; steps, restarts and other holds get
+        SessionBusy meanwhile."""
+        with self._lock:
+            if (
+                session_id in self._running
+                or session_id in self._restarts
+                or session_id in self._holds
+            ):
+                raise SessionBusy(session_id)
+            self._holds.add(session_id)
+            self._kernels.mark_running(session_id, True)
+        try:
+            yield self._kernels.get(session_id, has_steps=self._has_steps(session_id))
+        finally:
+            with self._lock:
+                self._kernels.mark_running(session_id, False)
+                self._holds.discard(session_id)
 
     def _kernel(self, session_id: str) -> KernelClient:
         """The kernel a request reaches; SessionBusy mid-restart, as `get` is during the replay."""
@@ -250,7 +273,11 @@ class SessionService:
         self, session_id: str, *, kind: StepKind, prompt: str | None, code: str
     ) -> tuple[Step, threading.Event]:
         with self._lock:
-            if session_id in self._running or session_id in self._restarts:
+            if (
+                session_id in self._running
+                or session_id in self._restarts
+                or session_id in self._holds
+            ):
                 raise SessionBusy(session_id)
             step = Step(
                 id=new_id(),
