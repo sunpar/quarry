@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "esnext",
+    "types": ["vite/client"],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@/*": ["./src/*"],
+      "@quarry/hooks": ["./src/runtime/hooks.ts"],
+      "@builtin/*": ["../src/quarry/components/builtin/*"],
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "ag-grid-react": ["./node_modules/ag-grid-react"],
+      "ag-grid-community": ["./node_modules/ag-grid-community"],
+      "lightweight-charts": ["./node_modules/lightweight-charts"]
+    }
+  },
+  "include": ["src", "../src/quarry/components/builtin/**/*.tsx"]
+}

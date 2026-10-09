@@ -25,13 +25,14 @@ from quarry.data.parquet import scan_layout
 from quarry.kernel.client import KernelClient, KernelDead
 from quarry.kernel.datasets import DatasetMeta
 from quarry.kernel.executor import TAIL_BYTES, ExecError, ExecResult, QueryResult
-from quarry.query.spec import QuerySpec
+from quarry.query.spec import Json, QuerySpec
 from quarry.server.kernels import KernelManager, ReplayReport, SessionBusy
 from quarry.server.models import (
     KernelStatus,
     ProviderInfo,
     Session,
     SessionMeta,
+    Snapshot,
     Step,
     StepKind,
     View,
@@ -44,6 +45,8 @@ log = logging.getLogger(__name__)
 # Past this wait, a step still running at shutdown is lost, as in a crash.
 SHUTDOWN_WAIT_SECONDS: Final = 10.0
 
+MAX_SNAPSHOTS: Final = 500
+
 ProviderFactory = Callable[[QuarryConfig], Provider]
 
 
@@ -53,8 +56,18 @@ def provider_from_config(config: QuarryConfig) -> Provider:
     return AnthropicProvider.from_config(config)
 
 
+class RepairRequest(BaseModel):
+    step_id: str
+    error: str
+
+
 class StepRequest(BaseModel):
     prompt: str
+    repair: RepairRequest | None = None
+
+
+class StepNotFound(Exception):
+    pass
 
 
 class ManualStepRequest(BaseModel):
@@ -82,6 +95,7 @@ class SessionService:
         provider_factory: ProviderFactory,
         library: ComponentLibrary,
         transpiler: Transpiler,
+        libraries: list[str] | None = None,
     ) -> None:
         self._config = config
         self._store = store
@@ -89,6 +103,7 @@ class SessionService:
         self._provider_factory = provider_factory
         self._library = library
         self._transpiler = transpiler
+        self._libraries = libraries if libraries is not None else enabled_libraries(config)
         # A session in here has a running step, which its event cancels.
         self._running: dict[str, Step] = {}
         self._cancels: dict[str, threading.Event] = {}
@@ -114,10 +129,47 @@ class SessionService:
             session.steps.append(running)
         return session
 
-    def start_prompt(self, session_id: str, prompt: str) -> Step:
+    def start_prompt(
+        self, session_id: str, prompt: str, repair: RepairRequest | None = None
+    ) -> Step:
+        text = prompt if repair is None else self._repair_prompt(session_id, repair, prompt)
         step, cancel = self._begin(session_id, kind="prompt", prompt=prompt, code="")
-        self._start(session_id, self._run_prompt, (session_id, step, prompt, cancel))
+        self._start(session_id, self._run_prompt, (session_id, step, text, cancel))
         return step
+
+    def _repair_prompt(self, session_id: str, repair: RepairRequest, prompt: str) -> str:
+        step = self._find_step(session_id, repair.step_id)
+        if step.view is None:
+            raise StepNotFound(repair.step_id)
+        return (
+            f"The view from step {step.index + 1} failed to mount in the browser with:\n"
+            f"{repair.error}\n\nIts source:\n```tsx\n{step.view.source}\n```\n\n{prompt}"
+        )
+
+    def record_snapshot(
+        self,
+        session_id: str,
+        step_id: str,
+        state: dict[str, Json],
+        queries: builtins.list[dict[str, Json]],
+    ) -> int:
+        with self._lock:
+            running = self._running.get(session_id)
+            if running is not None and running.id == step_id:
+                raise SessionBusy(session_id)
+            step = self._find_step(session_id, step_id)
+            if step.view is None:
+                raise StepNotFound(step_id)
+            snapshots = [*step.view.snapshots, Snapshot(ts=now_iso(), state=state, queries=queries)]
+            view = step.view.model_copy(update={"snapshots": snapshots[-MAX_SNAPSHOTS:]})
+            self._store.update_step(session_id, step.model_copy(update={"view": view}))
+            return len(view.snapshots)
+
+    def _find_step(self, session_id: str, step_id: str) -> Step:
+        for step in self._store.get(session_id).steps:
+            if step.id == step_id:
+                return step
+        raise StepNotFound(step_id)
 
     def start_manual(self, session_id: str, code: str) -> Step:
         step, cancel = self._begin(session_id, kind="manual", prompt=None, code=code)
@@ -129,7 +181,7 @@ class SessionService:
         return SessionStatus(
             session_id=session_id,
             running_step=running.id if running else None,
-            kernel=self._kernels.status(session_id),
+            kernel=self._kernels.status(session_id, has_steps=self._has_steps(session_id)),
             last_error=self._last_error.get(session_id),
         )
 
@@ -180,7 +232,10 @@ class SessionService:
         with self._lock:
             if session_id in self._restarts:
                 raise SessionBusy(session_id)
-        return self._kernels.get(session_id)
+        return self._kernels.get(session_id, has_steps=self._has_steps(session_id))
+
+    def _has_steps(self, session_id: str) -> bool:
+        return self._store.next_index(session_id) > 0
 
     def shutdown(self) -> None:
         """Stop every running step and close the kernels, then give the steps time to save."""
@@ -234,7 +289,7 @@ class SessionService:
         ran: list[tuple[str, ExecResult]] = []
         try:
             provider = self._provider_factory(self._config)
-            kernel = self._kernels.get(session_id)
+            kernel = self._kernels.get(session_id, has_steps=self._has_steps(session_id))
             tools = ToolExecutor(kernel=kernel, library=self._library, transpiler=self._transpiler)
             ran = tools.runs
             summary = build_summary(self._store.get(session_id).steps, _safe_datasets(kernel))
@@ -273,7 +328,7 @@ class SessionService:
     def _run_manual(self, session_id: str, step: Step, cancel: threading.Event) -> None:
         started = time.monotonic()
         try:
-            kernel = self._kernels.get(session_id)
+            kernel = self._kernels.get(session_id, has_steps=self._has_steps(session_id))
             # A restart cancels, then kills the kernel: one it found none to kill may be new.
             if cancel.is_set():
                 done = _stopped(step, started)
@@ -328,7 +383,7 @@ class SessionService:
             loaders=describe_loaders(registry),
             loader_failures=failures,
             layout=scan_layout(root) if root is not None else [],
-            enabled_libraries=enabled_libraries(self._config),
+            enabled_libraries=self._libraries,
         )
 
 

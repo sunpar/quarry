@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Final
 
@@ -32,11 +33,19 @@ Name variables well. Do computation in Python, never in view JavaScript.
 
 After producing data, show it: call search_components and render_view for routine tables and
 charts, or write_view with a TSX component when nothing in the library fits. A component's default
-export is the component. It may import react, the design system (@/components/ui/*), the chart
-libraries listed below, and exactly these hooks from "@quarry/hooks":
+export is the component. It may import only these paths, and nothing else:
+  react, @quarry/hooks, @/components/ui/button, @/components/ui/badge, @/components/ui/input,
+  @/components/ui/select, @/components/ui/separator, @/components/ui/tabs,
+  @/components/ui/tooltip, @/components/ui/textarea, @/components/ui/scroll-area,
+  and the chart library packages listed below.
+The hooks are exactly these, from "@quarry/hooks":
 
-  useQuery(spec): {status:"loading"} | {status:"success", rows, schema} | {status:"error", message}
-    spec = {dataset, select?, filters?, group_by?, aggs?, pivot?, sort?, limit?, offset?, format?}
+  Default export: a component receiving one prop, datasets: string[] (the names you passed,
+  in order).
+  useQuery(spec): {status:"loading"} | {status:"success", rows, schema, rowCount, truncated}
+    | {status:"error", message}
+    spec = {dataset, select?, filters?, group_by?, aggs?, pivot?, sort?, limit?, offset?}
+    (rows are JSON; views cannot request format "arrow")
   useViewState(key, initial): [value, setValue]  (recorded; keys starting with "shared:" are linked)
   useDatasetSchema(name): Column[] | null
 
@@ -60,13 +69,25 @@ def estimate_tokens(text: str) -> int:
     return len(text) // 4
 
 
-def enabled_libraries(config: QuarryConfig) -> list[str]:
+def runtime_libraries(static_dir: Path) -> list[str] | None:
+    """Library ids the built runtime bundle can resolve, or None when no build exists."""
+    manifest = static_dir / "runtime-manifest.json"
+    if not manifest.exists():
+        return None
+    data = json.loads(manifest.read_text())
+    return [str(item) for item in data.get("libraries", [])]
+
+
+def enabled_libraries(config: QuarryConfig, available: list[str] | None = None) -> list[str]:
     extra: list[str] = []
     if config.libraries.highcharts_license:
         extra.append("highcharts")
     if config.libraries.scichart_license:
         extra.append("scichart")
-    return [*ALWAYS_ON, *extra]
+    wanted = [*ALWAYS_ON, *extra]
+    if available is None:
+        return wanted
+    return [lib for lib in wanted if lib in available]
 
 
 def build_system(ctx: SystemContext) -> str:

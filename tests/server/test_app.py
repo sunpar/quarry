@@ -280,6 +280,22 @@ def test_kernel_death_then_restart_replays(tmp_path: Path) -> None:
         assert dataset_names(client, sid) == []
 
 
+def test_server_restart_reports_replay_needed(tmp_path: Path) -> None:
+    with make_client(tmp_path, []) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps/manual", json={"code": "a = 1"})
+        assert wait_idle(client, sid)["kernel"]["replay_needed"] is False
+    # A new server over the same root reports the replay before and after its first kernel use.
+    with make_client(tmp_path, []) as client:
+        kernel = client.get(f"/sessions/{sid}/status").json()["kernel"]
+        assert kernel["status"] == "starting" and kernel["replay_needed"] is True
+        assert client.get(f"/sessions/{sid}/datasets").json() == []
+        kernel = client.get(f"/sessions/{sid}/status").json()["kernel"]
+        assert kernel["status"] == "idle" and kernel["replay_needed"] is True
+        assert client.post(f"/sessions/{sid}/restart").json()["replayed"] == 1
+        assert client.get(f"/sessions/{sid}/status").json()["kernel"]["replay_needed"] is False
+
+
 def test_restart_kills_a_hung_manual_step_and_replays(tmp_path: Path) -> None:
     started = tmp_path / "started"
     with make_client(tmp_path, []) as client:
@@ -339,10 +355,10 @@ def test_restart_before_a_step_reaches_its_kernel_stops_it(
         in_get, killed = threading.Event(), threading.Event()
 
         # The step thread gets its kernel only after the restart's kill, found one or not.
-        def get_after_kill(session_id: str) -> KernelClient:
+        def get_after_kill(session_id: str, *, has_steps: bool = False) -> KernelClient:
             in_get.set()
             assert killed.wait(30)
-            return get(session_id)
+            return get(session_id, has_steps=has_steps)
 
         def kill_and_signal(session_id: str) -> None:
             kill(session_id)
@@ -625,7 +641,7 @@ def test_save_failure_frees_the_session_and_kills_its_kernel(
 def test_a_base_exception_fails_the_step(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, route: str, body: dict[str, str]
 ) -> None:
-    def panics(_session_id: str) -> KernelClient:
+    def panics(_session_id: str, *, has_steps: bool = False) -> KernelClient:
         raise BaseException("boom")  # as a polars panic is
 
     with make_client(tmp_path, []) as client:
@@ -662,6 +678,89 @@ def test_thread_start_failure_frees_the_session(
             client.post(f"/sessions/{sid}/steps/manual", json={"code": "a = 1"}).status_code == 202
         )
         wait_idle(client, sid)
+
+
+def view_turn(call_id: str) -> AssistantTurn:
+    return AssistantTurn(
+        text="",
+        tool_calls=[
+            ToolCall(
+                id=call_id,
+                name="render_view",
+                input={"component_id": "data-table", "datasets": ["df"], "initial_state": "{}"},
+            )
+        ],
+        stop="tool_use",
+    )
+
+
+def test_snapshot_appends_to_persisted_step(tmp_path: Path) -> None:
+    client = make_client(
+        tmp_path, [py("c1", "df = pl.DataFrame({'a': [1]})"), view_turn("c2"), end()]
+    )
+    sid = client.post("/sessions", json={}).json()["id"]
+    step_id = client.post(f"/sessions/{sid}/steps", json={"prompt": "show"}).json()["id"]
+    wait_idle(client, sid)
+    body = {"state": {"sort": None}, "queries": [{"dataset": "df", "limit": 1000}]}
+    assert client.post(f"/sessions/{sid}/steps/{step_id}/snapshots", json=body).json() == {
+        "count": 1
+    }
+    snapshots = client.get(f"/sessions/{sid}").json()["steps"][0]["view"]["snapshots"]
+    assert snapshots[0]["state"] == {"sort": None}
+    assert snapshots[0]["queries"] == body["queries"]
+    assert client.post(f"/sessions/{sid}/steps/nope/snapshots", json=body).status_code == 404
+
+
+def test_snapshot_rejected_for_step_without_view(tmp_path: Path) -> None:
+    client = make_client(tmp_path, [py("c1", "x = 1"), end()])
+    sid = client.post("/sessions", json={}).json()["id"]
+    step_id = client.post(f"/sessions/{sid}/steps", json={"prompt": "x"}).json()["id"]
+    wait_idle(client, sid)
+    body = {"state": {}, "queries": []}
+    assert client.post(f"/sessions/{sid}/steps/{step_id}/snapshots", json=body).status_code == 404
+
+
+def test_repair_prompt_includes_source_and_error(tmp_path: Path) -> None:
+    provider = FakeProvider(
+        [py("c1", "df = pl.DataFrame({'a': [1]})"), view_turn("c2"), end(), end("fixed")]
+    )
+    client = make_client(tmp_path, [], provider_factory=lambda _cfg: provider)
+    sid = client.post("/sessions", json={}).json()["id"]
+    step_id = client.post(f"/sessions/{sid}/steps", json={"prompt": "show"}).json()["id"]
+    wait_idle(client, sid)
+    body = {
+        "prompt": "Fix the view.",
+        "repair": {"step_id": step_id, "error": '"d3" is not available'},
+    }
+    client.post(f"/sessions/{sid}/steps", json=body)
+    wait_idle(client, sid)
+    steps = client.get(f"/sessions/{sid}").json()["steps"]
+    assert steps[1]["prompt"] == "Fix the view."
+    last_user = [m for m in provider.calls[-1][1] if m.role == "user"][-1]
+    assert '"d3" is not available' in last_user.text
+    assert "export default" in last_user.text
+
+
+def test_static_assets_allow_opaque_origin_but_api_does_not(tmp_path: Path) -> None:
+    static = tmp_path / "static"
+    (static / "assets").mkdir(parents=True)
+    (static / "index.html").write_text("<!doctype html>")
+    (static / "assets" / "x.js").write_text("export {};")
+    config = QuarryConfig(root=tmp_path / "root")
+    app = create_app(
+        config=config,
+        token=TOKEN,
+        provider_factory=lambda _cfg: FakeProvider([]),
+        static_dir=static,
+    )
+    client = TestClient(app)
+    # The sandboxed view frame fetches its chunks from origin "null".
+    asset = client.get("/assets/x.js", headers={"Origin": "null"})
+    assert asset.status_code == 200
+    assert asset.headers["access-control-allow-origin"] == "*"
+    api = client.get("/sessions", headers={"Origin": "null", "Authorization": f"Bearer {TOKEN}"})
+    assert api.status_code == 200
+    assert "access-control-allow-origin" not in api.headers
 
 
 class Unprintable(Exception):

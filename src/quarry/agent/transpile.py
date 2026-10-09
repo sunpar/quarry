@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Final, Protocol
+
+log = logging.getLogger(__name__)
 
 # A check that hangs would hold its step, and a restart waiting on that step, for good.
 CHECK_TIMEOUT_SECONDS: Final = 30
@@ -45,6 +48,12 @@ class CommandTranspiler:
 
 def default_transpiler(static_dir: Path) -> Transpiler:
     bundle = static_dir / "transpile-check.mjs"
-    if shutil.which("node") and bundle.exists():
-        return CommandTranspiler(["node", str(bundle)])
-    return NoopTranspiler()
+    if not bundle.exists():
+        return NoopTranspiler()
+    if shutil.which("node") is None:
+        log.warning(
+            "node is not on PATH, so generated views are not syntax-checked on the server; "
+            "a broken view fails in the browser instead, where Fix this view repairs it"
+        )
+        return NoopTranspiler()
+    return CommandTranspiler(["node", str(bundle)])

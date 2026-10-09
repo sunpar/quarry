@@ -11,8 +11,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
+from starlette.middleware.cors import CORSMiddleware
 
+from quarry.agent.context import enabled_libraries, runtime_libraries
 from quarry.agent.transpile import default_transpiler
 from quarry.components.library import ComponentLibrary, builtin_root
 from quarry.config import QuarryConfig
@@ -28,10 +30,16 @@ from quarry.server.service import (
     ProviderFactory,
     SessionService,
     SessionStatus,
+    StepNotFound,
     StepRequest,
     provider_from_config,
 )
 from quarry.server.store import SessionStore
+
+
+class SnapshotRequest(BaseModel):
+    state: dict[str, Json] = Field(default_factory=dict)
+    queries: list[dict[str, Json]] = Field(default_factory=list)
 
 
 def create_app(
@@ -52,6 +60,7 @@ def create_app(
         provider_factory=provider_factory,
         library=ComponentLibrary(roots),
         transpiler=default_transpiler(static),
+        libraries=enabled_libraries(config, runtime_libraries(static)),
     )
 
     @asynccontextmanager
@@ -98,7 +107,21 @@ def create_app(
     @api.post("/sessions/{session_id}/steps", status_code=202)
     def post_step(session_id: str, body: StepRequest) -> Step:
         session_or_404(session_id)
-        return service.start_prompt(session_id, body.prompt)
+        try:
+            return service.start_prompt(session_id, body.prompt, body.repair)
+        except StepNotFound as exc:
+            raise HTTPException(status_code=404, detail=f"no view on step {exc}") from exc
+
+    @api.post("/sessions/{session_id}/steps/{step_id}/snapshots")
+    def post_snapshot(session_id: str, step_id: str, body: SnapshotRequest) -> dict[str, int]:
+        session_or_404(session_id)
+        try:
+            count = service.record_snapshot(session_id, step_id, body.state, body.queries)
+        except StepNotFound as exc:
+            raise HTTPException(status_code=404, detail=f"no view on step {exc}") from exc
+        except SessionBusy as exc:
+            raise HTTPException(status_code=409, detail="step is still running") from exc
+        return {"count": count}
 
     @api.post("/sessions/{session_id}/steps/manual", status_code=202)
     def post_manual(session_id: str, body: ManualStepRequest) -> Step:
@@ -150,7 +173,10 @@ def create_app(
 
     app.include_router(api)
     if (static / "index.html").exists():
-        app.mount("/", StaticFiles(directory=str(static), html=True), name="static")
+        # The sandboxed view frame has an opaque origin, so its module scripts, CSS and fonts
+        # are fetched in CORS mode and need this header. The API router sends no CORS header.
+        files = StaticFiles(directory=str(static), html=True)
+        app.mount("/", CORSMiddleware(files, allow_origins=["*"]), name="static")
     else:
 
         @app.get("/", response_class=PlainTextResponse)

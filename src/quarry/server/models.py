@@ -86,6 +86,7 @@ class Step(BaseModel):
 class KernelStatus(BaseModel):
     status: Literal["starting", "idle", "running", "dead"]
     pid: int | None = None
+    replay_needed: bool = False
 
 
 class SessionMeta(BaseModel):

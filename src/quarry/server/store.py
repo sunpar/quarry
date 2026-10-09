@@ -55,6 +55,14 @@ class SessionStore:
         target = self._session_dir(session_id) / "steps" / f"{step.index:04d}.json"
         _write_atomic(target, step.model_dump_json(by_alias=True, indent=2))
 
+    def update_step(self, session_id: str, step: Step) -> None:
+        if step.status == "running":
+            raise ValueError("a running step cannot be persisted")
+        target = self._session_dir(session_id) / "steps" / f"{step.index:04d}.json"
+        if not target.exists():
+            raise KeyError(step.id)
+        _write_atomic(target, step.model_dump_json(by_alias=True, indent=2))
+
     def next_index(self, session_id: str) -> int:
         return len(list((self._dir / session_id / "steps").glob("*.json")))
 

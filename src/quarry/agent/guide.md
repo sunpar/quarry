@@ -1,6 +1,6 @@
 ## lightweight-charts
 
-Price and return series, OHLC. Use when speed and a clean look matter more than annotations. Import `createChart` from "lightweight-charts". Keep the attribution logo enabled.
+Price and return series, OHLC. Use when speed and a clean look matter more than annotations. Import `createChart` from "lightweight-charts". Keep the attribution logo enabled. Use chart.addSeries(LineSeries, options) (v5 API) and keep attributionLogo: true.
 
 ## plotly
 
@@ -20,7 +20,7 @@ When the researcher should drive pivots and filters directly. Import `Perspectiv
 
 ## ag-grid
 
-Tables with column filters and resizing. Import `AgGridReact` from "ag-grid-react".
+Tables with column filters and resizing. Import `AgGridReact` from "ag-grid-react". Call ModuleRegistry.registerModules([AllCommunityModule]) once and pass theme={themeQuartz}; do not import CSS.
 
 ## tanstack-table
 

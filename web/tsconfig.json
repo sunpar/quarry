@@ -1,0 +1,14 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ],
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "@quarry/hooks": ["./src/runtime/hooks.ts"],
+      "@builtin/*": ["../src/quarry/components/builtin/*"]
+    }
+  }
+}

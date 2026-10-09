@@ -539,6 +539,115 @@ them.
   enough left over for its `any` roles. Each requirement had been checked alone,
   so one numeric column met both an `x` and a `y` role.
 
+## First UI
+
+- **Web build lives in the wheel as an artifact**: `[tool.hatch.build]` lists
+  `artifacts = ["src/quarry/static/**"]`, at the build level rather than the
+  wheel target, because `uv build` makes the wheel from the sdist and the
+  gitignored static files were dropped otherwise. The web build must run before
+  `uv build`; CI does.
+- **Static assets answer with `Access-Control-Allow-Origin: *`**: the view
+  iframe is `sandbox="allow-scripts"`, so its origin is opaque and Chromium
+  fetches its module scripts, CSS and fonts in CORS mode. Only the static mount
+  is wrapped in `CORSMiddleware`; API routes send no CORS header and the sandbox
+  and CSP stay as the plan set them. The plan's loopback CSP fallback was not
+  needed: no CSP violation was logged. Approved by the maintainer. This already
+  meets the plan's later Step 2b, which names `/assets/`, `/runtime.html` and
+  `/libs/`: the mount-level wrapper covers those and every other static file, so
+  no second middleware is needed.
+- **A generated view can still navigate itself**: the sandbox blocks fetch,
+  forms, popups and top navigation, but `location.href = ...` inside the frame
+  is not covered by `connect-src`, so "the bridge is the only path out" (spec
+  §12) is defence in depth, not a guarantee. The kernel already has the network.
+  Detecting a navigation is an [open item](../open-items.md#stage-4).
+- **The token stays in the URL fragment and in memory**: the host reads
+  `#token=` once into state, never stores it, and writes the active session id
+  back as `#token=...&session=...` with `replaceState` so a reload keeps both. A
+  `hashchange` whose token differs reloads the page, since re-pasting a link
+  from a restarted server is a same-document change.
+- **`replay_needed` on kernel status**: `KernelManager.get` records a session
+  whose kernel it spawned while the session already had steps, and `restart`
+  clears it only once a replay runs through; `status` reports it from the
+  persisted steps before the kernel starts, and `restart` sets it for any
+  session with steps. A session reopened after a server
+  restart gets an empty kernel on its first read and never offered "Restart
+  kernel". The banner shows on `dead` or `replay_needed` and reports a replay
+  that stopped early; the prompt stays enabled, since a fresh kernel is
+  sometimes what the researcher wants.
+- **The host checks every field of a frame message**: generated code can call
+  `parent.postMessage` itself, so `isRuntimeMessage` validates each message's
+  fields and types, not only `type`. A malformed `error` can no longer put an
+  object into host React state and take down the UI.
+- **Node is a soft prerequisite**: the server checks generated TSX with `node`.
+  Without it, startup logs a warning and the check is skipped; the browser
+  still reports a broken view and "Fix this view" repairs it. Shipping a Node
+  runtime in the wheel was judged too heavy for that fallback.
+- **The server owns row order**: the data table pushes its sort into the query
+  spec and gives every grid column a comparator that returns 0, so AG Grid
+  keeps the server's order instead of comparing Decimal strings as text.
+- **A dead kernel locks the prompt**: the server keeps a dead kernel dead until
+  restart, so a prompt would only add a failed step. `replay_needed` alone
+  leaves the prompt open.
+- **Snapshots record the queries a view used**: the cache notes every query a
+  render asks for, served from cache or not, so a sort toggled back still
+  appears in the next snapshot. Each state change starts a fresh window, so a
+  snapshot carries only the queries of the state it records. Schemas come from
+  the live kernel, as queries do, not from the step that wrote the dataset.
+- **Mounted views refetch when kernel data may change**: the host sends
+  `refresh` when a step finishes or the kernel's pid changes. The view's cache
+  marks every answer stale and keeps showing it until the refetch lands, so a
+  long-lived view follows a rebound dataset without flashing to "Loading".
+  Each request carries a ticket, and only the newest per key may write, so an
+  answer from before the refresh cannot overwrite one from after. A saved
+  sort on a column the live schema lacks is dropped from the query.
+- **Views get JSON rows only**: `useQuery` reports an Arrow result as an error
+  and the contract no longer lists `format`. The runtime has no Arrow decoder,
+  so a view asking for it rendered an empty table.
+- **The frame's `load` event is the mount fallback**: the runtime posts `ready`
+  once while loading, which can beat the host's listener; `HostBridge.frameLoaded`
+  sends the queued mount if `ready` was missed. The `onLoad` handler is wired
+  on the iframe element itself and remembered, so a frame that loaded before the
+  bridge existed mounts as soon as the effect runs. A `ready` that arrives after
+  `load` mounts a second time, which the runtime tolerates.
+- **A repair step keeps the researcher's prompt**: the view source and browser
+  error go only to the agent; the persisted step shows "Fix the view so it
+  mounts." The plan stored the composed text as the step prompt, which put a
+  wall of TSX in the step column.
+- **`row_count` is the number of rows returned**: `truncated` compares with
+  `row_cap`, not the spec's `limit`, so the built-in table shows "Showing the
+  first N rows." whenever a page is full. AG Grid's client-side filters are off,
+  since a filter over one page gives wrong answers; filters belong in the query
+  spec (spec §9).
+- **Loader keeps unused imports**: Sucrase runs with `keepUnusedImports`, so a
+  refused module is refused even when nothing uses it. A type-only value import
+  of a non-allowlisted path is refused too. The allowlist is checked with
+  `Object.hasOwn`, so `import x from "constructor"` is refused like any other.
+- **Mount is queued and resent**: the host sends `mount` only after the runtime
+  posts `ready`, keeps the spec and resends it on every later `ready`; the
+  runtime drops a mount that an even newer mount has overtaken. A reloaded frame
+  therefore remounts, and a slow first load cannot clobber a second.
+- **The time series drops what it cannot plot**: rows whose time does not parse
+  or whose value is not finite are skipped, equal seconds collapse to the last
+  row, and a naive ISO datetime is read as UTC because the kernel's DuckDB
+  session is UTC. Lightweight Charts throws on NaN or repeated times.
+- **The runtime manifest gates the guide**: the web build writes
+  `runtime-manifest.json` naming the libraries the bundle resolves (`ag-grid`,
+  `lightweight-charts`), and `enabled_libraries` intersects with it. A corrupt
+  manifest fails startup loudly, since the build writes it.
+- **Built-ins live outside `web/`**:
+  `src/quarry/components/builtin/*/component.tsx` resolve `react`, `ag-grid-*`
+  and `lightweight-charts` through a regex alias to `web/node_modules` in the
+  vite and vitest configs, and the prettier scripts include that directory.
+- **TypeScript config departures**: `erasableSyntaxOnly` is off because the
+  plan's classes use constructor parameter properties, and `baseUrl` is dropped
+  because TypeScript 6 rejects it (TS5101); `paths` resolve relative to the
+  tsconfig.
+- **One `FakeProvider` per e2e server**: the service calls the provider factory
+  on every step, so the fixture returns the same scripted instance from the
+  factory or the repair step would replay the first turns.
+- **Snapshots**: the server keeps the last 500 per view, appends under the
+  service lock, and answers 409 while that step is still running.
+
 ## Packaging and CI
 
 - **Built for polars 2 and DuckDB 1.5**: polars 2.0.0 and DuckDB 1.5.6 resolved

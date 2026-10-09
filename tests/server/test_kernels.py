@@ -70,6 +70,20 @@ def test_dead_kernel_stays_dead_until_restart(manager: KernelManager) -> None:
     assert b is not a and b.execute("x = 1").status == "ok"
 
 
+def test_replay_needed_until_a_replay_runs_through(manager: KernelManager) -> None:
+    assert manager.status("s", has_steps=True).replay_needed is True
+    assert manager.status("s").replay_needed is False
+    manager.get("s", has_steps=True)
+    assert manager.status("s").replay_needed is True
+    failed = manager.restart("s", [step(0, "raise ValueError('x')"), step(1, "y = 1")])
+    assert failed.failed_step == 0 and manager.status("s").replay_needed is True
+    assert manager.restart("s", [step(0, "y = 1")]).failed_step is None
+    assert manager.status("s").replay_needed is False
+    # A direct restart of a session the manager never saw flags it too.
+    assert manager.restart("t", [step(0, "raise ValueError('x')")]).failed_step == 0
+    assert manager.status("t").replay_needed is True
+
+
 def test_kill_leaves_the_kernel_dead_until_restart(manager: KernelManager) -> None:
     a = manager.get("s")
     manager.kill("s")
