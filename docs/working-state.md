@@ -18,7 +18,7 @@ is written and waits for Stage 2.
 | ------------------- | -------------------------------------- | --------------------------------------------------------------------- |
 | 1. Core             | Merged in sunpar/quarry#1 as `d00b5fa` | [Stage 1](superpowers/plans/2026-10-08-quarry-stage1-core.md)         |
 | 2. Server and agent | Built, sunpar/quarry#2 open            | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
-| 3. First UI         | Planned, not started                   | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
+| 3. First UI         | Planned, handoff ready, not started    | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
 | 4. Projects         | Not planned yet                        | Spec §15                                                              |
 | 5. Breadth          | Not planned yet                        | Spec §15                                                              |
 
@@ -37,9 +37,9 @@ in [open-items.md](open-items.md).
 
 - Neither provider adapter has called its real API yet; see the
   [open questions](open-items.md#open-questions).
-- Open decisions for the maintainer: whether the
-  [Stage 2 items](open-items.md#stage-2) land in sunpar/quarry#2 or a follow-up,
-  and whether to turn on CI Auto-fix for the pull request.
+- The fixes for the first Codex review are in, and CI Auto-fix is on.
+- The maintainer chose to land the [Stage 2 items](open-items.md#stage-2) in
+  sunpar/quarry#2. They are being worked one task at a time, each reviewed.
 
 ## Latest verification
 
@@ -53,16 +53,16 @@ clean.
 
 ## Next actions
 
-1. Merge sunpar/quarry#2 once CI is green and the Codex review is clear.
+1. Stage 2: finish its [deferred items](open-items.md#stage-2) in
+   sunpar/quarry#2, then merge it once CI is green and the Codex review is
+   clear.
 2. Run the live provider tests with a key:
    `QUARRY_ANTHROPIC_API_KEY=... uv run pytest tests/agent/test_live_providers.py -v`.
-3. Stage 2: settle where its [deferred items](open-items.md#stage-2) land, then
-   work through them and the [open questions](open-items.md#open-questions) they
-   depend on.
-4. Stage 3: start from its plan and its [deferred items](open-items.md#stage-3).
-   The plan predates Stage 2's decisions, so check its API client against the
-   routes first: `/restart` returns `failed_step` as a step index with an
-   `error`, not a `Step`.
+3. Stage 3: start from the
+   [Stage 3 handoff](superpowers/handoffs/2026-10-08-quarry-stage3-handoff.md),
+   which points at the plan and its [deferred items](open-items.md#stage-3). The
+   plan's API types match Stage 2 as of `08efb23`; since then a step gained
+   `runs`, so re-check them against the merged branch.
 
 ## Resuming
 

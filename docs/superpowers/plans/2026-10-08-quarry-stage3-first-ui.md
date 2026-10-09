@@ -464,13 +464,15 @@ export interface Filter {
   op:
     | "eq"
     | "ne"
-    | "gt"
-    | "ge"
     | "lt"
     | "le"
+    | "gt"
+    | "ge"
     | "in"
     | "not_in"
+    | "between"
     | "contains"
+    | "starts_with"
     | "is_null"
     | "not_null";
   value?: Json;
@@ -532,6 +534,7 @@ export interface DatasetMeta {
   schema: Column[];
   rows: number | null;
   preview: Row[];
+  error: string | null;
 }
 
 export interface ExecError {
@@ -611,13 +614,14 @@ export interface StepRequest {
   repair?: RepairRequest;
 }
 
-export interface RestartResult {
+export interface ReplayReport {
   replayed: number;
-  failed_step: Step | null;
+  failed_step: number | null;
+  error: string | null;
 }
 ```
 
-Check the `Filter.op` and `Agg.fn` literals against `src/quarry/query/spec.py` (`FilterOp`, `AggFn`) and `RestartResult` against the `/restart` response in `service.py`; copy the exact sets.
+These mirror `FilterOp` and `AggFn` in `src/quarry/query/spec.py`, `DatasetMeta` in `kernel/datasets.py` and `ReplayReport` in `server/kernels.py` as of Stage 2 branch head `08efb23`; re-check them if that branch moves before Stage 3 starts.
 
 - [ ] **Step 2: Failing tests**
 
@@ -707,7 +711,7 @@ import type {
   DatasetMeta,
   QueryResult,
   QuerySpec,
-  RestartResult,
+  ReplayReport,
   Session,
   SessionMeta,
   SessionStatus,
@@ -769,7 +773,7 @@ export class ApiClient {
     return this.request("GET", `/sessions/${id}/datasets`);
   }
 
-  restart(id: string): Promise<RestartResult> {
+  restart(id: string): Promise<ReplayReport> {
     return this.request("POST", `/sessions/${id}/restart`);
   }
 

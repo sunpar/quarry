@@ -32,10 +32,11 @@ definitions and constraints.
 
 ## Design and plans
 
-| File                                                                                           | Holds                             | Update                                                |
-| ---------------------------------------------------------------------------------------------- | --------------------------------- | ----------------------------------------------------- |
-| [superpowers/specs/2026-10-08-quarry-design.md](superpowers/specs/2026-10-08-quarry-design.md) | The binding design                | Amend when a decision departs from it                 |
-| [superpowers/plans/](superpowers/plans/)                                                       | One implementation plan per stage | Written before a stage starts. History once it starts |
+| File                                                                                           | Holds                                                                                    | Update                                                |
+| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| [superpowers/specs/2026-10-08-quarry-design.md](superpowers/specs/2026-10-08-quarry-design.md) | The binding design                                                                       | Amend when a decision departs from it                 |
+| [superpowers/plans/](superpowers/plans/)                                                       | One implementation plan per stage                                                        | Written before a stage starts. History once it starts |
+| [superpowers/handoffs/](superpowers/handoffs/)                                                 | One handoff per stage for the thread that implements it: context, order, criteria, risks | Written with the plan. History once the stage starts  |
 
 ## Rules for these docs
 
