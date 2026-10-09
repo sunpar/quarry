@@ -1,4 +1,6 @@
+import os
 import re
+import signal
 import threading
 import time
 from collections.abc import Iterator
@@ -449,6 +451,26 @@ def test_interrupt_cancels_a_step_waiting_on_the_model(tmp_path: Path) -> None:
         assert step["status"] == "interrupted"
         assert step["error"]["message"] == "interrupted by researcher"
         assert step["runs"] == [] and len(provider.calls) == 1
+
+
+def test_interrupt_cancels_a_step_waiting_on_the_model_after_its_kernel_died(
+    tmp_path: Path,
+) -> None:
+    provider = GatedProvider([py("c1", "x = 1"), end()])
+    with make_client(tmp_path, [], provider_factory=lambda _cfg: provider) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps", json={"prompt": "go"})
+        assert provider.waiting.wait(30)
+        os.kill(client.get(f"/sessions/{sid}/status").json()["kernel"]["pid"], signal.SIGKILL)
+        wait_kernel(client, sid, "dead")
+        # Still 503 for the dead kernel, but the step is cancelled before the next tool call.
+        assert client.post(f"/sessions/{sid}/interrupt").status_code == 503
+        provider.release.set()
+        wait_idle(client, sid)
+        step = client.get(f"/sessions/{sid}").json()["steps"][0]
+        assert step["status"] == "interrupted"
+        assert step["error"]["message"] == "interrupted by researcher"
+        assert len(provider.calls) == 1
 
 
 def test_crashed_prompt_step_keeps_its_runs(tmp_path: Path) -> None:
