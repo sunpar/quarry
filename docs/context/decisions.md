@@ -551,7 +551,10 @@ them.
   fetches its module scripts, CSS and fonts in CORS mode. Only the static mount
   is wrapped in `CORSMiddleware`; API routes send no CORS header and the sandbox
   and CSP stay as the plan set them. The plan's loopback CSP fallback was not
-  needed: no CSP violation was logged. Approved by the maintainer.
+  needed: no CSP violation was logged. Approved by the maintainer. This already
+  meets the plan's later Step 2b, which names `/assets/`, `/runtime.html` and
+  `/libs/`: the mount-level wrapper covers those and every other static file, so
+  no second middleware is needed.
 - **A generated view can still navigate itself**: the sandbox blocks fetch,
   forms, popups and top navigation, but `location.href = ...` inside the frame
   is not covered by `connect-src`, so "the bridge is the only path out" (spec
