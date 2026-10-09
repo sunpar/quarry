@@ -249,6 +249,7 @@ Durable checkpoints. A directory the researcher can copy, share, or commit.
   views/<name>/
     view.tsx
     state.json            the Snapshot.state at save time
+    queries.json          the Snapshot.queries at save time (Stage 5 export renders them)
     meta.json             { name, description, datasets: string[], component_id,
                             saved_at, source_session, source_step }
 ```

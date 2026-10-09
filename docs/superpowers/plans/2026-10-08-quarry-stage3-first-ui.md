@@ -18,6 +18,7 @@
 - The runtime iframe is `sandbox="allow-scripts"` (never `allow-same-origin`) with a meta CSP of `default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src data:; font-src 'self'; connect-src 'none'`. `'unsafe-eval'` is required because Sucrase output is evaluated with `new Function`; the jail is the sandbox plus `connect-src 'none'`, not the eval ban. The iframe has an opaque origin, so host to runtime `postMessage` uses target origin `"*"`, and the host trusts a message only when `event.source === iframe.contentWindow`. Never check `event.origin`; it is the string `"null"`.
 - The token is read from `location.hash` once and kept in memory. The hash stays in the URL so a reload keeps working; fragments never reach the server. No cookie, no `localStorage`.
 - The host is the only party holding the token. The runtime never sees a URL, a token, or `fetch`.
+- The sandboxed frame has an opaque origin, so every request it makes is cross-origin: module scripts (`<script type="module">`, `modulepreload`) and `@font-face` fetches run in CORS mode with `Origin: null` and are rejected unless the response carries `Access-Control-Allow-Origin: *`. `create_app` adds that header to the static bundle (`/assets/`, `/runtime.html`) and never to API routes, which need the bearer token the frame never holds.
 - A view component's default export receives exactly one prop, `datasets: string[]`, the names passed to `render_view` or `write_view` in order. Built-ins read `datasets[0]`.
 - Snapshot recording lands now (`useViewState` posts `stateChanged`, the host stores it); the scrubber UI over snapshots is Stage 4.
 - The web build must run before `uv build`; the wheel is only correct with `src/quarry/static/index.html` present. CI builds web first.
@@ -2981,6 +2982,48 @@ Keep whatever the current route already does for `KernelDead`; add the `StepNotF
         except SessionBusy as exc:
             raise HTTPException(status_code=409, detail="step is still running") from exc
         return {"count": count}
+```
+
+- [ ] **Step 2b: Static CORS for the opaque-origin frame**
+
+The runtime iframe is `sandbox="allow-scripts"`, so its origin is opaque and its module-script and font requests run in CORS mode with `Origin: null`. Without an `Access-Control-Allow-Origin` header the browser rejects the runtime's own bundle (console: "blocked by CORS policy", not a CSP message). Add to `create_app`, before the static mount:
+
+```python
+from collections.abc import Awaitable, Callable
+
+from starlette.requests import Request
+from starlette.responses import Response
+
+STATIC_PREFIXES: Final = ("/assets/", "/runtime.html", "/libs/")
+
+
+    @app.middleware("http")
+    async def static_cors(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        response = await call_next(request)
+        # Only the public bundle; API routes stay token-only and never get the header.
+        if request.url.path.startswith(STATIC_PREFIXES):
+            response.headers["Access-Control-Allow-Origin"] = "*"
+        return response
+```
+
+Test, in `tests/server/test_app.py`:
+
+```python
+def test_static_bundle_has_cors_and_api_does_not(tmp_path: Path) -> None:
+    static = tmp_path / "static"
+    (static / "assets").mkdir(parents=True)
+    (static / "index.html").write_text("<!doctype html>")
+    (static / "assets" / "runtime-abc.js").write_text("export {}")
+    config = QuarryConfig(root=tmp_path)
+    app = create_app(config=config, token=TOKEN, static_dir=static)
+    client = TestClient(app)
+    asset = client.get("/assets/runtime-abc.js")
+    assert asset.status_code == 200
+    assert asset.headers["access-control-allow-origin"] == "*"
+    api = client.get("/sessions", headers={"Authorization": f"Bearer {TOKEN}"})
+    assert "access-control-allow-origin" not in api.headers
 ```
 
 - [ ] **Step 3: Verify and commit**

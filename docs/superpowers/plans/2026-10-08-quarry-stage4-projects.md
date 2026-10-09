@@ -15,7 +15,7 @@
 - All Stage 1, 2 and 3 Global Constraints still apply (typed Python, ruff, mypy strict; TypeScript strict, no `any`, `interface` for props, files under 250 lines, prettier; bare Conventional Commit types, no attribution trailers).
 - Stage 3 is unbuilt at the time of writing. Every "Consumes" line that names Stage 3 code (`ViewFrameContainer`, `HostBridge`, `ApiClient`, `keys`, `StepCard`, `SessionRail`, `App`) refers to the Stage 3 plan. Before Task 7, re-read the real Stage 3 branch; where it differs, code wins and this plan's TypeScript is adjusted, not the other way round.
 - The Stage 2 branch's `Step` carries `runs: list[CodeRun]` and restart replays `runs`, not `code`. Every step Stage 4 creates fills `runs`.
-- Project layout is exactly spec section 5: `projects/<slug>/project.json`, `datasets/<name>/{recipe.py,recipe.raw.py,meta.json,data.parquet}`, `views/<name>/{view.tsx,state.json,meta.json}`. Everything is plain text except the parquet file; writes are atomic through temp-and-replace.
+- Project layout is exactly spec section 5: `projects/<slug>/project.json`, `datasets/<name>/{recipe.py,recipe.raw.py,meta.json,data.parquet}`, `views/<name>/{view.tsx,state.json,queries.json,meta.json}` (`queries.json` holds the latest snapshot's query specs so Stage 5's export can render them; spec section 5 is amended in Task 1). Everything is plain text except the parquet file; writes are atomic through temp-and-replace.
 - A dataset is saved while its session is idle. Saving takes the session busy exactly like restart does; a running step makes the save return 409, never wait.
 - Validation compares the scratch kernel's `describe(name)` with the session kernel's `describe(name)` taken at save time: same column names and dtypes in the same order, same row count. `step.datasets` metas are not used for this; their `rows` can be `None`.
 - A tidy failure (provider error, empty reply, non-parsing code) never fails a save: the raw concatenation is validated instead. A validation failure never fails a save either: `recipe.py` is the raw concatenation and `validated` is false, with the reason in `validation_error`.
@@ -39,6 +39,7 @@
 **Files:**
 
 - Create: `src/quarry/projects/__init__.py`, `src/quarry/projects/models.py`, `src/quarry/projects/store.py`
+- Modify: `docs/superpowers/specs/2026-10-08-quarry-design.md` (section 5 Project layout: add `queries.json            the Snapshot.queries at save time` under `views/<name>/`)
 - Test: `tests/projects/__init__.py`, `tests/projects/test_store.py`
 
 **Interfaces:**
@@ -124,15 +125,23 @@ def test_write_and_read_dataset(tmp_path: Path) -> None:
 def test_write_and_read_view(tmp_path: Path) -> None:
     store = ProjectStore(tmp_path)
     store.create("p")
-    store.write_view("p", view_meta(), source="export default () => null", state={"k": 1})
-    meta, source, state = store.read_view("p", "closes")
-    assert meta.component_id == "time-series"
-    assert source == "export default () => null"
-    assert state == {"k": 1}
+    store.write_view(
+        "p",
+        view_meta(),
+        source="export default () => null",
+        state={"k": 1},
+        queries=[{"dataset": "prices", "limit": 5}],
+    )
+    saved = store.read_view("p", "closes")
+    assert saved.meta.component_id == "time-series"
+    assert saved.source == "export default () => null"
+    assert saved.state == {"k": 1}
+    assert saved.queries == [{"dataset": "prices", "limit": 5}]
+    assert (tmp_path / "projects" / "p" / "views" / "closes" / "queries.json").exists()
     with pytest.raises(KeyError):
         store.read_view("p", "nope")
     with pytest.raises(ValueError):
-        store.write_view("p", view_meta("Bad Name!"), source="", state={})
+        store.write_view("p", view_meta("Bad Name!"), source="", state={}, queries=[])
 
 
 def test_set_canvas(tmp_path: Path) -> None:
@@ -211,6 +220,15 @@ class Project(BaseModel):
     meta: ProjectMeta
     datasets: list[SavedDatasetMeta]
     views: list[SavedViewMeta]
+
+
+class SavedViewFiles(BaseModel):
+    """One saved view as read back from disk."""
+
+    meta: SavedViewMeta
+    source: str
+    state: dict[str, Json]
+    queries: list[dict[str, Json]]
 ```
 
 - [ ] **Step 3: Atomic write helper**
@@ -250,7 +268,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from quarry.projects.files import write_atomic
-from quarry.projects.models import CanvasCard, Project, ProjectMeta, SavedDatasetMeta, SavedViewMeta
+from quarry.projects.models import (
+    CanvasCard,
+    Project,
+    ProjectMeta,
+    SavedDatasetMeta,
+    SavedViewFiles,
+    SavedViewMeta,
+)
 from quarry.query.spec import Json
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -324,22 +349,33 @@ class ProjectStore:
     def parquet_path(self, slug: str, name: str) -> Path:
         return self._dataset_dir(slug, name) / "data.parquet"
 
-    def write_view(self, slug: str, meta: SavedViewMeta, *, source: str, state: dict[str, Json]) -> None:
+    def write_view(
+        self,
+        slug: str,
+        meta: SavedViewMeta,
+        *,
+        source: str,
+        state: dict[str, Json],
+        queries: list[dict[str, Json]],
+    ) -> None:
         if NAME_RE.match(meta.name) is None:
             raise ValueError("view names are lowercase letters, digits, '-' and '_', up to 64 chars")
         base = self._project_dir(slug) / "views" / meta.name
         write_atomic(base / "view.tsx", source)
         write_atomic(base / "state.json", json.dumps(state, indent=2))
+        # The query specs behind the saved state; Stage 5's export renders them with to_source.
+        write_atomic(base / "queries.json", json.dumps(queries, indent=2))
         write_atomic(base / "meta.json", meta.model_dump_json(indent=2))
         self._touch(slug)
 
-    def read_view(self, slug: str, name: str) -> tuple[SavedViewMeta, str, dict[str, Json]]:
+    def read_view(self, slug: str, name: str) -> SavedViewFiles:
         base = self._project_dir(slug) / "views" / name
         if not (base / "meta.json").exists():
             raise KeyError(name)
         meta = SavedViewMeta.model_validate_json((base / "meta.json").read_text())
         state: dict[str, Json] = json.loads((base / "state.json").read_text())
-        return meta, (base / "view.tsx").read_text(), state
+        queries: list[dict[str, Json]] = json.loads((base / "queries.json").read_text())
+        return SavedViewFiles(meta=meta, source=(base / "view.tsx").read_text(), state=state, queries=queries)
 
     def _dataset_dir(self, slug: str, name: str) -> Path:
         if not name.isidentifier():
@@ -968,8 +1004,9 @@ def test_save_view_saves_missing_datasets_first(tmp_path: Path) -> None:
     assert meta.datasets == ["prices"] and meta.component_id == "data-table"
     project = projects.get(slug)
     assert [d.name for d in project.datasets] == ["prices"]
-    _, source, state = ProjectStore(tmp_path).read_view(slug, "table")
-    assert "export default" in source and state == {"limit": 5}
+    saved = ProjectStore(tmp_path).read_view(slug, "table")
+    assert "export default" in saved.source and saved.state == {"limit": 5}
+    assert saved.queries == []
     sessions.shutdown()
 ```
 
@@ -1021,7 +1058,15 @@ from pydantic import BaseModel
 
 from quarry.config import QuarryConfig
 from quarry.kernel.client import RpcFailure
-from quarry.projects.models import CanvasCard, Project, ProjectMeta, SavedDatasetMeta, SavedViewMeta, SaveMode
+from quarry.projects.models import (
+    CanvasCard,
+    Project,
+    ProjectMeta,
+    SavedDatasetMeta,
+    SavedViewFiles,
+    SavedViewMeta,
+    SaveMode,
+)
 from quarry.projects.recipe import raw_recipe, recipe_steps
 from quarry.projects.store import NAME_RE, ProjectStore, now_iso
 from quarry.projects.tidy import tidy_recipe
@@ -1050,10 +1095,7 @@ class UnknownDataset(Exception):
     pass
 
 
-class SavedView(BaseModel):
-    meta: SavedViewMeta
-    source: str
-    state: dict[str, Json]
+SavedView = SavedViewFiles  # the API returns the saved view exactly as stored
 
 
 class ProjectService:
@@ -1083,8 +1125,7 @@ class ProjectService:
         return self._store.set_canvas(slug, cards)
 
     def view(self, slug: str, name: str) -> SavedView:
-        meta, source, state = self._store.read_view(slug, name)
-        return SavedView(meta=meta, source=source, state=state)
+        return self._store.read_view(slug, name)
 
     def save_dataset(self, slug: str, req: SaveDatasetRequest) -> SavedDatasetMeta:
         self._store.meta(slug)  # KeyError for an unknown project before touching the session
@@ -1133,7 +1174,9 @@ class ProjectService:
                 self.save_dataset(
                     slug, SaveDatasetRequest(session_id=req.session_id, dataset=name, mode=req.mode)
                 )
-        state = step.view.snapshots[-1].state if step.view.snapshots else step.view.initial_state
+        latest = step.view.snapshots[-1] if step.view.snapshots else None
+        state = latest.state if latest is not None else step.view.initial_state
+        queries = latest.queries if latest is not None else []
         meta = SavedViewMeta(
             name=req.name,
             description=req.description,
@@ -1143,7 +1186,7 @@ class ProjectService:
             source_session=req.session_id,
             source_step=step.id,
         )
-        self._store.write_view(slug, meta, source=step.view.source, state=state)
+        self._store.write_view(slug, meta, source=step.view.source, state=state, queries=queries)
         return meta
 
     def _find_step(self, session_id: str, step_id: str) -> Step:
@@ -1176,7 +1219,7 @@ git add src tests && git commit -m "feat: save datasets and views into projects"
 
 **Interfaces:**
 
-- Produces: `register_project_routes(api: APIRouter, projects: ProjectService, sessions: SessionService) -> None` adding `POST /projects` (201) body `{name, description}`, `GET /projects`, `GET /projects/{slug}` (404), `GET /projects/{slug}/views/{name}` → `SavedView {meta, source, state}` (404), `POST /projects/{slug}/datasets` body `SaveDatasetRequest` (404 unknown project, step or dataset; 409 session busy; 503 kernel dead), `POST /projects/{slug}/views` body `SaveViewRequest` (same codes, 400 bad view name), `PUT /projects/{slug}/canvas` body `list[CanvasCard]`.
+- Produces: `register_project_routes(api: APIRouter, projects: ProjectService, sessions: SessionService) -> None` adding `POST /projects` (201) body `{name, description}`, `GET /projects`, `GET /projects/{slug}` (404), `GET /projects/{slug}/views/{name}` → `SavedView {meta, source, state, queries}` (404), `POST /projects/{slug}/datasets` body `SaveDatasetRequest` (404 unknown project, step or dataset; 409 session busy; 503 kernel dead), `POST /projects/{slug}/views` body `SaveViewRequest` (same codes, 400 bad view name), `PUT /projects/{slug}/canvas` body `list[CanvasCard]`.
 - Consumes: Task 5; `create_app` from Stage 2 (`api` router with the auth dependency, `service` as the `SessionService`).
 
 - [ ] **Step 1: Failing tests**
@@ -1231,7 +1274,7 @@ def test_project_crud_and_save_flow(tmp_path: Path) -> None:
     assert client.put("/projects/momentum/canvas", json=cards).json()["canvas"] == cards
     view = client.get("/projects/momentum/views/table").json()
     assert view["meta"]["name"] == "table" and "export default" in view["source"]
-    assert view["state"] == {}
+    assert view["state"] == {} and view["queries"] == []
     assert client.get("/projects/momentum/views/nope").status_code == 404
 
 
@@ -1484,7 +1527,8 @@ class RecallRequest(BaseModel):
             return self._sessions.start_recall(
                 session_id, prompt=f"Recall {req.name} from {project.meta.name}", code=code, view=None
             )
-        meta, source, state = self._store.read_view(req.project, req.name)
+        saved = self._store.read_view(req.project, req.name)
+        meta, source, state = saved.meta, saved.source, saved.state
         present = {d.name for d in self._sessions.datasets(session_id)}
         blocks = [
             f"# dataset {name}\n{self._dataset_code(project, name)}"
@@ -1627,6 +1671,7 @@ export interface SavedView {
   meta: SavedViewMeta;
   source: string;
   state: JsonObject;
+  queries: QuerySpec[];
 }
 ```
 
