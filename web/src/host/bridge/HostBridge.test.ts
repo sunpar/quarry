@@ -50,6 +50,15 @@ describe("HostBridge", () => {
     });
   });
 
+  it("resends the mount on every ready", () => {
+    const { bridge, posted, send } = setup();
+    bridge.mount({ source: "x", initialState: {}, datasets: ["df"] });
+    send({ type: "ready" });
+    send({ type: "ready" });
+    expect(posted).toHaveLength(2);
+    expect(posted[1]).toEqual(posted[0]);
+  });
+
   it("ignores messages from other sources", () => {
     const { posted, send, onStateChanged } = setup();
     send(

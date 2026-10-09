@@ -24,7 +24,7 @@ export interface HostBridgeOptions {
 
 export class HostBridge {
   private ready = false;
-  private pendingMount: MountSpec | null = null;
+  private mountSpec: MountSpec | null = null;
 
   constructor(private readonly options: HostBridgeOptions) {}
 
@@ -41,7 +41,7 @@ export class HostBridge {
   }
 
   mount(spec: MountSpec): void {
-    this.pendingMount = spec;
+    this.mountSpec = spec;
     if (this.ready) this.flushMount();
   }
 
@@ -108,9 +108,8 @@ export class HostBridge {
   }
 
   private flushMount(): void {
-    if (this.pendingMount === null) return;
-    const { source, initialState, datasets } = this.pendingMount;
-    this.pendingMount = null;
+    if (this.mountSpec === null) return;
+    const { source, initialState, datasets } = this.mountSpec;
     this.send({
       type: "mount",
       viewId: this.options.viewId,
