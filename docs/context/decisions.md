@@ -396,6 +396,74 @@ them.
 - **A broken component manifest is skipped**: the library logs a warning and
   loads the rest. One bad manifest had made every component search fail.
 
+## First UI
+
+- **Web build lives in the wheel as an artifact**: `[tool.hatch.build]` lists
+  `artifacts = ["src/quarry/static/**"]`, at the build level rather than the
+  wheel target, because `uv build` makes the wheel from the sdist and the
+  gitignored static files were dropped otherwise. The web build must run before
+  `uv build`; CI does.
+- **Static assets answer with `Access-Control-Allow-Origin: *`**: the view
+  iframe is `sandbox="allow-scripts"`, so its origin is opaque and Chromium
+  fetches its module scripts, CSS and fonts in CORS mode. Only the static mount
+  is wrapped in `CORSMiddleware`; API routes send no CORS header and the sandbox
+  and CSP stay as the plan set them. The plan's loopback CSP fallback was not
+  needed: no CSP violation was logged. Approved by the maintainer.
+- **A generated view can still navigate itself**: the sandbox blocks fetch,
+  forms, popups and top navigation, but `location.href = ...` inside the frame
+  is not covered by `connect-src`, so "the bridge is the only path out" (spec
+  §12) is defence in depth, not a guarantee. The kernel already has the network.
+  Detecting a navigation is an [open item](../open-items.md#stage-4).
+- **The token stays in the URL fragment and in memory**: the host reads
+  `#token=` once into state, never stores it, and writes the active session id
+  back as `#token=...&session=...` with `replaceState` so a reload keeps both. A
+  `hashchange` whose token differs reloads the page, since re-pasting a link
+  from a restarted server is a same-document change.
+- **`replay_needed` on kernel status**: `KernelManager.get` records a session
+  whose kernel it spawned while the session already had steps, and `restart`
+  clears it. Reads respawn a dead kernel, so `dead` was visible only until the
+  next poll and a session reopened after a server restart never offered "Restart
+  kernel". The banner shows on `dead` or `replay_needed` and reports a replay
+  that stopped early.
+- **A repair step keeps the researcher's prompt**: the view source and browser
+  error go only to the agent; the persisted step shows "Fix the view so it
+  mounts." The plan stored the composed text as the step prompt, which put a
+  wall of TSX in the step column.
+- **`row_count` is the number of rows returned**: `truncated` compares with
+  `row_cap`, not the spec's `limit`, so the built-in table shows "Showing the
+  first N rows." whenever a page is full. AG Grid's client-side filters are off,
+  since a filter over one page gives wrong answers; filters belong in the query
+  spec (spec §9).
+- **Loader keeps unused imports**: Sucrase runs with `keepUnusedImports`, so a
+  refused module is refused even when nothing uses it. A type-only value import
+  of a non-allowlisted path is refused too. The allowlist is checked with
+  `Object.hasOwn`, so `import x from "constructor"` is refused like any other.
+- **Mount is queued and resent**: the host sends `mount` only after the runtime
+  posts `ready`, keeps the spec and resends it on every later `ready`; the
+  runtime drops a mount that an even newer mount has overtaken. A reloaded frame
+  therefore remounts, and a slow first load cannot clobber a second.
+- **The time series drops what it cannot plot**: rows whose time does not parse
+  or whose value is not finite are skipped, equal seconds collapse to the last
+  row, and a naive ISO datetime is read as UTC because the kernel's DuckDB
+  session is UTC. Lightweight Charts throws on NaN or repeated times.
+- **The runtime manifest gates the guide**: the web build writes
+  `runtime-manifest.json` naming the libraries the bundle resolves (`ag-grid`,
+  `lightweight-charts`), and `enabled_libraries` intersects with it. A corrupt
+  manifest fails startup loudly, since the build writes it.
+- **Built-ins live outside `web/`**:
+  `src/quarry/components/builtin/*/component.tsx` resolve `react`, `ag-grid-*`
+  and `lightweight-charts` through a regex alias to `web/node_modules` in the
+  vite and vitest configs, and the prettier scripts include that directory.
+- **TypeScript config departures**: `erasableSyntaxOnly` is off because the
+  plan's classes use constructor parameter properties, and `baseUrl` is dropped
+  because TypeScript 6 rejects it (TS5101); `paths` resolve relative to the
+  tsconfig.
+- **One `FakeProvider` per e2e server**: the service calls the provider factory
+  on every step, so the fixture returns the same scripted instance from the
+  factory or the repair step would replay the first turns.
+- **Snapshots**: the server keeps the last 500 per view, appends under the
+  service lock, and answers 409 while that step is still running.
+
 ## Packaging and CI
 
 - **Built for polars 2 and DuckDB 1.5**: polars 2.0.0 and DuckDB 1.5.6 resolved

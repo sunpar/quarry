@@ -168,26 +168,21 @@ has made yet. Decisions already made are in
 - Map a failed kernel start in `/interrupt` to 503.
 - Create the root and session directories private, and `fsync` step files.
 
-### Stage 3
+### Stage 4
 
 - Sort group-by and pivot results by the group keys by default. This must land
   before views page with offsets, or pages will skip or repeat groups.
 - Add a tie-breaker to paged sorts, because DuckDB's parallel `ORDER BY` returns
   rows with tied keys in a different order each run.
-- Ship the built frontend in the wheel: `.gitignore` excludes
-  `src/quarry/static/`, so hatch drops it unless the wheel lists it in
-  `artifacts`.
 - Explain in the UI why an interrupt may not stop a step at once, and offer the
   Stage 2 restart.
 - Let `/interrupt` stop a step waiting on the model, with a cancel flag the loop
   checks between provider calls.
 - Run restart in the background and report replay progress through `/status`, as
   spec §6 asks.
-- Report a kernel that was never started apart from one starting, so the UI can
-  offer a restart after the server restarts.
 - Add a route that reads one step, so polling stops parsing the whole session.
 - Put prompt-step tracebacks in `error.traceback`, as manual steps do.
-- Give `CommandTranspiler` a timeout once the Stage 3 build ships
+- Give `CommandTranspiler` a timeout now that the build ships
   `transpile-check.mjs`.
 - Fix filter coercion for Time literals, UUID and other natively imported
   relation columns, strings against integer columns, and datetime-shaped strings
@@ -198,9 +193,31 @@ has made yet. Decisions already made are in
   `'infinity'` in TIMESTAMP_S and TIMESTAMP_NS columns.
 - Pre-aggregate relation pivots by index and pivot columns in SQL, because the
   pivot now pulls every filtered row into polars.
-
-### Stage 4
-
+- Push the data table's filters into the query spec, and keep the previous rows
+  while a sort refetches, so the grid stops flashing to "Loading".
+- Restore the last snapshot's state on mount: a reload resets a view to
+  `initial_state` even when `view.snapshots` has later state.
+  `HostBridge.restore` and `ViewStateStore.replace` are ready for the scrubber.
+- Detect a view frame that navigates itself (its `load` event fires a second
+  time) and tear the frame down; see [decisions](context/decisions.md#first-ui).
+- Invalidate `RequestCache` entries: a query error cached while the kernel was
+  dead stays until reload, and a later step that rebinds a dataset leaves
+  earlier views stale.
+- Make `npm run dev` views work inside the null-origin frame: Vite's dev CORS
+  allowlist and its inline React preamble are both blocked there, so views
+  render only from a production build today.
+- A stale `session=` id in the hash opens a column on a 404; fall back to the
+  first session.
+- Disable the view's "Fix this view" after a successful repair, and clear a
+  replay-failure banner once a later restart succeeds.
+- `ErrorBoundary` resets only when the view id changes, and a store abandoned by
+  a stale mount is not disposed, so its debounced change can still post.
+- Linked `shared:` view-state keys are advertised in the contract but not yet
+  linked across views.
+- The Lightweight Charts attribution link is inert under the sandbox (no
+  popups).
+- Add component tests for `SessionPage` (reload keeps the session, 401 message)
+  and the time series success and "needs a date column" paths.
 - Extend lineage to SQL strings by passing string literals given to `sql_local`,
   `duckdb.sql` and `_conn.sql` through `duckdb.get_table_names`. Recipes from
   `sql_local` steps miss their source step until then; Stage 2 replay may need

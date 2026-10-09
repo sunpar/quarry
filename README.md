@@ -1,6 +1,7 @@
 # Quarry
 
-Agentic data exploration for quant researchers. See the [design spec](docs/superpowers/specs/2026-10-08-quarry-design.md).
+Agentic data exploration for quant researchers. See the
+[design spec](docs/superpowers/specs/2026-10-08-quarry-design.md).
 
 Project docs, starting with the current working state, are indexed in
 [docs/README.md](docs/README.md).
@@ -48,9 +49,10 @@ starts with:
 `duckdb.sql` sees `pq` relations too.
 
 `execute` returns the step's status, the tails of its output, its lineage
-(`reads`, `writes`, `defines`) and metadata for the datasets it wrote. The client
-also has `describe`, `list_datasets`, `query`, `interrupt` and `snapshot`.
-`shutdown()` stops the kernel, and `close()` then releases its socket directory.
+(`reads`, `writes`, `defines`) and metadata for the datasets it wrote. The
+client also has `describe`, `list_datasets`, `query`, `interrupt` and
+`snapshot`. `shutdown()` stops the kernel, and `close()` then releases its
+socket directory.
 
 ## Driving the server from curl (Stage 2)
 
@@ -76,7 +78,8 @@ cd web && npm ci && npm run build && cd ..
 uv run quarry serve
 ```
 
-Open the printed link (it carries the token after `#`). From a laptop, forward the port first with the `ssh -L` line the banner prints.
+Open the printed link (it carries the token after `#`). From a laptop, forward
+the port first with the `ssh -L` line the banner prints.
 
 ### Developing the UI
 
@@ -85,4 +88,8 @@ uv run quarry serve --port 8765          # terminal 1
 cd web && QUARRY_PORT=8765 npm run dev    # terminal 2, open http://localhost:5173/#token=<token>
 ```
 
-Vite proxies `/sessions` and `/healthz` to the Python server. `npm run check`, `npm test`, and `npm run build` must pass before a commit; the Playwright tests under `tests/e2e` run only when `src/quarry/static/index.html` exists. They need a browser, installed once with `uv run playwright install chromium`; without it they error whenever a build exists.
+Vite proxies `/sessions` and `/healthz` to the Python server. `npm run check`,
+`npm test`, and `npm run build` must pass before a commit; the Playwright tests
+under `tests/e2e` run only when `src/quarry/static/index.html` exists. They need
+a browser, installed once with `uv run playwright install chromium`; without it
+they error whenever a build exists.

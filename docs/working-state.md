@@ -1,6 +1,6 @@
 # Working state
 
-Checkpoint as of 2026-10-08. This page holds temporary context: what is in
+Checkpoint as of 2026-10-09. This page holds temporary context: what is in
 flight, the latest check results and the next actions. Rewrite it at the end of
 each session and when a pull request opens or merges. Anything that will still
 be true next month belongs in [context/](context/) or
@@ -8,19 +8,20 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Land Stage 2, the server and agent loop, in sunpar/quarry#2. Then start Stage 3
-from its [plan](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md), which
-is written and waits for Stage 2.
+Land Stage 3, the first UI, on top of Stage 2. Stage 3 is implemented on
+`claude/quarry-stage3-first-ui` from the
+[Stage 3 plan](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md) and waits
+for its pull request to merge; Stage 2 (sunpar/quarry#2) must merge first.
 
 ## Status by stage
 
-| Stage               | Status                                 | Plan                                                                  |
-| ------------------- | -------------------------------------- | --------------------------------------------------------------------- |
-| 1. Core             | Merged in sunpar/quarry#1 as `d00b5fa` | [Stage 1](superpowers/plans/2026-10-08-quarry-stage1-core.md)         |
-| 2. Server and agent | Built, sunpar/quarry#2 open            | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
-| 3. First UI         | Planned, not started                   | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
-| 4. Projects         | Not planned yet                        | Spec §15                                                              |
-| 5. Breadth          | Not planned yet                        | Spec §15                                                              |
+| Stage               | Status                                               | Plan                                                                  |
+| ------------------- | ---------------------------------------------------- | --------------------------------------------------------------------- |
+| 1. Core             | Merged in sunpar/quarry#1 as `d00b5fa`               | [Stage 1](superpowers/plans/2026-10-08-quarry-stage1-core.md)         |
+| 2. Server and agent | Implemented, sunpar/quarry#2 open                    | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
+| 3. First UI         | Implemented, pull request open on the Stage 2 branch | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
+| 4. Projects         | Not planned yet                                      | Spec §15                                                              |
+| 5. Breadth          | Not planned yet                                      | Spec §15                                                              |
 
 ### Stage 1: core
 
@@ -30,39 +31,42 @@ Done. What it left for later stages is filed by stage in
 ### Stage 2: server and agent
 
 Built on `claude/quarry-stage2-server-agent-66853b` and open as sunpar/quarry#2.
-All 12 plan tasks passed their task reviews, and the fixes from the whole-branch
-review are in. Its calls are under
-[server and agent](context/decisions.md#server-and-agent), and what it left is
-in [open-items.md](open-items.md).
+Its calls are under [server and agent](context/decisions.md#server-and-agent),
+and what it left is in [open-items.md](open-items.md#stage-2). Neither provider
+adapter has called its real API yet; see the
+[open questions](open-items.md#open-questions).
 
-- Neither provider adapter has called its real API yet; see the
-  [open questions](open-items.md#open-questions).
-- Open decisions for the maintainer: whether the
-  [Stage 2 items](open-items.md#stage-2) land in sunpar/quarry#2 or a follow-up,
-  and whether to turn on CI Auto-fix for the pull request.
+### Stage 3: first UI
+
+Built on `claude/quarry-stage3-first-ui`, branched from the Stage 2 branch. All
+12 plan tasks passed their task reviews, the whole-branch review's fixes are in,
+and the Playwright tests pass against the built UI. Its calls are under
+[first UI](context/decisions.md#first-ui), the modules are in the
+[code map](context/code-map.md#web), and what it left is filed under
+[Stage 4](open-items.md#stage-4). The maintainer approved the one security
+change, the `Access-Control-Allow-Origin` header on the static mount.
 
 ## Latest verification
 
-`main` at `023a5c1` on 2026-10-08: 721 tests passed, and `ruff check`,
-`ruff format --check` and `mypy src` were clean.
-
-`claude/quarry-stage2-server-agent-66853b` at `95a7efd` on 2026-10-08: 798 tests
-passed and 2 skipped (the live provider tests, which need API keys), and
-`ruff check`, `ruff format --check`, `mypy src` and `uv lock --check` were
-clean.
+`claude/quarry-stage3-first-ui` at `1c1c6f1` on 2026-10-09: 810 tests passed and
+2 skipped (the live provider tests), including the two browser tests under
+`tests/e2e`; `ruff check`, `ruff format --check`, `mypy src` and
+`uv lock --check` were clean; in `web/`, `npm run check` (tsc and prettier),
+`npm test` (53 tests) and `npm run build` passed; the wheel from `uv build`
+contains `quarry/static/index.html`.
 
 ## Next actions
 
 1. Merge sunpar/quarry#2 once CI is green and the Codex review is clear.
-2. Run the live provider tests with a key:
-   `QUARRY_ANTHROPIC_API_KEY=... uv run pytest tests/agent/test_live_providers.py -v`.
-3. Stage 2: settle where its [deferred items](open-items.md#stage-2) land, then
-   work through them and the [open questions](open-items.md#open-questions) they
-   depend on.
-4. Stage 3: start from its plan and its [deferred items](open-items.md#stage-3).
-   The plan predates Stage 2's decisions, so check its API client against the
-   routes first: `/restart` returns `failed_step` as a step index with an
-   `error`, not a `Step`.
+2. Retarget the Stage 3 pull request to `main`, merge `main` into it, and merge
+   it once CI is green and review is clear.
+3. Run the live provider tests with a key:
+   `QUARRY_ANTHROPIC_API_KEY=... uv run pytest tests/agent/test_live_providers.py -v`,
+   then open the UI with a real key and try a prompt.
+4. Stage 4 (projects and canvas): write its plan from the spec and the real
+   Stage 3 code. It picks up the snapshot scrubber (`HostBridge.restore` and
+   `ViewStateStore.replace` are ready), linked `shared:` keys, save view, and
+   the [Stage 4 items](open-items.md#stage-4).
 
 ## Resuming
 
