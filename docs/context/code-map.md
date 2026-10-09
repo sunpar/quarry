@@ -55,12 +55,12 @@ The firm loaders, SQL Server and parquet access that `build_namespace` binds
 into the kernel namespace; it depends on `quarry.config` and `quarry.errors`
 only.
 
-| Module              | Responsibility                                                                                                             | Spec               | Tests                    |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------------------------ |
-| `data/namespace.py` | `build_namespace(config, temp_dir)` returns the starting namespace; `configure_connection` sets the DuckDB connection up.  | §7 Data layer      | `data/test_namespace.py` |
-| `data/loaders.py`   | `load_loaders` reads `loaders.toml` and never raises; `LoaderRegistry`, `LoaderSpec`, `LoaderFailure`, `describe_loaders`. | §7 Loader registry | `data/test_loaders.py`   |
-| `data/mssql.py`     | `make_sql(dsn, reader=)` returns `sql(query, params=)`, which reads SQL Server through arrow-odbc into a polars frame.     | §7 SQL Server      | `data/test_mssql.py`     |
-| `data/parquet.py`   | `ParquetCatalog` with `pq` (hive-partitioned `read_parquet`) and `sql_local`; `scan_layout` lists partition keys.          | §7 Parquet catalog | `data/test_parquet.py`   |
+| Module              | Responsibility                                                                                                                                                        | Spec               | Tests                    |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------------------------ |
+| `data/namespace.py` | `build_namespace(config, temp_dir)` returns the starting namespace; `configure_connection` sets the DuckDB connection up.                                             | §7 Data layer      | `data/test_namespace.py` |
+| `data/loaders.py`   | `load_loaders` reads `loaders.toml` and records failures as `LoaderFailure` rather than raising; `LoaderRegistry`, `LoaderSpec`, `LoaderFailure`, `describe_loaders`. | §7 Loader registry | `data/test_loaders.py`   |
+| `data/mssql.py`     | `make_sql(dsn, reader=)` returns `sql(query, params=)`, which reads SQL Server through arrow-odbc into a polars frame.                                                | §7 SQL Server      | `data/test_mssql.py`     |
+| `data/parquet.py`   | `ParquetCatalog` with `pq` (hive-partitioned `read_parquet`) and `sql_local`; `scan_layout` lists partition keys.                                                     | §7 Parquet catalog | `data/test_parquet.py`   |
 
 ## quarry.agent
 

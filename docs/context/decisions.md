@@ -217,9 +217,10 @@ them.
 ## Datasets and JSON
 
 - **Decimals are exact strings**: JSON rows carry Decimal values, nested ones
-  too, as decimal strings such as `"900"`, so every integer sum arrives as a
-  string. Float64 would silently change `Decimal("9007199254740993")` while the
-  schema still said Decimal. The arrow format keeps native decimals.
+  too, as decimal strings such as `"900"`, so every sum over integers of up to
+  64 bits arrives as a string. A 128-bit sum keeps its integer type and arrives
+  as a number. Float64 would silently change `Decimal("9007199254740993")` while
+  the schema still said Decimal. The arrow format keeps native decimals.
 - **Non-finite floats are null**: inf, -inf and NaN become JSON null at any
   depth, which keeps each column's JSON type uniform. The arrow format keeps
   them, and the Stage 3 renderer may choose sentinels.
