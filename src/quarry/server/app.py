@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
+from starlette.middleware.cors import CORSMiddleware
 
 from quarry.agent.context import enabled_libraries, runtime_libraries
 from quarry.agent.transpile import default_transpiler
@@ -178,7 +179,10 @@ def create_app(
 
     app.include_router(api)
     if (static / "index.html").exists():
-        app.mount("/", StaticFiles(directory=str(static), html=True), name="static")
+        # The sandboxed view frame has an opaque origin, so its module scripts, CSS and fonts
+        # are fetched in CORS mode and need this header. The API router sends no CORS header.
+        files = StaticFiles(directory=str(static), html=True)
+        app.mount("/", CORSMiddleware(files, allow_origins=["*"]), name="static")
     else:
 
         @app.get("/", response_class=PlainTextResponse)

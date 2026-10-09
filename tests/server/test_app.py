@@ -366,3 +366,25 @@ def test_repair_prompt_includes_source_and_error(tmp_path: Path) -> None:
     assert prompt.endswith("Fix the view.")
     last_user = [m for m in provider.calls[-1][1] if m.role == "user"][-1]
     assert "export default" in last_user.text
+
+
+def test_static_assets_allow_opaque_origin_but_api_does_not(tmp_path: Path) -> None:
+    static = tmp_path / "static"
+    (static / "assets").mkdir(parents=True)
+    (static / "index.html").write_text("<!doctype html>")
+    (static / "assets" / "x.js").write_text("export {};")
+    config = QuarryConfig(root=tmp_path / "root")
+    app = create_app(
+        config=config,
+        token=TOKEN,
+        provider_factory=lambda _cfg: FakeProvider([]),
+        static_dir=static,
+    )
+    client = TestClient(app)
+    # The sandboxed view frame fetches its chunks from origin "null".
+    asset = client.get("/assets/x.js", headers={"Origin": "null"})
+    assert asset.status_code == 200
+    assert asset.headers["access-control-allow-origin"] == "*"
+    api = client.get("/sessions", headers={"Origin": "null", "Authorization": f"Bearer {TOKEN}"})
+    assert api.status_code == 200
+    assert "access-control-allow-origin" not in api.headers
