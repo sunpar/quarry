@@ -857,3 +857,17 @@ def test_a_prompt_sees_loaders_added_while_the_server_runs(tmp_path: Path) -> No
         wait_idle(client, second)
     assert "daily(tickers)" not in provider.calls[0][0]
     assert "daily(tickers)" in provider.calls[1][0]
+
+
+def test_status_reports_busy_while_a_step_runs(tmp_path: Path) -> None:
+    with make_client(tmp_path, []) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        flag = tmp_path / "flag"
+        client.post(f"/sessions/{sid}/steps/manual", json={"code": hang(flag)})
+        deadline = time.monotonic() + 10
+        while not flag.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert client.get(f"/sessions/{sid}/status").json()["busy"] is True
+        client.post(f"/sessions/{sid}/interrupt")
+        wait_idle(client, sid)
+        assert client.get(f"/sessions/{sid}/status").json()["busy"] is False

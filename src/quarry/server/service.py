@@ -82,6 +82,7 @@ class CreateSessionRequest(BaseModel):
 class SessionStatus(BaseModel):
     session_id: str
     running_step: str | None
+    busy: bool  # a step, a restart or a hold has the session
     kernel: KernelStatus
     last_error: str | None
 
@@ -192,9 +193,12 @@ class SessionService:
 
     def status(self, session_id: str) -> SessionStatus:
         running = self._running.get(session_id)
+        with self._lock:
+            busy = self._busy(session_id)
         return SessionStatus(
             session_id=session_id,
             running_step=running.id if running else None,
+            busy=busy,
             kernel=self._kernels.status(session_id, has_steps=self._has_steps(session_id)),
             last_error=self._last_error.get(session_id),
         )

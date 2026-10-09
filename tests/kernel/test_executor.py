@@ -942,3 +942,26 @@ def test_to_code_rejects_unknown_dataset_and_bad_column() -> None:
     with pytest.raises(QueryError) as info:
         ex.to_code([QuerySpec(dataset="df", filters=[Filter(col="b", op="eq", value=1)])])
     assert info.value.column == "b"
+
+
+def test_sql_local_table_names_are_reads() -> None:
+    conn = duckdb.connect()
+    ex = make(conn)
+    ex.execute("recent = pl.DataFrame({'a': [1, 2]})")
+    ex.execute("conn = _conn\nconn.register('recent', recent)")
+    result = ex.execute("top = _conn.sql('SELECT * FROM recent LIMIT 1').pl()")
+    assert result.reads == ["recent"] and result.writes == ["top"]
+    # A literal DuckDB cannot bind (a table function over a missing path) adds no reads and
+    # does not fail the step; an unknown plain table name binds to a placeholder and is simply
+    # not a dataset.
+    glob = "SELECT * FROM read_parquet('/nonexistent/*.parquet')"
+    bad = ex.execute(f"y = 1 if True else _conn.sql({glob!r}).pl()")
+    assert bad.status == "ok" and bad.reads == []
+
+
+def test_attribute_mutation_is_a_write() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1]})")
+    result = ex.execute("df.columns = ['b']")
+    assert result.writes == ["df"] and result.reads == ["df"]
+    assert result.datasets[0].schema_[0].name == "b"

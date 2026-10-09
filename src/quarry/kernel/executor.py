@@ -170,8 +170,11 @@ class Executor:
         elif status == "ok" and describe_errors:
             status, error = "error", describe_errors[0]
         defines = [] if names is None else _newly_bound(names.defines, prior, self._ns)
-        # Helpers as they were when the step started, as `before` is for datasets.
-        reads = [] if names is None else dataset_reads(names, set(before), set(self._defined))
+        reads: list[str] = []
+        if names is not None:
+            # Helpers as they were when the step started, as `before` is for datasets.
+            loaded = dataset_reads(names, set(before), set(self._defined))
+            reads = sorted({*loaded, *self._sql_table_reads(names.sql_literals, set(before))})
         # A name rebound to anything else, or deleted, no longer holds the helper a later
         # step would read.
         self._defined = {
@@ -303,6 +306,21 @@ class Executor:
         except BaseException as exc:
             return "error", ExecError.from_exception(exc), names, prior
         return "ok", None, names, prior
+
+    def _sql_table_reads(self, literals: frozenset[str], before: set[str]) -> set[str]:
+        """Datasets among the tables DuckDB's binder finds in `literals`; binding runs nothing.
+
+        A literal it cannot bind (a missing parquet glob, a syntax error, several statements)
+        adds nothing. Each binds on a cursor, which shares the database but not the kernel
+        connection's temp views: there a frame `register`ed under its name would resolve and
+        drop out, while on the cursor it binds to a placeholder that keeps the name.
+        """
+        found: set[str] = set()
+        for sql in literals:
+            # Suppressing first also covers `cursor()`: a step may have closed `_conn`.
+            with contextlib.suppress(duckdb.Error), self._conn.cursor() as cursor:
+                found |= cursor.get_table_names(sql)
+        return found & before
 
     def _describe_write(self, name: str) -> tuple[DatasetMeta, ExecError | None]:
         """`_describe_guarded`, open to the step's interrupt; once the step is interrupted, its

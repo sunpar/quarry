@@ -239,6 +239,21 @@ them.
   stack, so code CPython compiles, such as 3000 chained operands, never raises
   `RecursionError`. Errors from `ast.parse` itself become a structured step
   error.
+- **SQL string literals are bound for table names**: a string literal passed
+  first to `sql_local(...)` or any `.sql(...)` goes to DuckDB's
+  `get_table_names`, and each name it returns that was a dataset before the step
+  is a read. Binding runs nothing, and it happens on a cursor: on the kernel
+  connection itself a frame `register`ed under its name resolves to the frame
+  and drops out (probed), while the cursor does not see that connection's temp
+  views and keeps the name. A literal that fails to bind, such as a missing
+  parquet glob or several statements, silently adds no reads. Cost: SQL built at
+  run time (an f-string, a variable) is not read.
+- **In-place assignment stores its root name**: at module level, assigning to an
+  attribute or subscript (`df.columns = ...`, `df["k"] = ...`, also as an
+  unpacking, `for` or `with` target) stores the name the chain starts from, so
+  the step writes that dataset. Outside module scope it is only a read of the
+  name. Cost: a bare annotation such as `df.x: int`, which assigns nothing, also
+  counts as a store.
 
 ## Datasets and JSON
 
