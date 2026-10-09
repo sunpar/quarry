@@ -236,7 +236,7 @@ git add src tests && git commit -m "feat: cast arrow query results to the types 
 **Interfaces:**
 
 - Produces: `decodeBase64(text: string): ArrayBuffer`; `useQuery` success gains `arrow: ArrayBuffer | null`; `@quarry/perspective` exporting `PerspectiveViewer` (props `{ arrow: ArrayBuffer; config?: ViewerConfigUpdate; onConfig?: (c: ViewerConfigUpdate) => void; className?: string }`), `ensureEngine(): Promise<Client>` and the `ViewerConfigUpdate` type.
-- Consumes: Stage 3 `MODULES`, `RUNTIME_LIBRARIES`, `useQuery`, `RequestCache`; Stage 3 Task 9 Step 2b static CORS middleware (`STATIC_PREFIXES` lists `/assets/`, `/runtime.html`, `/libs/`); if the Stage 3 branch lacks it, add it here exactly as that step describes, with its test; Task 1 stream bytes.
+- Consumes: Stage 3 `MODULES`, `RUNTIME_LIBRARIES`, `useQuery`, `RequestCache`; the static CORS header on `main`, where `create_app` wraps the `/` static mount in `CORSMiddleware(allow_origins=["*"])`. That meets Stage 3 Task 9 Step 2b without its `STATIC_PREFIXES` middleware (see "First UI" in `docs/context/decisions.md`), so do not add a second one. The header is sent only to requests that carry an `Origin`, as the frame's always do, so any test of it sends `Origin: null`; Task 1 stream bytes.
 
 - [ ] **Step 1: CSP and spec amendment**
 
@@ -1704,7 +1704,7 @@ git add pyproject.toml uv.lock src tests && git commit -m "feat: export projects
 **Interfaces:**
 
 - Produces: `LibraryStatus(BaseModel){id: Literal["highcharts","scichart"], enabled: bool, reason: str | None, license: str | None, entry: str | None}`; `licensed_libraries(config) -> list[LibraryStatus]`; `mount_licensed(app, config) -> None`; `GET /libraries` → `list[LibraryStatus]`; `enabled_libraries(config, available=None)` adds a licensed id only when its status is enabled.
-- Consumes: `LibrariesConfig` (`config.py`), `STATIC_PREFIXES` and the static CORS middleware (Stage 3 Task 9 Step 2b; if absent on the branch, Task 2 added it), `runtime_libraries` (Stage 3 Task 3).
+- Consumes: `LibrariesConfig` (`config.py`), the static CORS wrapping on `main`: each static mount sits inside `CORSMiddleware(allow_origins=["*"])`, and there is no `STATIC_PREFIXES`, `runtime_libraries` (Stage 3 Task 3).
 
 Highcharts ships `highstock.js` (UMD, sets `window.Highcharts`) at its package root; SciChart ships a self-contained ESM bundle `index.min.mjs` and its wasm under `_wasm/`. The runtime (Task 8) loads `/libs/highcharts/highstock.js` as a classic script and `/libs/scichart/index.min.mjs` as a module, and points SciChart's `wasmUrl` at `/libs/scichart/_wasm/scichart.wasm`. The `entry` field tells it which file to load, so the Python side owns the file names.
 
@@ -1767,7 +1767,7 @@ def test_enabled_library_is_mounted_with_cors_and_listed(tmp_path: Path) -> None
             "id": "highcharts", "enabled": True, "reason": None, "license": "k1", "entry": "/libs/highcharts/highstock.js",
         }
         assert listed["scichart"]["entry"] == "/libs/scichart/index.min.mjs"
-        served = client.get("/libs/highcharts/highstock.js")
+        served = client.get("/libs/highcharts/highstock.js", headers={"Origin": "null"})
         assert served.status_code == 200 and served.headers["access-control-allow-origin"] == "*"
     bare = TestClient(client.app)  # no Authorization header at all
     assert bare.get("/libraries").status_code == 401
@@ -1805,6 +1805,7 @@ from typing import Final, Literal
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.middleware.cors import CORSMiddleware
 
 from quarry.config import QuarryConfig
 
@@ -1838,7 +1839,9 @@ def mount_licensed(app: FastAPI, config: QuarryConfig) -> None:
     for status in licensed_libraries(config):
         if status.enabled:
             path = _path(status.id, config)
-            app.mount(f"/libs/{status.id}", StaticFiles(directory=str(path)), name=f"lib-{status.id}")
+            # The sandboxed frame fetches modules and wasm with Origin: null, as for the bundle.
+            files = CORSMiddleware(StaticFiles(directory=str(path)), allow_origins=["*"])
+            app.mount(f"/libs/{status.id}", files, name=f"lib-{status.id}")
 
 
 def _status(library: LibraryId, config: QuarryConfig) -> LibraryStatus:
@@ -1871,7 +1874,7 @@ In `agent/context.py`, `enabled_libraries` keeps its signature and replaces the 
 
 (import from `quarry.server.libraries`; `agent` importing `server` is a new edge, so if `server.libraries` ever imports `agent`, move `LibraryStatus` and `licensed_libraries` to `quarry/libraries.py` instead and have both import from there. Prefer that location from the start if the import graph check in `tests/test_imports.py` exists on the branch.)
 
-In `app.py`: after the static CORS middleware is installed and before the final static mount, call `mount_licensed(app, config)`, and add:
+In `app.py`: before the final `/` static mount (Starlette matches mounts in order, so `/libs/` must come first), call `mount_licensed(app, config)`, and add:
 
 ```python
     @api.get("/libraries")

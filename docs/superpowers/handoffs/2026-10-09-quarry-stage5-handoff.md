@@ -78,8 +78,10 @@ and report rather than building on an unmerged branch.
     (user-approved, recorded in decisions). There is no `STATIC_PREFIXES`
     middleware. Task 7's `mount_licensed` must wrap each `/libs/<id>`
     `StaticFiles` in the same `CORSMiddleware(..., allow_origins=["*"])` and
-    mount it before the `/` mount; the plan's test that checks
-    `access-control-allow-origin: *` on `/libs/highcharts/highstock.js` stands.
+    mount it before the `/` mount. The plan's test that checks
+    `access-control-allow-origin: *` on `/libs/highcharts/highstock.js` sends
+    `Origin: null`, because `CORSMiddleware` answers only requests that carry an
+    `Origin`; the plan now shows both.
 - Stage 3 code the plan consumes, as found on `main`:
   `web/src/runtime/{modules.ts,loader.ts,mount.tsx,bridge.ts,cache.ts,state.ts,hooks.ts,libraries.ts}`
   (`MODULES` also lists `@/components/ui/textarea` and `scroll-area`; keep
