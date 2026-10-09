@@ -300,9 +300,9 @@ path as arguments. It imports polars and duckdb, builds the data layer
 | `shutdown()`           | Clean exit.                                                                                                                                                                       |
 
 The server treats a broken socket as a dead kernel. Recovery is restart and
-replay: a new kernel, then every step's code re-executed in order. Replay
-runs as a single "restart" operation with progress in the UI, and stops at
-the first failing step.
+replay: a new kernel, then every step's code re-executed in order, skipping
+manual steps that failed. Replay runs as a single "restart" operation with
+progress in the UI, and stops at the first failing step.
 
 ### Lineage capture
 
@@ -404,9 +404,12 @@ backoff, then fail the step with the provider's message.
 | ------------------- | ------------------------------------------- | -------------------------------------------------------------------------------- |
 | `run_python`        | `code`                                      | stdout, stderr, error, and `DatasetMeta` for each dataset written                |
 | `describe_dataset`  | `name`                                      | `DatasetMeta` with a full row count                                              |
-| `search_components` | `tags?`, `dataset?`                         | Manifests whose schema requirements the dataset satisfies, ranked by tag overlap |
+| `search_components` | `tags`, `dataset` (`""` for none)           | Manifests whose schema requirements the dataset satisfies, ranked by tag overlap |
 | `render_view`       | `component_id`, `datasets`, `initial_state` | Mount result: ok, or the mount error                                             |
-| `write_view`        | `source`, `initial_state`                   | Mount result: ok, or the transpile or mount error                                |
+| `write_view`        | `source`, `datasets`, `initial_state`       | Mount result: ok, or the transpile or mount error                                |
+
+Tool schemas are strict, so every input is required and `initial_state` is a
+JSON object encoded as a string.
 
 `render_view` and `write_view` run a server-side transpile check with Sucrase
 before accepting, so syntax errors come back without a browser round trip.
@@ -426,8 +429,9 @@ belongs in Python and in query specs, not in component JavaScript.
 
 Session summary, rebuilt per step: for each prior step, its prompt and the
 code that ran, plus the current dataset list with schemas. Once the summary
-exceeds a configured token budget, steps older than the last eight collapse
-to prompt and datasets written only. Full transcripts are never replayed.
+exceeds a token budget of 24,000 estimated tokens, steps older than the last
+eight collapse to prompt and datasets written only. Full transcripts are never
+replayed.
 
 ### Library guide, as given to the model
 

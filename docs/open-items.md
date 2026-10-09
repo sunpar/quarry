@@ -1,7 +1,7 @@
 # Open items
 
-Gaps in the shipped Stage 1 code, work deferred to later stages, and decisions
-nobody has made yet. Decisions already made are in
+Gaps in the shipped code, work deferred to later stages, and decisions nobody
+has made yet. Decisions already made are in
 [decisions.md](context/decisions.md).
 
 ## Known problems
@@ -86,6 +86,41 @@ nobody has made yet. Decisions already made are in
   its target. The target keeps its old contents. Silent.
 - **Output tails count characters**: the spec promises the last 4 KB of output,
   and the tail keeps 4096 characters. Silent; multi-byte output runs past 4 KB.
+- **The server imports loaders and scans the cache at startup**: it runs
+  `load_loaders` and `scan_layout` itself to describe them to the agent. A
+  `PermissionError` from `scan_layout`, or from `path.exists()` in
+  `load_loaders`, stops `quarry serve`, and a loader that hangs at import hangs
+  it. Both loud. `scan_layout` also drops unpartitioned dataset directories, so
+  the agent never hears of them. Silent.
+- **Interrupt cannot stop a model call**: `/interrupt` reaches only the kernel,
+  so while a step waits on the provider it answers `ok: false` and the loop goes
+  on. Silent.
+- **`/interrupt` can return 500**: it starts a kernel when none runs, and a
+  failed start there is not mapped to 503. Fails loudly.
+- **A crashed prompt step loses its code**: an exception other than
+  `ProviderError` or `KernelDead` fails the step with empty `code`, so restart
+  skips blocks that ran. Silent until a restart.
+- **A kernel never started reads as `starting`**: after a server restart,
+  `/status` reports `starting` for a session whose kernel was never spawned, so
+  a client cannot tell that its namespace is empty. Silent.
+- **Restart shows no progress**: replay runs inside the `/restart` request,
+  while spec §6 wants progress in the UI. Silent until it returns.
+- **Every `/status` poll parses every step**: it loads the whole session under
+  the service lock, since no route reads one step. A silent cost that grows with
+  the session.
+- **Prompt-step tracebacks land in the message**: a prompt step's error puts the
+  traceback in `error.message` and leaves `traceback` empty, while manual steps
+  fill `traceback`. Silent.
+- **No transpile check runs yet**: spec §8 promises a Sucrase check, but
+  `transpile-check.mjs` ships with the Stage 3 frontend, so `write_view` accepts
+  any source until then. `CommandTranspiler` then runs it with no timeout, so a
+  hung check would hang the step. Silent.
+- **The repair rule counts whole turns**: after two failed `run_python` calls in
+  one turn of parallel calls, that turn's later calls still run, because the
+  step ends only after the turn. Silent.
+- **Session files are neither durable nor private**: atomic writes skip `fsync`,
+  so a machine crash can lose a finished step. The root and session directories
+  take the umask, so other users can usually read prompts and code. Silent.
 
 ## Deferred work
 
@@ -97,19 +132,18 @@ nobody has made yet. Decisions already made are in
   recomputing previews and the uninterruptible RPCs stay fast.
 - Stamp `DatasetMeta.origin_step` in the server and pass the kernel a
   `--session` argument, since the kernel has no step ids.
-- Expose loader failures over RPC and wire in `scan_layout` for the parquet
-  layout, because the agent's context needs both.
-- Fix `scan_layout` before wiring it: it drops unpartitioned dataset directories
-  and lets `PermissionError` escape.
+- Show loader failures in the agent's context: the server lists only the loaders
+  that bound.
+- Keep an unreadable path from stopping the server: catch `PermissionError` in
+  `scan_layout` and in `load_loaders`, which is meant never to raise. Make
+  `scan_layout` list unpartitioned dataset directories too.
 - Make loader problems clear at startup: name a loader that hangs at import, and
   explain a missing `mssql` extra instead of a bare `ModuleNotFoundError`.
-- Catch a `PermissionError` from `path.exists()` in `load_loaders`, which is
-  meant never to raise.
 - Set `hide_input_in_errors` and keep `mssql_dsn` and license keys out of reprs
   before any config logging or UI, so secrets cannot leak.
 - Make `api_key` raise only `ConfigError`: `PermissionError`,
-  `IsADirectoryError` and `UnicodeDecodeError` escape today, and its
-  exists-stat-read sequence can race. Stage 2 is its first caller.
+  `IsADirectoryError` and `UnicodeDecodeError` escape and fail the step with a
+  raw error, and its exists-stat-read sequence can race.
 - Expand `~` in every config path and resolve relative paths against the root,
   since the server and kernel working directories can differ. Today these fail
   loudly.
@@ -124,12 +158,13 @@ nobody has made yet. Decisions already made are in
   today only `close()` or socket EOF ends it.
 - Test the memory-cap wiring in `main`, since both current tests monkeypatch
   `setrlimit`.
-- The server must not pipe the kernel's stdout or stderr, because `_exit_now`
-  flushes them and would block on a full, undrained pipe.
 - Add config models before new keys appear in `config.toml`, because unknown
   keys now fail startup.
 - Settle the open questions on the root override, memory limits, CPU thread
   caps, previews and result streams.
+- Save the blocks that ran when a prompt step crashes, so restart replays them.
+- Map a failed kernel start in `/interrupt` to 503.
+- Create the root and session directories private, and `fsync` step files.
 
 ### Stage 3
 
@@ -142,6 +177,16 @@ nobody has made yet. Decisions already made are in
   `artifacts`.
 - Explain in the UI why an interrupt may not stop a step at once, and offer the
   Stage 2 restart.
+- Let `/interrupt` stop a step waiting on the model, with a cancel flag the loop
+  checks between provider calls.
+- Run restart in the background and report replay progress through `/status`, as
+  spec §6 asks.
+- Report a kernel that was never started apart from one starting, so the UI can
+  offer a restart after the server restarts.
+- Add a route that reads one step, so polling stops parsing the whole session.
+- Put prompt-step tracebacks in `error.traceback`, as manual steps do.
+- Give `CommandTranspiler` a timeout once the Stage 3 build ships
+  `transpile-check.mjs`.
 - Fix filter coercion for Time literals, UUID and other natively imported
   relation columns, strings against integer columns, and datetime-shaped strings
   against Date columns.
@@ -200,6 +245,9 @@ nobody has made yet. Decisions already made are in
   equivalence `normalize` sorts rows, so order is compared only under a limit.
 - Tighten tests further: some `match=` patterns in `test_spec.py` also match
   pydantic's echoed input, and the polars target has no direct nulls-first test.
+- Close Stage 2 test gaps: nothing checks the arguments the OpenAI adapter
+  sends, that every tool schema stays strict, or that a SciChart key enables
+  SciChart.
 
 ## Open questions
 
@@ -223,7 +271,13 @@ nobody has made yet. Decisions already made are in
   change.
 - **Interrupt escalation and restart UX**: Stage 2 needs a restart escalation,
   and the UI must explain it. When to offer or force the restart, and what the
-  researcher sees meanwhile, is open.
+  researcher sees meanwhile, is open. Today `/restart` answers 409 while a step
+  runs, so the only escape from a hung step is killing the kernel's process.
+- **Live provider calls**: neither adapter has called its real API. Whether the
+  Anthropic API accepts `fallbacks="default"` with the
+  `server-side-fallback-2026-07-01` beta, and whether `gpt-5` is the right
+  OpenAI model name, is unverified. `tests/agent/test_live_providers.py` checks
+  both once keys are set.
 - **Previews**: cache them per write identity in Stage 2, or compute them on
   demand when a client asks? Today every write forces lazy plans to run.
 - **CPU threads per kernel**: polars and DuckDB each default to every core, so

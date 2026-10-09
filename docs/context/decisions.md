@@ -176,6 +176,9 @@ them.
 - **The kernel runs in its own session**: it is spawned with
   `start_new_session=True`, so a terminal Ctrl-C aimed at the server never
   interrupts a step. The server owns interrupts.
+- **`POST /interrupt` passes delivery through**: it answers `{"ok": delivered}`
+  with the kernel's flag, so a client knows when to retry. The plan's
+  `{"ok": true}` hid an interrupt that hit nothing.
 
 ## Lineage
 
@@ -312,6 +315,81 @@ them.
   world-readable `config.toml` holds a DSN with `PWD=` or `Password=`. It warns
   rather than refuses, since most DSNs carry no password.
 
+## Server and agent
+
+- **Anthropic request shape**: the adapter calls `client.beta.messages.create`
+  with model `claude-opus-5-5`, `max_tokens=16000`,
+  `output_config={"effort": "high"}`, the `server-side-fallback-2026-07-01` beta
+  and `fallbacks="default"`. It sends no `thinking` parameter and leaves
+  `tool_choice` at auto. These come from the Stage 2 plan's global constraints
+  and have not yet run against the live API; see
+  [open questions](../open-items.md#open-questions).
+- **Strict tool schemas**: every tool is `strict` with
+  `additionalProperties: false`. Strict mode needs every property required and
+  no open nested object, so `initial_state` travels as a JSON string, and `tags`
+  and `datasets` are required arrays that may be empty. Spec §8's tool table is
+  amended.
+- **An empty dataset searches by tags**: `search_components` takes `dataset: ""`
+  to skip the schema filter. Strict mode made `dataset` required, which left no
+  way to search before a dataset existed.
+- **`write_view` names its datasets**: it takes `datasets` as `render_view`
+  does, so a written view records the datasets it reads. Spec §8 is amended.
+- **A prompt step's code is the blocks that ran**: `Step.code` joins only the
+  `run_python` calls that succeeded, read as spec §5's "the final Python that
+  ran". The plan joined every call, so replaying a step in which the model had
+  fixed an error reran the error. Failed attempts stay in the transcript. Cost:
+  a replayed block can depend on a failed block's partial side effects.
+- **Replay skips only failed manual steps**: restart reruns each manual step
+  that ended `ok` and every prompt step with code, whatever its status. A prompt
+  step that ended in error still holds blocks that ran, and skipping it broke
+  the steps after it: a probe's replay stopped at step 1 with
+  `NameError: name 'df' is not defined`. A failed manual step would only stop
+  the replay where the researcher already saw it fail. Spec §6 is amended.
+- **Replay reports instead of raising**: replay stops at the first failing step
+  and returns a `ReplayReport` naming it, and a kernel that dies mid-replay
+  counts as that step failing. `/restart` answers 503 only when the new kernel
+  cannot start.
+- **Prompt-step lineage is a fold**: `step_lineage` combines the `ExecResult` of
+  each `run_python` call. Reads are names a call read before an earlier call in
+  the step wrote them, writes and defines are unions, and each dataset's
+  metadata comes from the last call that wrote it. A call that reads and rebinds
+  a name keeps its read.
+- **Stop reasons**: Anthropic's `model_context_window_exceeded` and OpenAI's
+  `length` end the step as `max_tokens`, and OpenAI's `content_filter` as a
+  refusal. The OpenAI adapter checks for truncation before it parses tool
+  arguments. A truncated call had raised `JSONDecodeError` out of the loop, and
+  a filtered reply had ended the step as `ok`.
+- **Each step thread has one boundary**: the prompt and manual step threads turn
+  any `Exception` into a failed step, and the session is freed even when saving
+  the step or starting the thread fails. An escaped exception had left the
+  session answering 409 for good.
+- **One step or replay at a time**: a step posted while another step or a replay
+  runs gets 409, and so does a restart while a step runs. Cost: a hung step can
+  be escaped only by killing the kernel; see
+  [open questions](../open-items.md#open-questions).
+- **HTTP errors**: an invalid query spec is 400 rather than FastAPI's 422,
+  because the route validates the body itself. A kernel that fails to start
+  during `/query`, `/datasets` or `/restart` is 503.
+- **Reads respawn a dead kernel**: `/query`, `/datasets` and `/interrupt` start
+  a kernel when the session has none or it died. Its namespace is empty, as
+  after a server restart, until `/restart` replays the steps.
+- **Session reads take the service lock**: `get` reads the step files and the
+  running step under the lock that saving a step holds. Unlocked reads tore in
+  56 of 1000 tries in a probe, and `/status` returned 500 once in 400 polls
+  through `TestClient`. Cost: every poll parses every step file under that lock.
+- **Only health and the UI are open**: `GET /healthz`, `GET /` and the static
+  files need no token. The OpenAPI schema and docs pages are off, since
+  `/openapi.json` had listed every route without a token. Tokens are compared as
+  bytes, because `compare_digest` raises on a non-ASCII `str`.
+- **Session files**: a step is saved once, when it finishes, as 0-based
+  `steps/NNNN.json` through a temp file and `Path.replace`. Transcripts hold
+  provider-neutral `Message`s.
+- **The summary budget is a code default**: `build_summary` collapses steps
+  older than the last eight once the summary passes 24,000 estimated tokens,
+  with no config key. Spec §8 is amended.
+- **A broken component manifest is skipped**: the library logs a warning and
+  loads the rest. One bad manifest had made every component search fail.
+
 ## Packaging and CI
 
 - **Built for polars 2 and DuckDB 1.5**: polars 2.0.0 and DuckDB 1.5.6 resolved
@@ -322,6 +400,8 @@ them.
   the code uses. The `mssql` extra needs `arrow-odbc>=10`, the only version
   whose call signature was checked. Cost: old environments hit conflicts at
   install time rather than wrong results.
+- **`anthropic>=1.12`**: the beta request arguments `output_config` and
+  `fallbacks` were checked only on 1.12.1, so the floor is that release line.
 - **CI installs from the lock**: CI runs `uv sync --locked`, so a stale
   `uv.lock` fails instead of re-resolving.
 - **Local Python matches CI**: `.python-version` pins 3.11. The local venv had

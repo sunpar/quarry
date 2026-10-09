@@ -69,3 +69,31 @@ Terms as Quarry's code and docs use them. Section numbers point into the
   (§5).
 - **Project**: a directory of saved datasets and views that a researcher can
   copy, share or commit (§5, Stage 4).
+
+## Server and agent
+
+- **Server**: the FastAPI app that `quarry serve` runs on `127.0.0.1` with a
+  per-run bearer token. It owns sessions, their kernels and the agent loop (§4,
+  §12). Code lives in `quarry.server`.
+- **Provider**: the adapter for one model API, `AnthropicProvider` or
+  `OpenAIProvider`, picked by `provider.name` in config (§8). It turns each
+  reply into a provider-neutral `AssistantTurn`.
+- **Agent loop**: `run_agent_step`, which calls the provider, runs the tool
+  calls it asks for, and repeats until the model stops, up to 12 calls (§8).
+- **Tools**: the five functions the model can call: `run_python`,
+  `describe_dataset`, `search_components`, `render_view` and `write_view` (§8).
+- **Repair rule**: a prompt step fails once two `run_python` calls in a row
+  fail, which gives the model one try to fix its code (§8).
+- **Transcript**: a prompt step's provider-neutral `Message`s: the request, each
+  assistant turn and each batch of tool results. Saved on the step for "show
+  reasoning" (§5).
+- **Summary**: the text that opens each prompt step's request: earlier steps'
+  prompts and code, then the datasets in the kernel (§8). Built by
+  `build_summary`.
+- **Pending view**: the view a `render_view` or `write_view` call records on its
+  step. Stage 2 validates and saves it, and nothing renders it until Stage 3.
+- **Transpile check**: the server-side syntax check `write_view` runs on
+  generated TSX, through `transpile-check.mjs` under node when that file exists
+  (§8).
+- **Replay**: rerunning a session's step code in order on a new kernel, which
+  `POST /sessions/{id}/restart` does (§6).
