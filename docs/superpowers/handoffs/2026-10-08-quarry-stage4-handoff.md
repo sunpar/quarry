@@ -122,7 +122,9 @@ Twelve tasks, Python first so the API is complete before the host changes.
 - The canvas binds to the active session; a card whose datasets are absent shows
   "Load", which recalls the view as a step. No hidden project kernel. Only
   layout lives in `project.json`; card state is ephemeral per visit and "Save
-  view" freezes a new `state.json`.
+  view" freezes a new `state.json` and `queries.json` (the latest snapshot's
+  query specs, kept beside the state so Stage 5's export can render them; the
+  plan amends spec section 5 for the extra file).
 - Linked keys fan out only on the canvas, through `restore` with each card's
   last known state merged with the shared values. No seeding on load; the first
   change wins. `restore` never fires `stateChanged`, so no loop.

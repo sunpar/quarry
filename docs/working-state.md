@@ -12,8 +12,9 @@ Land Stage 3, the first UI, on top of Stage 2. Stage 3 is implemented on
 `claude/quarry-stage3-first-ui` from the
 [Stage 3 plan](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md) and waits
 for its pull request to merge; Stage 2 (sunpar/quarry#2) must merge first. The
-[Stage 4 plan](superpowers/plans/2026-10-08-quarry-stage4-projects.md) is
-written and waits for Stage 3.
+[Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md) and
+[Stage 5](superpowers/plans/2026-10-09-quarry-stage5-breadth.md) plans are
+written; each waits for the stage before it.
 
 ## Status by stage
 
@@ -23,7 +24,7 @@ written and waits for Stage 3.
 | 2. Server and agent | Implemented, sunpar/quarry#2 open, items landed      | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
 | 3. First UI         | Implemented, pull request open on the Stage 2 branch | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
 | 4. Projects         | Planned, handoff ready, not started                  | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
-| 5. Breadth          | Not planned yet                                      | Spec §15                                                              |
+| 5. Breadth          | Planned, not started                                 | [Stage 5](superpowers/plans/2026-10-09-quarry-stage5-breadth.md)      |
 
 ### Stage 1: core
 
@@ -78,6 +79,9 @@ passed; the wheel from `uv build` contains `quarry/static/index.html`.
    Its plan was written against the Stage 3 plan, so re-check it against the
    real `HostBridge`, hooks and snapshot route; `HostBridge.restore` and
    `ViewStateStore.replace` are ready for the scrubber.
+5. Stage 5: once Stage 4 is merged, execute the
+   [Stage 5 plan](superpowers/plans/2026-10-09-quarry-stage5-breadth.md), which
+   closes the Stage 5 and Stage 4 items in [open-items.md](open-items.md).
 
 ## Resuming
 
