@@ -90,6 +90,10 @@ class Executor:
         self._tail = tail_bytes
         # Each helper an earlier step defined, with a test that its name still holds it.
         self._defined: dict[str, _IsSame] = {}
+        # The metadata `execute` and `list_datasets` last computed for each dataset, with a test
+        # that its name still holds the dataset it describes. Only the metadata is held, not the
+        # dataset; a preview runs a plan or a query, and the server lists on every prompt step.
+        self._described: dict[str, tuple[_IsSame, DatasetMeta]] = {}
         self._running = False
         self._interrupted = False  # whether the SIGINT handler interrupted the current step
         self._stopped = False
@@ -151,6 +155,13 @@ class Executor:
         defines = [] if names is None else _newly_bound(names.defines, prior, self._ns)
         # Helpers as they were when the step started, as `before` is for datasets.
         reads = [] if names is None else dataset_reads(names, set(before), set(self._defined))
+        # A step can change a dataset it read in place (`df.extend(...)`), which identity cannot
+        # see, whatever its status. Its writes were described after it ran, so they are current.
+        for name in (*reads, *writes):
+            self._described.pop(name, None)
+        for meta, _ in described:
+            if meta.error is None:
+                self._described[meta.name] = (_identity_check(self._ns[meta.name]), meta)
         # A name rebound to anything else, or deleted, no longer holds the helper a later
         # step would read.
         self._defined = {
@@ -175,8 +186,23 @@ class Executor:
         return describe_dataset(name, self._dataset(name), count_rows=True)
 
     def list_datasets(self) -> list[DatasetMeta]:
-        """Every dataset; one that cannot be described carries an `error` instead of a schema."""
-        return [self._describe_guarded(name)[0] for name in sorted(dataset_names(self._ns))]
+        """Every dataset; one that cannot be described carries an `error` instead of a schema.
+
+        A dataset is described again only when its name holds another object than it did, or a
+        step that read it ran since; a failed description is never kept.
+        """
+        kept: dict[str, tuple[_IsSame, DatasetMeta]] = {}
+        metas: list[DatasetMeta] = []
+        for name in sorted(dataset_names(self._ns)):
+            entry = self._described.get(name)
+            if entry is None or not entry[0](self._ns[name]):
+                meta = self._describe_guarded(name)[0]
+                entry = (_identity_check(self._ns[name]), meta)
+            if entry[1].error is None:
+                kept[name] = entry
+            metas.append(entry[1])
+        self._described = kept  # a name no longer a dataset drops out
+        return metas
 
     def query(self, spec: QuerySpec) -> QueryResult:
         """Run `spec`, returning at most `row_cap` rows; `truncated` when more rows exist."""
