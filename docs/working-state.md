@@ -11,8 +11,9 @@ be true next month belongs in [context/](context/) or
 Build Stage 2, the server and agent loop, on top of the merged Stage 1 core,
 following the
 [Stage 2 plan](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md). The
-[Stage 3 plan](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md) is
-written and waits for Stage 2.
+[Stage 3 plan](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md) and the
+[Stage 4 plan](superpowers/plans/2026-10-08-quarry-stage4-projects.md) are
+written; Stage 3 waits for Stage 2, Stage 4 for Stage 3.
 
 ## Status by stage
 
@@ -21,7 +22,7 @@ written and waits for Stage 2.
 | 1. Core             | Merged in sunpar/quarry#1 as `d00b5fa` | [Stage 1](superpowers/plans/2026-10-08-quarry-stage1-core.md)         |
 | 2. Server and agent | In progress, sunpar/quarry#2 open      | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
 | 3. First UI         | Planned, handoff ready, not started    | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
-| 4. Projects         | Not planned yet                        | Spec §15                                                              |
+| 4. Projects         | Planned, not started                   | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
 | 5. Breadth          | Not planned yet                        | Spec §15                                                              |
 
 ### Stage 1: core

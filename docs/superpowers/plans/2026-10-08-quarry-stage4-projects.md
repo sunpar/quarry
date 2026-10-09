@@ -979,30 +979,34 @@ In `service.py` add `from contextlib import contextmanager` and `from collection
 
 ```python
     @contextmanager
-    def hold(self, session_id: str) -> Iterator[KernelClient]:
-        """Lend the idle session kernel to the caller; the session is busy meanwhile."""
+    def _busy(self, session_id: str) -> Iterator[None]:
+        """Mark the session busy with no running step; SessionBusy if it already is."""
         with self._lock:
             if session_id in self._running:
                 raise SessionBusy(session_id)
             self._running[session_id] = None
             self._kernels.mark_running(session_id, True)
         try:
-            yield self._kernels.get(session_id)
+            yield
         finally:
             with self._lock:
                 self._kernels.mark_running(session_id, False)
                 self._running.pop(session_id, None)
-```
 
-`restart` already does the same dance; rewrite it to use `hold` so there is one copy:
+    @contextmanager
+    def hold(self, session_id: str) -> Iterator[KernelClient]:
+        """Lend the idle session kernel to the caller; the session is busy meanwhile."""
+        with self._busy(session_id):
+            yield self._kernels.get(session_id)
 
-```python
     def restart(self, session_id: str) -> ReplayReport:
-        with self.hold(session_id):
+        with self._busy(session_id):
             return self._kernels.restart(session_id, self._store.get(session_id).steps)
 ```
 
-(`hold` calls `self._kernels.get`, which raises `KernelDead` for a dead kernel; `restart` must replace the kernel first. Keep `restart` as it is if `get` would raise there, and only share the busy-marking through a small private `_busy(session_id)` context manager both use.)
+`restart` keeps calling `self._kernels.restart` directly rather than `hold`, because `hold` goes through `_kernels.get`, which raises `KernelDead` for the dead kernel a restart exists to replace. Delete the old `restart` body; `_busy` is the one copy of the busy dance.
+
+While a session is held, `status().running_step` is `None` (the busy marker is `None`), so the prompt box stays enabled during a save and a prompt submitted meanwhile gets 409 "a step is already running", which the Stage 3 host shows as the submit error. That is acceptable for Stage 4 and is recorded as a decision; a busy flag in `SessionStatus` is the Stage 5 fix if it confuses anyone.
 
 - [ ] **Step 3: Project service**
 
@@ -1019,7 +1023,7 @@ from quarry.config import QuarryConfig
 from quarry.kernel.client import RpcFailure
 from quarry.projects.models import CanvasCard, Project, ProjectMeta, SavedDatasetMeta, SavedViewMeta, SaveMode
 from quarry.projects.recipe import raw_recipe, recipe_steps
-from quarry.projects.store import ProjectStore, now_iso
+from quarry.projects.store import NAME_RE, ProjectStore, now_iso
 from quarry.projects.tidy import tidy_recipe
 from quarry.projects.validate import validate_recipe
 from quarry.query.spec import Json
@@ -1118,6 +1122,8 @@ class ProjectService:
         return meta
 
     def save_view(self, slug: str, req: SaveViewRequest) -> SavedViewMeta:
+        if NAME_RE.match(req.name) is None:  # before any dataset save spends a kernel
+            raise ValueError("view names are lowercase letters, digits, '-' and '_', up to 64 chars")
         step = self._find_step(req.session_id, req.step_id)
         if step.view is None:
             raise StepNotFound(req.step_id)
@@ -1784,6 +1790,11 @@ import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
 import { ViewHost } from "./ViewHost";
 
+// Stable references: the mount effect keys on these, so the rerender below only touches restoreState.
+const INITIAL: JsonObject = { a: 1 };
+const DATASETS = ["df"];
+const OWN: never[] = [];
+
 function mount(restoreState: JsonObject | null, onStateChanged = vi.fn()) {
   const fetchImpl = vi.fn(async () => new Response("[]", { status: 200 }));
   const qc = new QueryClient();
@@ -1795,9 +1806,9 @@ function mount(restoreState: JsonObject | null, onStateChanged = vi.fn()) {
           viewId="v1"
           sessionId="s"
           source="export default () => null"
-          initialState={{ a: 1 }}
-          datasets={["df"]}
-          ownDatasets={[]}
+          initialState={INITIAL}
+          datasets={DATASETS}
+          ownDatasets={OWN}
           restoreState={restoreState}
           title="card"
           onStateChanged={onStateChanged}
@@ -1853,9 +1864,9 @@ describe("ViewHost", () => {
             viewId="v1"
             sessionId="s"
             source="export default () => null"
-            initialState={{ a: 1 }}
-            datasets={["df"]}
-            ownDatasets={[]}
+            initialState={INITIAL}
+            datasets={DATASETS}
+            ownDatasets={OWN}
             restoreState={{ k: 2 }}
             title="card"
             onError={() => undefined}
@@ -2477,6 +2488,11 @@ export function SaveDialog({
         </DialogHeader>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="save-project">Project</Label>
+          {projects.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              Create a project in the rail first.
+            </p>
+          )}
           <select
             id="save-project"
             value={slug}
@@ -2945,15 +2961,15 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
   const present = new Set((session.data?.steps ?? []).flatMap((s) => s.writes));
   const loading = (session.data?.steps.at(-1)?.status ?? "ok") === "running";
 
+  // react-grid-layout fires onLayoutChange once on mount after compaction; only a real
+  // change in positions or sizes is worth a PUT.
   const onLayoutChange = (next: Layout) => {
+    const cards = layoutToCards(next);
+    if (JSON.stringify(cards) === JSON.stringify(layoutToCards(layout))) return;
     setLayout(next);
     if (timer.current !== null) clearTimeout(timer.current);
     timer.current = setTimeout(
-      () =>
-        setCanvas.mutate({
-          slug: project.meta.slug,
-          cards: layoutToCards(next),
-        }),
+      () => setCanvas.mutate({ slug: project.meta.slug, cards }),
       500,
     );
   };
@@ -3285,7 +3301,7 @@ def test_save_recall_and_canvas(serve: Callable[[list[AssistantTurn]], RunningSe
 
     page.get_by_role("button", name="Pin to canvas").click()
     page.get_by_label("Name").fill("closes")
-    page.get_by_role("button", name="Save view").click()
+    page.get_by_role("dialog").get_by_role("button", name="Save view").click()
     expect(page.get_by_text("Saved view closes")).to_be_visible(timeout=60_000)
 
     page.get_by_role("button", name="New session").click()
