@@ -11,6 +11,7 @@ from quarry.kernel.datasets import (
     backing_of,
     dataset_names,
     describe,
+    importable_projection,
     is_dataset,
     relation_frame,
     to_json_rows,
@@ -287,6 +288,15 @@ def test_relation_frame_keeps_odd_and_duplicate_names() -> None:
 def test_unique_names_are_the_names_pl_gives(names: list[str]) -> None:
     select = ", ".join(f"{n} AS {quote_ident(name)}" for n, name in enumerate(names))
     assert unique_names(names) == duckdb.connect().sql(f"SELECT {select}").pl().columns
+
+
+def test_importable_projection_renames_repeats_and_casts_unimportable_types() -> None:
+    conn = duckdb.connect()
+    assert importable_projection(conn.sql("SELECT 1 AS a, 'x' AS b")) is None
+    repeated = conn.sql('SELECT 1 AS "a", 2 AS "a", 3 AS "A"')
+    assert importable_projection(repeated) == '#1 AS "a", #2 AS "a_1", #3 AS "A_2"'
+    interval = conn.sql("SELECT INTERVAL 1 DAY AS gap, 1 AS n")
+    assert importable_projection(interval) == 'CAST(#1 AS VARCHAR) AS "gap", #2 AS "n"'
 
 
 def test_relation_frame_limit() -> None:

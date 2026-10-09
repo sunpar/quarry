@@ -107,27 +107,24 @@ def relation_frame(rel: duckdb.DuckDBPyRelation, limit: int | None = None) -> pl
 
 
 def importable_relation(rel: duckdb.DuckDBPyRelation) -> duckdb.DuckDBPyRelation:
-    """`uniquely_named(rel)` with its INTERVAL and UNION columns, which polars cannot import, as
-    VARCHAR.
+    """`rel` read through `importable_projection(rel)`, or `rel` itself when it needs none."""
+    projection = importable_projection(rel)
+    return rel if projection is None else rel.project(projection)
 
-    Columns are projected by position (`#n`), so duplicate names cannot pick the wrong column.
+
+def importable_projection(rel: duckdb.DuckDBPyRelation) -> str | None:
+    """The select list `.pl()` needs to import `rel`, or None when `rel` imports as it is.
+
+    Repeated names are made unique as `.pl()` makes them (`unique_names`), so SQL can name each
+    column as describe reports it, and INTERVAL and UNION columns, which polars cannot import,
+    are cast to VARCHAR. Columns are projected by position (`#n`), so duplicate names cannot
+    pick the wrong column.
     """
-    rel = uniquely_named(rel)
-    if not any(_unimportable(t) for t in rel.types):
-        return rel
-    columns = enumerate(zip(rel.columns, rel.types, strict=True), start=1)
-    return rel.project(", ".join(_importable(n, name, t) for n, (name, t) in columns))
-
-
-def uniquely_named(rel: duckdb.DuckDBPyRelation) -> duckdb.DuckDBPyRelation:
-    """`rel` with repeated column names made unique as `.pl()` makes them (`unique_names`), so
-    SQL can name each column as describe reports it. Types stay as they are."""
     names = unique_names(rel.columns)
-    if names == rel.columns:
-        return rel
-    return rel.project(
-        ", ".join(f"#{n} AS {quote_ident(name)}" for n, name in enumerate(names, start=1))
-    )
+    if names == rel.columns and not any(_unimportable(t) for t in rel.types):
+        return None
+    columns = enumerate(zip(names, rel.types, strict=True), start=1)
+    return ", ".join(_importable(n, name, t) for n, (name, t) in columns)
 
 
 def unique_names(names: list[str]) -> list[str]:

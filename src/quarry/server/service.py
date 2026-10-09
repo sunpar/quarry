@@ -213,6 +213,9 @@ class SessionService:
     def query(self, session_id: str, spec: QuerySpec) -> QueryResult:
         return self._kernel(session_id).query(spec)
 
+    def to_code(self, session_id: str, specs: builtins.list[QuerySpec]) -> str:
+        return self._kernel(session_id).to_code(specs)
+
     def datasets(self, session_id: str) -> builtins.list[DatasetMeta]:
         listed = self._kernel(session_id).list_datasets()
         # Later steps overwrite earlier ones, so each name keeps its latest writer.

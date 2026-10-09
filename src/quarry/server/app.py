@@ -45,6 +45,10 @@ class SnapshotRequest(BaseModel):
     queries: list[dict[str, Json]] = Field(default_factory=list)
 
 
+class ToCodeRequest(BaseModel):
+    queries: list[dict[str, Json]]
+
+
 def create_app(
     *,
     config: QuarryConfig,
@@ -157,6 +161,18 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         try:
             return service.query(session_id, spec)
+        except (QueryError, RpcFailure) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @api.post("/sessions/{session_id}/to-code")
+    def to_code(session_id: str, body: ToCodeRequest) -> dict[str, str]:
+        session_or_404(session_id)
+        try:
+            specs = [QuerySpec.model_validate(q) for q in body.queries]
+        except ValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            return {"code": service.to_code(session_id, specs)}
         except (QueryError, RpcFailure) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

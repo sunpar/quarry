@@ -27,6 +27,7 @@ from quarry.kernel.datasets import (
     DatasetMeta,
     backing_of,
     dataset_names,
+    importable_projection,
     importable_relation,
     is_dataset,
     relation_frame,
@@ -36,6 +37,7 @@ from quarry.kernel.datasets import (
 from quarry.kernel.datasets import describe as describe_dataset
 from quarry.kernel.lineage import CodeNames, analyze, dataset_reads, dataset_writes
 from quarry.query.polars_target import to_polars
+from quarry.query.source_target import to_source
 from quarry.query.spec import Json, QuerySpec
 from quarry.query.sql_target import quote_ident, relation_view, split_for_relation, to_sql
 
@@ -79,6 +81,10 @@ class QueryResult(BaseModel):
     arrow_base64: str | None
     row_count: int
     truncated: bool
+
+
+class ToCodeResult(BaseModel):
+    code: str
 
 
 class Executor:
@@ -220,6 +226,30 @@ class Executor:
             row_count=frame.height,
             truncated=truncated,
         )
+
+    def to_code(self, specs: list[QuerySpec]) -> ToCodeResult:
+        """Each spec as Python assigning `<dataset>_<n>`, rendered with the live schema."""
+        blocks: list[str] = []
+        for n, spec in enumerate(specs, start=1):
+            obj = self._dataset(spec.dataset)
+            projection = None
+            if isinstance(obj, duckdb.DuckDBPyRelation):
+                projection = importable_projection(obj)
+                schema = relation_frame(obj, 0).schema
+            elif isinstance(obj, pl.LazyFrame):
+                schema = obj.collect_schema()
+            else:
+                schema = obj.schema
+            blocks.append(
+                to_source(
+                    spec,
+                    backing_of(obj),
+                    result_name=f"{spec.dataset}_{n}",
+                    schema=schema,
+                    relation_projection=projection,
+                )
+            )
+        return ToCodeResult(code="\n".join(blocks))
 
     def snapshot(self, name: str, path: Path) -> DatasetMeta:
         """Stream `name` to parquet at `path`, which then holds all of it or what it held before.

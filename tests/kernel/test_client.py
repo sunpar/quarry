@@ -117,6 +117,12 @@ def test_query_round_trip(kernel: KernelClient) -> None:
     assert out.rows == [{"a": 1}, {"a": 2}]
 
 
+def test_to_code_round_trip(kernel: KernelClient) -> None:
+    kernel.execute("df = pl.DataFrame({'a': [3, 1, 2]})")
+    code = kernel.to_code([QuerySpec(dataset="df", sort=[{"col": "a"}])])
+    assert "df_1 = (" in code and "df.lazy()" in code
+
+
 def test_query_cannot_carry_a_non_finite_filter_value(kernel: KernelClient) -> None:
     # JSON has no NaN: the request would carry null, and `between` reads a null bound as no row.
     kernel.execute("df = pl.DataFrame({'a': [1.0, 2.0]})")

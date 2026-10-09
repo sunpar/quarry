@@ -261,6 +261,27 @@ def test_query_spec_validation_is_400(tmp_path: Path) -> None:
         assert "limit" in rejected.json()["detail"]
 
 
+def test_to_code_route_renders_and_rejects(tmp_path: Path) -> None:
+    with make_client(tmp_path, []) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps/manual", json={"code": "df = pl.DataFrame({'a': [1]})"})
+        wait_idle(client, sid)
+        ok = client.post(f"/sessions/{sid}/to-code", json={"queries": [{"dataset": "df"}]})
+        assert ok.status_code == 200 and "df_1 = (" in ok.json()["code"]
+        bad = client.post(
+            f"/sessions/{sid}/to-code",
+            json={
+                "queries": [{"dataset": "df", "filters": [{"col": "x", "op": "eq", "value": 1}]}]
+            },
+        )
+        assert bad.status_code == 400 and "x" in bad.json()["detail"]
+        malformed = client.post(
+            f"/sessions/{sid}/to-code", json={"queries": [{"dataset": "df", "limit": 0}]}
+        )
+        assert malformed.status_code == 400
+        assert client.post("/sessions/nope/to-code", json={"queries": []}).status_code == 404
+
+
 def test_kernel_death_then_restart_replays(tmp_path: Path) -> None:
     with make_client(tmp_path, []) as client:
         sid = client.post("/sessions", json={}).json()["id"]

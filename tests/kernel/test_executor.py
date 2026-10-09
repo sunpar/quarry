@@ -869,3 +869,43 @@ def test_failed_snapshot_leaves_no_file(tmp_path: Path, monkeypatch: pytest.Monk
     with pytest.raises(OSError, match="No space left"):
         ex.snapshot("df", tmp_path / "df.parquet")
     assert list(tmp_path.iterdir()) == []
+
+
+def test_to_code_renders_each_spec_with_the_live_schema() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'ret': [0.5, 1.0], 'sym': ['a', 'b']})")
+    ex.execute(f"rel = _conn.sql({PIVOT_ROWS!r})")
+    specs = [
+        QuerySpec(dataset="df", filters=[Filter(col="ret", op="in", value=[1])]),
+        QuerySpec(dataset="rel", sort=[Sort(col="k")], limit=2),
+    ]
+    code = ex.to_code(specs).code
+    # With the schema, the integer literal is coerced to the float column's type.
+    assert "is_in([1.0])" in code
+    assert "df_1 = (" in code and "rel_2 = " in code
+    assert "DROP VIEW" in code
+    namespace = dict(ex._ns)  # the generated code must run in the step namespace
+    exec(code, namespace)  # the test executes generated code on purpose
+    assert namespace["df_1"].height == 1 and namespace["rel_2"].height == 2
+
+
+def test_to_code_reads_a_relation_through_its_importable_projection() -> None:
+    ex = make()
+    ex.execute('rel = _conn.sql("SELECT 1 AS n, INTERVAL 9 DAY AS span")')
+    code = ex.to_code(
+        [QuerySpec(dataset="rel", filters=[Filter(col="span", op="eq", value="9 days")])]
+    ).code
+    assert "rel.project(" in code
+    namespace = dict(ex._ns)
+    exec(code, namespace)  # the test executes generated code on purpose
+    assert namespace["rel_1"].rows() == [(1, "9 days")]
+
+
+def test_to_code_rejects_unknown_dataset_and_bad_column() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1]})")
+    with pytest.raises(KeyError):
+        ex.to_code([QuerySpec(dataset="nope")])
+    with pytest.raises(QueryError) as info:
+        ex.to_code([QuerySpec(dataset="df", filters=[Filter(col="b", op="eq", value=1)])])
+    assert info.value.column == "b"
