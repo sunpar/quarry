@@ -13,7 +13,7 @@ import sys
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import Final, NoReturn, cast
+from typing import NoReturn, cast
 
 import duckdb
 from pydantic import ValidationError
@@ -34,8 +34,6 @@ from quarry.kernel.service import KernelService
 
 # Writes one response; False once the peer is gone.
 Send = Callable[[Response], bool]
-# How often a shutdown repeats its interrupt while the main thread still holds a request.
-_INTERRUPT_RETRY_SECONDS: Final = 0.05
 
 
 def main() -> None:
@@ -92,17 +90,12 @@ def serve(
     A reader thread frames requests and answers `interrupt` and `shutdown` itself, even
     mid-step. When the client closes the socket nobody is left to receive a result, so the
     reader calls `on_disconnect` at once, even mid-step; by default it ends the process.
-    A shutdown keeps interrupting until the main thread has put down the request it holds:
-    one taken just before the shutdown, and not yet in its `exec`, takes no interrupt.
     """
     service = KernelService(executor)
     signal.signal(signal.SIGINT, executor.on_sigint)
     executing_thread = threading.get_ident()
     send = _sender(conn)
     requests: queue.Queue[Request | None] = queue.Queue()
-    stopping = threading.Event()
-    idle = threading.Event()  # set while the main thread holds no request
-    idle.set()
 
     def interrupt_step() -> bool:
         """Signal the running step, if there is one; whether there was."""
@@ -111,12 +104,6 @@ def serve(
         signal.pthread_kill(executing_thread, signal.SIGINT)
         return True
 
-    def interrupt_until_idle() -> None:
-        while True:
-            interrupt_step()
-            if idle.wait(_INTERRUPT_RETRY_SECONDS):
-                return
-
     def answer(request: Request) -> None:
         match request.method:
             case "interrupt":
@@ -124,9 +111,9 @@ def serve(
                 send(Response(id=request.id, result=delivered.model_dump()))
             case "shutdown":
                 send(service.handle(request))  # answered before the main thread can exit
-                stopping.set()
+                executor.stop()  # before the interrupt: a step about to start sees the flag
+                interrupt_step()
                 requests.put(None)
-                threading.Thread(target=interrupt_until_idle, daemon=True).start()
             case _:
                 requests.put(request)
 
@@ -143,11 +130,7 @@ def serve(
 
     threading.Thread(target=reader, daemon=True).start()
     while (request := requests.get()) is not None:
-        # Not idle before `stopping` is read; a shutdown sets `stopping` before it reads `idle`.
-        # So one of the two sees the other: this request is refused, or the shutdown interrupts it.
-        idle.clear()
-        response = _refused(request) if stopping.is_set() else service.handle(request)
-        idle.set()
+        response = _refused(request) if executor.stopped else service.handle(request)
         if not send(response):
             break
     conn.close()

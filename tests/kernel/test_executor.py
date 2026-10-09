@@ -193,6 +193,15 @@ def test_execute_keyboard_interrupt_is_interrupted_status() -> None:
     assert result.status == "interrupted"
 
 
+def test_stopped_executor_interrupts_a_step_before_it_runs() -> None:
+    namespace: dict[str, object] = {}
+    ex = Executor(namespace, conn=duckdb.connect(), row_cap=3)
+    ex.stop()
+    result = ex.execute("print('ran')\nx = 1")
+    assert (result.status, result.error, result.stdout_tail) == ("interrupted", None, "")
+    assert "x" not in namespace
+
+
 def test_execute_system_exit_is_structured_error() -> None:
     result = make().execute("raise SystemExit(3)")
     assert result.status == "error"

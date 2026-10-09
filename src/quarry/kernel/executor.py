@@ -92,12 +92,22 @@ class Executor:
         self._defined: dict[str, _IsSame] = {}
         self._running = False
         self._interrupted = False  # whether the SIGINT handler interrupted the current step
+        self._stopped = False
 
     @property
     def running(self) -> bool:
         """True only inside a step's `exec` or one describe of its writes: the guarded regions,
         the only places an interrupt may land."""
         return self._running
+
+    @property
+    def stopped(self) -> bool:
+        return self._stopped
+
+    def stop(self) -> None:
+        """Interrupt every step from now on: the one running, found by a SIGINT sent after this,
+        or one about to start, which sees the flag as soon as it is running and never runs."""
+        self._stopped = True
 
     def on_sigint(self, signum: int, frame: FrameType | None) -> None:
         """The kernel's SIGINT handler: interrupt the step's guarded region, and record it.
@@ -210,6 +220,9 @@ class Executor:
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 self._running = True
                 try:
+                    # After `_running`, so a SIGINT that missed this step came after `stop`.
+                    if self._stopped:
+                        raise KeyboardInterrupt
                     exec(compiled, self._ns)  # executing researcher code is the kernel's job
                 finally:
                     self._running = False
