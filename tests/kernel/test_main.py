@@ -4,6 +4,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -14,7 +15,7 @@ import pytest
 
 from quarry.kernel.__main__ import apply_memory_cap, serve
 from quarry.kernel.client import KernelClient
-from quarry.kernel.executor import Executor
+from quarry.kernel.executor import ExecResult, Executor
 from quarry.kernel.protocol import Request, Response, decode_response, encode, read_lines
 from tests.kernel.fixtures import BUSY_LOOP
 
@@ -108,6 +109,72 @@ def test_serve_refuses_queued_requests_once_shutting_down() -> None:
     assert outcome(responses[2]) == "KernelShutdown"
     # The shutdown interrupts the step if it had started, and refuses it if it had not.
     assert outcome(responses[1]) in {"interrupted", "KernelShutdown"}
+
+
+class GatedExecutor(Executor):
+    """An executor that waits in `execute`, past what `serve` checks when it takes a request
+    and before the step starts: the moment a shutdown can land between dequeue and exec."""
+
+    def __init__(self) -> None:
+        super().__init__({}, conn=duckdb.connect(), row_cap=10)
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.polled = threading.Event()
+        self.executed: list[str] = []
+
+    @property
+    def running(self) -> bool:
+        self.polled.set()  # only `serve` reads it, to decide whether a shutdown has a step to stop
+        return super().running
+
+    def execute(self, code: str) -> ExecResult:
+        self.executed.append(code)
+        self.entered.set()
+        self.release.wait(timeout=10)
+        return super().execute(code)
+
+
+def shut_down_during_first_request(
+    executor: GatedExecutor, codes: list[str]
+) -> dict[int, Response]:
+    """Serve `codes` as executes ids 1..n, with a shutdown (id 0) arriving once `executor` holds
+    the first and has not started it; release it after `serve` tried to interrupt."""
+    kernel_end, client_end = socket.socketpair()
+
+    def drive() -> None:
+        for i, code in enumerate(codes, start=1):
+            client_end.sendall(encode(Request(id=i, method="execute", params={"code": code})))
+        executor.entered.wait(timeout=10)
+        client_end.sendall(encode(Request(id=0, method="shutdown", params={})))
+        executor.polled.wait(timeout=10)
+        executor.release.set()
+
+    driver = threading.Thread(target=drive)
+    driver.start()
+    with client_end:
+        serve(kernel_end, executor, on_disconnect=lambda: None)
+        driver.join()
+        received = b"".join(iter(lambda: client_end.recv(65536), b""))
+    return {r.id: r for r in map(decode_response, received.splitlines())}
+
+
+# Long enough to outlast the test unless a shutdown interrupts it.
+SLEEP_STEP = "import time\ntime.sleep(5)"
+
+
+def test_shutdown_stops_a_step_taken_but_not_started() -> None:
+    executor = GatedExecutor()
+    started = time.monotonic()
+    responses = shut_down_during_first_request(executor, [SLEEP_STEP])
+    assert outcome(responses[1]) == "interrupted"
+    assert time.monotonic() - started < 4
+
+
+def test_serve_does_not_run_requests_taken_after_a_shutdown() -> None:
+    executor = GatedExecutor()
+    responses = shut_down_during_first_request(executor, [SLEEP_STEP, "x = 1"])
+    assert executor.executed == [SLEEP_STEP]
+    assert outcome(responses[2]) == "KernelShutdown"
 
 
 def test_shutdown_ends_a_kernel_mid_step(kernel_process: KernelProcess) -> None:
