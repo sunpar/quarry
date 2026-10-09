@@ -14,6 +14,7 @@ from quarry.config import (
     api_key,
     load_config,
 )
+from tests.fixtures import root_ignores_modes
 
 PASSWORD_DSN = "Driver={ODBC Driver 18 for SQL Server};Server=db;UID=me;PWD=hunter2"
 TRUSTED_DSN = "Driver={ODBC Driver 18 for SQL Server};Server=db;Trusted_Connection=yes"
@@ -92,23 +93,26 @@ def test_api_key_from_env(tmp_path: Path) -> None:
     assert api_key(cfg, env={"QUARRY_ANTHROPIC_API_KEY": "sk-test"}) == "sk-test"
 
 
+def write_key_file(path: Path, text: str = "sk-file\n", mode: int = 0o600) -> Path:
+    path.write_text(text)
+    os.chmod(path, mode)
+    return path
+
+
+def config_for_key_file(root: Path, key_file: Path) -> QuarryConfig:
+    (root / "config.toml").write_text(f'[provider]\napi_key_file = "{key_file}"\n')
+    return load_config(root, env={})
+
+
 def test_api_key_from_owner_only_file(tmp_path: Path) -> None:
-    key_file = tmp_path / "anthropic.key"
-    key_file.write_text("sk-file\n")
-    os.chmod(key_file, 0o600)
-    (tmp_path / "config.toml").write_text(f'[provider]\napi_key_file = "{key_file}"\n')
-    cfg = load_config(tmp_path, env={})
+    cfg = config_for_key_file(tmp_path, write_key_file(tmp_path / "anthropic.key"))
     assert api_key(cfg, env={}) == "sk-file"
 
 
 def test_api_key_refuses_group_readable_file(tmp_path: Path) -> None:
-    key_file = tmp_path / "anthropic.key"
-    key_file.write_text("sk-file\n")
-    os.chmod(key_file, 0o640)
-    (tmp_path / "config.toml").write_text(f'[provider]\napi_key_file = "{key_file}"\n')
-    cfg = load_config(tmp_path, env={})
+    key_file = write_key_file(tmp_path / "anthropic.key", mode=0o640)
     with pytest.raises(ConfigError, match="permissions"):
-        api_key(cfg, env={})
+        api_key(config_for_key_file(tmp_path, key_file), env={})
 
 
 def test_api_key_missing_raises(tmp_path: Path) -> None:
@@ -207,17 +211,6 @@ def test_unknown_keys_are_rejected(text: str, key: str, tmp_path: Path) -> None:
         load_config(tmp_path, env={})
 
 
-def write_key_file(path: Path, text: str = "sk-file\n", mode: int = 0o600) -> Path:
-    path.write_text(text)
-    os.chmod(path, mode)
-    return path
-
-
-def config_for_key_file(root: Path, key_file: Path) -> QuarryConfig:
-    (root / "config.toml").write_text(f'[provider]\napi_key_file = "{key_file}"\n')
-    return load_config(root, env={})
-
-
 def test_api_key_for_openai_reads_its_own_variable(tmp_path: Path) -> None:
     (tmp_path / "config.toml").write_text('[provider]\nname = "openai"\n')
     cfg = load_config(tmp_path, env={})
@@ -263,7 +256,7 @@ def test_api_key_directory_raises_config_error(tmp_path: Path) -> None:
         api_key(cfg, env={})
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
+@root_ignores_modes
 def test_api_key_unreadable_file_raises_config_error(tmp_path: Path) -> None:
     key_file = write_key_file(tmp_path / "anthropic.key", mode=0o000)
     cfg = config_for_key_file(tmp_path, key_file)

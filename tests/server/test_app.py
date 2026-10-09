@@ -277,7 +277,7 @@ def test_kernel_death_then_restart_replays(tmp_path: Path) -> None:
         # The crashing step has no runs, since the kernel died before answering.
         assert report == {"replayed": 2, "failed_step": None, "error": None}
         assert client.get(f"/sessions/{sid}/status").json()["kernel"]["status"] == "idle"
-        assert [d["name"] for d in client.get(f"/sessions/{sid}/datasets").json()] == []
+        assert dataset_names(client, sid) == []
 
 
 def test_restart_kills_a_hung_manual_step_and_replays(tmp_path: Path) -> None:
@@ -487,7 +487,7 @@ def test_restart_replays_ok_code_of_a_failed_prompt_step(tmp_path: Path) -> None
         assert [s["status"] for s in steps] == ["error", "ok"] and steps[0]["code"] == load
         report = client.post(f"/sessions/{sid}/restart").json()
         assert report["failed_step"] is None and report["replayed"] == 2
-        assert [d["name"] for d in client.get(f"/sessions/{sid}/datasets").json()] == ["df"]
+        assert dataset_names(client, sid) == ["df"]
 
 
 def test_restart_restores_what_failed_blocks_left_behind(tmp_path: Path) -> None:
@@ -503,7 +503,7 @@ def test_restart_restores_what_failed_blocks_left_behind(tmp_path: Path) -> None
         assert [s["status"] for s in steps] == ["ok", "error", "ok"]
         report = client.post(f"/sessions/{sid}/restart").json()
         assert report == {"replayed": 3, "failed_step": None, "error": None}
-        assert [d["name"] for d in client.get(f"/sessions/{sid}/datasets").json()] == ["df"]
+        assert dataset_names(client, sid) == ["df"]
 
 
 def test_restart_replays_ok_code_of_a_prompt_step_the_kernel_died_in(tmp_path: Path) -> None:
@@ -514,7 +514,7 @@ def test_restart_replays_ok_code_of_a_prompt_step_the_kernel_died_in(tmp_path: P
         assert wait_idle(client, sid)["kernel"]["status"] == "dead"
         report = client.post(f"/sessions/{sid}/restart").json()
         assert report["failed_step"] is None and report["replayed"] == 1
-        assert [d["name"] for d in client.get(f"/sessions/{sid}/datasets").json()] == ["df"]
+        assert dataset_names(client, sid) == ["df"]
 
 
 def test_interrupt_cancels_a_step_waiting_on_the_model(tmp_path: Path) -> None:

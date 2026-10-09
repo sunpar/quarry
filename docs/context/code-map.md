@@ -108,6 +108,7 @@ The FastAPI app and the session machinery behind it, composing `quarry.agent`,
 | File                                 | Provides                                                                                                                                                       |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `tests/query/fixtures.py`            | The shared `trades()` frame, the `SPECS` list, zoned, naive and integer-sum cases, and `utc_connection()`.                                                     |
+| `tests/fixtures.py`                  | `root_ignores_modes`, `chmodded` and `umask`, for tests that make paths unreadable or check the modes Quarry creates.                                          |
 | `tests/kernel/fixtures.py`           | `BUSY_LOOP` step code and the `HEAVY` DuckDB query, for the interrupt tests.                                                                                   |
 | `tests/data/fake_firmlib.py`         | A stand-in firm loader, `load_daily`, imported as `tests.data.fake_firmlib:load_daily`.                                                                        |
 | `tests/query/test_equivalence.py`    | Every fixture spec returns equal results from `to_polars` and `to_sql`. `query/test_source_target.py` runs the same specs through executed `to_source` output. |

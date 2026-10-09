@@ -1,4 +1,3 @@
-import os
 import re
 import stat
 from collections.abc import Iterator
@@ -8,6 +7,7 @@ from typing import Any
 import pytest
 
 from quarry.cli import banner, free_port, main, new_token
+from tests.fixtures import umask
 
 
 def test_banner_contains_tunnel_and_url() -> None:
@@ -72,11 +72,8 @@ def serve_stubs(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """`quarry serve` with the app and server stubbed, under a umask that lets others in."""
     monkeypatch.setattr("quarry.cli.create_app", lambda **_: object())
     monkeypatch.setattr("quarry.cli.uvicorn.run", lambda *_, **__: None)
-    previous = os.umask(0o022)
-    try:
+    with umask(0o022):
         yield
-    finally:
-        os.umask(previous)
 
 
 @pytest.mark.usefixtures("serve_stubs")

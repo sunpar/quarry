@@ -1,7 +1,6 @@
 import os
 import stat
 from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -9,6 +8,7 @@ import pytest
 from quarry.agent.tools import PendingView
 from quarry.server.models import ProviderInfo, Step, StepStatus, View, now_iso
 from quarry.server.store import SessionStore
+from tests.fixtures import umask
 
 
 def step(index: int, status: StepStatus = "ok") -> Step:
@@ -53,15 +53,6 @@ def test_append_and_reload_steps(tmp_path: Path) -> None:
 
 def mode(path: Path) -> int:
     return stat.S_IMODE(path.stat().st_mode)
-
-
-@contextmanager
-def umask(mask: int) -> Iterator[None]:
-    previous = os.umask(mask)
-    try:
-        yield
-    finally:
-        os.umask(previous)
 
 
 @pytest.fixture

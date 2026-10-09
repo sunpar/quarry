@@ -1,4 +1,3 @@
-import os
 import sys
 import threading
 from pathlib import Path
@@ -9,6 +8,7 @@ import pytest
 
 from quarry.data import loaders
 from quarry.data.loaders import describe_failures, describe_loaders, load_loaders
+from tests.fixtures import chmodded, root_ignores_modes
 
 
 def write(tmp_path: Path, body: str) -> Path:
@@ -183,17 +183,11 @@ def test_name_that_is_not_an_identifier_is_skipped(tmp_path: Path) -> None:
     assert list(reg.functions) == ["daily_returns"]
 
 
-root_ignores_modes = pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
-
-
 @root_ignores_modes
 def test_unreadable_file_is_one_failure(tmp_path: Path) -> None:
     path = write(tmp_path, entry("daily_returns"))
-    path.chmod(0o000)
-    try:
+    with chmodded(path, 0o000):
         reg = load_loaders(path)
-    finally:
-        path.chmod(0o644)
     assert reg.specs == [] and reg.functions == {}
     assert [f.name for f in reg.failures] == ["loaders.toml"]
     assert "PermissionError" in reg.failures[0].error
@@ -204,11 +198,8 @@ def test_unreadable_directory_is_one_failure(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()
     path = write(home, entry("daily_returns"))
-    home.chmod(0o000)
-    try:
+    with chmodded(home, 0o000):
         reg = load_loaders(path)
-    finally:
-        home.chmod(0o755)
     assert reg.specs == [] and reg.functions == {}
     assert [f.name for f in reg.failures] == ["loaders.toml"]
     assert "PermissionError" in reg.failures[0].error
