@@ -1,5 +1,8 @@
+import os
+import stat
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -48,20 +51,100 @@ def test_append_and_reload_steps(tmp_path: Path) -> None:
     assert (tmp_path / "sessions" / meta.id / "steps" / "0001.json").exists()
 
 
-def test_torn_write_leaves_sessions_readable(
+def mode(path: Path) -> int:
+    return stat.S_IMODE(path.stat().st_mode)
+
+
+@contextmanager
+def umask(mask: int) -> Iterator[None]:
+    previous = os.umask(mask)
+    try:
+        yield
+    finally:
+        os.umask(previous)
+
+
+@pytest.fixture
+def umask_022() -> Iterator[None]:
+    """A typical umask, under which default modes (0o755, 0o644) would let others read."""
+    with umask(0o022):
+        yield
+
+
+@pytest.mark.usefixtures("umask_022")
+def test_session_files_are_private(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path)
+    meta = store.create(title="t", provider=ProviderInfo(name="openai", model="gpt"))
+    store.append_step(meta.id, step(0))
+    session_dir = tmp_path / "sessions" / meta.id
+    for directory in [tmp_path / "sessions", session_dir, session_dir / "steps"]:
+        assert mode(directory) == 0o700, directory
+    for file in [session_dir / "session.json", session_dir / "steps" / "0000.json"]:
+        assert mode(file) == 0o600, file
+    assert sorted(p.name for p in session_dir.rglob("*") if p.is_file()) == [
+        "0000.json",
+        "session.json",
+    ]
+
+
+@pytest.mark.usefixtures("umask_022")
+def test_existing_sessions_directory_keeps_its_mode(tmp_path: Path) -> None:
+    sessions = tmp_path / "sessions"
+    sessions.mkdir(mode=0o755)
+    SessionStore(tmp_path).create(title="t", provider=ProviderInfo(name="openai", model="gpt"))
+    assert mode(sessions) == 0o755
+
+
+def test_write_syncs_the_file_before_replace_and_the_directory_after(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = SessionStore(tmp_path)
+    meta = store.create(title="t", provider=ProviderInfo(name="openai", model="gpt"))
+    steps_dir = tmp_path / "sessions" / meta.id / "steps"
+    events: list[str] = []
+    synced: list[os.stat_result] = []
+    fsync = os.fsync
+    replace = Path.replace
+
+    def recording_fsync(fd: int) -> None:
+        info = os.fstat(fd)
+        events.append("fsync dir" if stat.S_ISDIR(info.st_mode) else "fsync file")
+        synced.append(info)
+        fsync(fd)
+
+    def recording_replace(self: Path, target: Path) -> Path:
+        events.append("replace")
+        return replace(self, target)
+
+    def no_chmod(*_: object, **__: object) -> None:
+        raise AssertionError("the temp file is created private, not narrowed afterwards")
+
+    monkeypatch.setattr(os, "fsync", recording_fsync)
+    monkeypatch.setattr(Path, "replace", recording_replace)
+    monkeypatch.setattr(os, "chmod", no_chmod)
+    monkeypatch.setattr(os, "fchmod", no_chmod)
+    # Under umask 0 the mode the file is created with is the mode it has: a wider default
+    # (0o666) would show here.
+    with umask(0):
+        store.append_step(meta.id, step(0))
+    assert events == ["fsync file", "replace", "fsync dir"]
+    temp_info, dir_info = synced
+    assert stat.S_IMODE(temp_info.st_mode) == 0o600
+    assert os.path.samestat(dir_info, steps_dir.stat())
+
+
+def test_failed_write_leaves_sessions_readable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store = SessionStore(tmp_path)
     meta = store.create(title="t", provider=ProviderInfo(name="openai", model="gpt"))
     store.append_step(meta.id, step(0))
-    write_text = Path.write_text
 
-    def torn(self: Path, data: str, *args: Any, **kwargs: Any) -> int:
-        write_text(self, data[: len(data) // 2])
+    def disk_full(fd: int) -> None:
         raise OSError("disk full")
 
     with monkeypatch.context() as patch:
-        patch.setattr(Path, "write_text", torn)
+        patch.setattr(os, "fsync", disk_full)
         with pytest.raises(OSError, match="disk full"):
             store.append_step(meta.id, step(1))
         with pytest.raises(OSError, match="disk full"):

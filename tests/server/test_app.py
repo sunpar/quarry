@@ -3,7 +3,7 @@ import re
 import signal
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -17,11 +17,13 @@ from quarry.agent.fake import FakeProvider
 from quarry.agent.types import AssistantTurn, Message, Provider, ToolCall, ToolDef
 from quarry.config import ConfigError, DataConfig, QuarryConfig
 from quarry.kernel.client import KernelClient
+from quarry.kernel.executor import ExecResult
 from quarry.server import service as service_module
 from quarry.server.app import create_app
 from quarry.server.kernels import ReplayReport
 from quarry.server.models import Step
 from quarry.server.service import ProviderFactory
+from quarry.server.store import SessionStore
 
 TOKEN = "t0k3n"
 RESTARTED = "stopped by a restart"
@@ -88,6 +90,23 @@ def wait_for_file(path: Path, timeout: float = 30.0) -> None:
 
 def dataset_names(client: TestClient, sid: str) -> list[str]:
     return [d["name"] for d in client.get(f"/sessions/{sid}/datasets").json()]
+
+
+def start_restart(client: TestClient, sid: str) -> Callable[[], ReplayReport]:
+    """Restart on a daemon thread; the returned call waits up to 30 s for its report. It goes
+    through the service, not the route: a restart that never wakes then fails the test, where a
+    stuck request would hang TestClient's exit."""
+    service = client.app.state.service
+    reports: list[ReplayReport] = []
+    thread = threading.Thread(target=lambda: reports.append(service.restart(sid)), daemon=True)
+    thread.start()
+
+    def report() -> ReplayReport:
+        thread.join(30)
+        assert not thread.is_alive(), "the restart never woke from its wait for the step"
+        return reports[0]
+
+    return report
 
 
 class GatedProvider(FakeProvider):
@@ -157,6 +176,45 @@ def test_prompt_step_end_to_end(tmp_path: Path) -> None:
         datasets = client.get(f"/sessions/{sid}/datasets").json()
         assert datasets[0]["name"] == "df"
         assert "schema" in datasets[0] and "schema_" not in datasets[0]
+
+
+def test_finished_steps_carry_their_own_id_as_dataset_origin(tmp_path: Path) -> None:
+    turns = [py("c1", "df = pl.DataFrame({'a': [1]})"), end()]
+    with make_client(tmp_path, turns) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps", json={"prompt": "load"})
+        wait_idle(client, sid)
+        client.post(f"/sessions/{sid}/steps/manual", json={"code": "other = df.select('a')"})
+        wait_idle(client, sid)
+        failing = {"code": "late = df.select('a')\n1/0"}
+        client.post(f"/sessions/{sid}/steps/manual", json=failing)
+        wait_idle(client, sid)
+        steps = client.get(f"/sessions/{sid}").json()["steps"]
+        assert [s["kind"] for s in steps] == ["prompt", "manual", "manual"]
+        assert steps[2]["status"] == "error" and steps[2]["writes"] == ["late"]
+        for s in steps:
+            assert [d["origin_step"] for d in s["datasets"]] == [s["id"]]
+        # What is saved carries it too, not just the response.
+        saved = SessionStore(tmp_path).get(sid).steps
+        assert [d.origin_step for s in saved for d in s.datasets] == [s.id for s in saved]
+
+
+def test_datasets_origin_is_the_latest_step_that_wrote_the_name(tmp_path: Path) -> None:
+    turns = [py("c1", "df = pl.DataFrame({'a': [1]})"), end()]
+    with make_client(tmp_path, turns) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps", json={"prompt": "load"})
+        wait_idle(client, sid)
+        for code in ["other = df.select('a')", "df = pl.DataFrame({'a': [2]})", "n = df.height"]:
+            client.post(f"/sessions/{sid}/steps/manual", json={"code": code})
+            wait_idle(client, sid)
+        # No step wrote this one.
+        client.app.state.service._kernels.get(sid).execute("orphan = pl.DataFrame({'a': [3]})")
+        ids = [s["id"] for s in client.get(f"/sessions/{sid}").json()["steps"]]
+        origins = {
+            d["name"]: d["origin_step"] for d in client.get(f"/sessions/{sid}/datasets").json()
+        }
+        assert origins == {"df": ids[2], "other": ids[1], "orphan": None}
 
 
 def test_second_step_while_running_is_409(tmp_path: Path) -> None:
@@ -310,7 +368,8 @@ def test_restart_before_a_step_reaches_its_kernel_stops_it(
         monkeypatch.setattr(kernels, "kill", kill_and_signal)
         client.post(f"/sessions/{sid}/steps/manual", json={"code": hang(started)})
         assert in_get.wait(30)
-        assert client.post(f"/sessions/{sid}/restart").json()["failed_step"] is None
+        report = start_restart(client, sid)
+        assert report().failed_step is None
         step = client.get(f"/sessions/{sid}").json()["steps"][-1]
         assert step["status"] == "interrupted" and step["error"]["message"] == RESTARTED
         assert not started.exists()  # its code never ran, on the old kernel or a new one
@@ -322,21 +381,42 @@ def test_restart_stops_a_step_waiting_on_the_model(tmp_path: Path) -> None:
         sid = client.post("/sessions", json={}).json()["id"]
         client.post(f"/sessions/{sid}/steps", json={"prompt": "go"})
         assert provider.waiting.wait(30)
-        reports: list[dict[str, Any]] = []
-        restart = threading.Thread(
-            target=lambda: reports.append(client.post(f"/sessions/{sid}/restart").json())
-        )
-        restart.start()
+        report = start_restart(client, sid)
         wait_kernel(client, sid, "dead")  # the restart cancelled the step and killed its kernel
         # The restart waits on the model for its step; it holds the session meanwhile.
         assert client.post(f"/sessions/{sid}/restart").status_code == 409
         assert client.post(f"/sessions/{sid}/steps", json={"prompt": "x"}).status_code == 409
         provider.release.set()
-        restart.join(30)
-        assert reports == [{"replayed": 1, "failed_step": None, "error": None}]
+        assert report() == ReplayReport(replayed=1, failed_step=None, error=None)
         step = client.get(f"/sessions/{sid}").json()["steps"][0]
         assert step["status"] == "interrupted" and step["error"]["message"] == RESTARTED
         assert step["runs"] == [] and len(provider.calls) == 1
+
+
+def test_restart_never_relabels_a_step_that_ended_on_its_own(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    apply_exec = service_module._apply_exec
+    ran, finish = threading.Event(), threading.Event()
+
+    # The step's code has run and it is ok; it waits here, not yet saved, while a restart comes.
+    def apply_after_restart(step: Step, result: ExecResult, started: float) -> Step:
+        ran.set()
+        assert finish.wait(30)
+        return apply_exec(step, result, started)
+
+    monkeypatch.setattr(service_module, "_apply_exec", apply_after_restart)
+    with make_client(tmp_path, []) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps/manual", json={"code": "a = 1"})
+        assert ran.wait(30)
+        report = start_restart(client, sid)
+        wait_kernel(client, sid, "dead")  # the restart has claimed the session and killed it
+        finish.set()
+        assert report().failed_step is None
+        step = client.get(f"/sessions/{sid}").json()["steps"][0]
+        assert step["status"] == "ok" and step["error"] is None
+        assert client.get(f"/sessions/{sid}/status").json()["last_error"] is None
 
 
 def test_restart_refuses_steps_and_restarts_while_it_replays(
@@ -489,8 +569,13 @@ def test_interrupt_cancels_a_step_waiting_on_the_model_after_its_kernel_died(
         assert len(provider.calls) == 1
 
 
-def test_crashed_prompt_step_keeps_its_runs(tmp_path: Path) -> None:
+def test_crashed_prompt_step_keeps_its_runs_and_lineage(tmp_path: Path) -> None:
     load = "df = pl.DataFrame({'a': [1]})"
+
+    def origins() -> dict[str, str | None]:
+        listed = client.get(f"/sessions/{sid}/datasets").json()
+        return {d["name"]: d["origin_step"] for d in listed}
+
     # Out of turns, the provider raises on its second call, as a bug in an adapter would.
     with make_client(tmp_path, [py("c1", load)]) as client:
         sid = client.post("/sessions", json={}).json()["id"]
@@ -499,9 +584,11 @@ def test_crashed_prompt_step_keeps_its_runs(tmp_path: Path) -> None:
         step = client.get(f"/sessions/{sid}").json()["steps"][0]
         assert step["status"] == "error" and step["error"]["type"] == "AssertionError"
         assert step["runs"] == [{"code": load, "status": "ok"}]
+        assert step["writes"] == ["df"] and [d["name"] for d in step["datasets"]] == ["df"]
+        assert origins() == {"df": step["id"]}
         report = client.post(f"/sessions/{sid}/restart").json()
         assert report == {"replayed": 1, "failed_step": None, "error": None}
-        assert dataset_names(client, sid) == ["df"]
+        assert origins() == {"df": step["id"]}
 
 
 def test_interrupt_when_idle_reports_nothing_interrupted(tmp_path: Path) -> None:

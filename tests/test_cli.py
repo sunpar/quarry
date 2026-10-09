@@ -1,4 +1,7 @@
+import os
 import re
+import stat
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -62,3 +65,30 @@ def test_serve_binds_loopback_and_banner_token_is_the_app_token(
     assert app_calls[0]["token"] == match.group(1)
     assert app_calls[0]["config"].root == root
     assert "devbox" in out and "4321" in out
+
+
+@pytest.fixture
+def serve_stubs(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """`quarry serve` with the app and server stubbed, under a umask that lets others in."""
+    monkeypatch.setattr("quarry.cli.create_app", lambda **_: object())
+    monkeypatch.setattr("quarry.cli.uvicorn.run", lambda *_, **__: None)
+    previous = os.umask(0o022)
+    try:
+        yield
+    finally:
+        os.umask(previous)
+
+
+@pytest.mark.usefixtures("serve_stubs")
+def test_serve_creates_a_missing_root_private(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    assert main(["serve", "--port", "4321", "--root", str(root)]) == 0
+    assert stat.S_IMODE(root.stat().st_mode) == 0o700
+
+
+@pytest.mark.usefixtures("serve_stubs")
+def test_serve_leaves_an_existing_root_mode_alone(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir(mode=0o755)
+    assert main(["serve", "--port", "4321", "--root", str(root)]) == 0
+    assert stat.S_IMODE(root.stat().st_mode) == 0o755

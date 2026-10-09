@@ -31,7 +31,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def run_serve(*, port: int, root: Path, host_hint: str) -> int:
-    root.mkdir(parents=True, exist_ok=True)
+    # Private when new: it holds every session's prompts and code. An existing root keeps its mode.
+    root.mkdir(parents=True, mode=0o700, exist_ok=True)
     token = new_token()
     app = create_app(config=load_config(root), token=token)
     print(banner(port=port, token=token, host_hint=host_hint), flush=True)

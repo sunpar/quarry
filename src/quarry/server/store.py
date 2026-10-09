@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from quarry.server.models import ProviderInfo, Session, SessionMeta, Step, new_id, now_iso
+
+_PRIVATE_DIR = 0o700
+_PRIVATE_FILE = 0o600
 
 
 class SessionStore:
@@ -14,7 +18,13 @@ class SessionStore:
     def create(self, *, title: str, provider: ProviderInfo) -> SessionMeta:
         meta = SessionMeta(id=new_id(), title=title, created_at=now_iso(), provider=provider)
         path = self._dir / meta.id
-        (path / "steps").mkdir(parents=True)
+        # Several researchers share a machine: only the owner reads prompts and code. The root is
+        # not managed here (`quarry serve` creates it private); `parents=True` only keeps a store
+        # on a missing root working. Each level the store makes gets 0o700, one mkdir apiece,
+        # because `parents=True` applies the mode to the last level alone.
+        self._dir.mkdir(parents=True, mode=_PRIVATE_DIR, exist_ok=True)
+        path.mkdir(mode=_PRIVATE_DIR)
+        (path / "steps").mkdir(mode=_PRIVATE_DIR)
         _write_atomic(path / "session.json", meta.model_dump_json(indent=2))
         return meta
 
@@ -62,5 +72,15 @@ class SessionStore:
 def _write_atomic(path: Path, text: str) -> None:
     # A crash leaves at most a stray temp file, which the steps/*.json glob never matches.
     temp = path.with_name(f".{path.name}.tmp")
-    temp.write_text(text)
+    # Created private, never chmodded after, so it is not readable by others even briefly.
+    with os.fdopen(os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, _PRIVATE_FILE), "w") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
     temp.replace(path)
+    # The rename is durable only once the directory entry is.
+    directory = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)

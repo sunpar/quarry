@@ -9,7 +9,14 @@ from quarry.agent.fake import FakeProvider
 from quarry.agent.loop import StepOutcome, run_agent_step, step_lineage
 from quarry.agent.tools import ToolExecutor
 from quarry.agent.transpile import NoopTranspiler
-from quarry.agent.types import AssistantTurn, Message, ProviderError, ToolCall, ToolDef
+from quarry.agent.types import (
+    AssistantTurn,
+    Message,
+    ProviderError,
+    ToolCall,
+    ToolDef,
+    ToolResult,
+)
 from quarry.components.library import ComponentLibrary
 from quarry.kernel.client import KernelClient
 from quarry.kernel.executor import ExecResult
@@ -175,6 +182,33 @@ def test_cancel_during_a_provider_call_skips_its_tools(
     out = run(provider, kernel, tmp_path, cancel)
     assert out.status == "interrupted" and out.error_message == "interrupted by researcher"
     assert [r.code for r in out.runs] == ["x = 1"] and len(provider.calls) == 2
+
+
+def test_cancel_during_the_last_allowed_tool_call_is_not_the_cap(
+    kernel: KernelClient, tmp_path: Path
+) -> None:
+    cancel = threading.Event()
+
+    class CancelsDuringTheCall(ToolExecutor):
+        def run(self, call: ToolCall) -> ToolResult:
+            cancel.set()  # as /interrupt or a restart would while the call runs
+            return super().run(call)
+
+    out = run_agent_step(
+        prompt="load",
+        system="sys",
+        summary="",
+        provider=FakeProvider([py("c1", "x = 1"), end()]),
+        tools=CancelsDuringTheCall(
+            kernel=kernel,
+            library=ComponentLibrary([tmp_path / "none"]),
+            transpiler=NoopTranspiler(),
+        ),
+        cancel=cancel,
+        max_iterations=1,
+    )
+    assert out.status == "interrupted" and out.error_message == "interrupted by researcher"
+    assert [r.code for r in out.runs] == ["x = 1"]
 
 
 def test_step_lineage_self_rebinding_keeps_read_edge() -> None:

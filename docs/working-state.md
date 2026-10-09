@@ -20,7 +20,7 @@ written and waits for Stage 3.
 | Stage               | Status                                               | Plan                                                                  |
 | ------------------- | ---------------------------------------------------- | --------------------------------------------------------------------- |
 | 1. Core             | Merged in sunpar/quarry#1 as `d00b5fa`               | [Stage 1](superpowers/plans/2026-10-08-quarry-stage1-core.md)         |
-| 2. Server and agent | Implemented, sunpar/quarry#2 open                    | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
+| 2. Server and agent | Implemented, sunpar/quarry#2 open, items landed      | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
 | 3. First UI         | Implemented, pull request open on the Stage 2 branch | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
 | 4. Projects         | Planned, handoff ready, not started                  | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
 | 5. Breadth          | Not planned yet                                      | Spec §15                                                              |
@@ -37,8 +37,11 @@ Its calls are under [server and agent](context/decisions.md#server-and-agent),
 and what it left is in [open-items.md](open-items.md#stage-2). Neither provider
 adapter has called its real API yet; see the
 [open questions](open-items.md#open-questions). The fixes for the first Codex
-review are in, CI Auto-fix is on, and the maintainer chose to land the
-[Stage 2 items](open-items.md#stage-2) in sunpar/quarry#2, one task at a time.
+review are in, CI Auto-fix is on, and the Stage 2 deferred items landed in
+sunpar/quarry#2 as seven reviewed tasks: config hardening, unreadable data paths,
+the `RLIMIT_DATA` and thread caps, kernel client failures, metadata caching,
+restart that stops a running step, and private session files with
+`origin_step`.
 
 ### Stage 3: first UI
 
@@ -55,7 +58,7 @@ green. It is blocked on sunpar/quarry#2 merging.
 ## Latest verification
 
 `claude/quarry-stage3-first-ui` with the Stage 2 branch merged in again (Codex
-review addressed) on 2026-10-08: 914 tests passed and 3 skipped (the live provider tests), including
+review addressed) on 2026-10-09: 924 tests passed and 3 skipped (the live provider tests), including
 the two browser tests under `tests/e2e`; `ruff check`, `ruff format --check`,
 `mypy src` and `uv lock --check` were clean; in `web/`, `npm run check` (tsc and
 prettier), `npm test` (56 tests) and `npm run build` passed; the wheel from

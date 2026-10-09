@@ -89,9 +89,9 @@ def run_agent_step(
             exec_results=[r for _, r in tools.runs],
         )
 
-    while iterations < max_iterations:
-        if cancel.is_set():
-            return finish("interrupted", error=_INTERRUPTED)
+    while not cancel.is_set():
+        if iterations >= max_iterations:
+            return finish("error", error=f"iteration cap reached ({max_iterations})")
         iterations += 1
         try:
             turn = provider.complete(system=system, messages=transcript, tools=TOOL_DEFS)
@@ -133,7 +133,7 @@ def run_agent_step(
         transcript.append(Message(role="user", tool_results=results))
         if halt is not None:
             return finish(halt[0], error=halt[1])
-    return finish("error", error=f"iteration cap reached ({max_iterations})")
+    return finish("interrupted", error=_INTERRUPTED)
 
 
 def _last_traceback(results: list[ToolResult]) -> str:

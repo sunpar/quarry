@@ -142,6 +142,25 @@ them.
 - **Startup failures surface at once**: `spawn` notices a kernel that exits
   before connecting and raises `KernelDead` with its exit code. A bad
   `config.toml` used to cost the full startup timeout.
+- **Two client failure types**: every client failure is `KernelDead` or
+  `RpcFailure`. An `OSError` while starting, from the temp directory, the socket
+  or `Popen`, is `KernelDead`, and `spawn` kills the kernel and frees what it
+  made on any exception, Ctrl-C included. A result that fails validation is an
+  `RpcFailure` of type `InvalidResult`. Cost: `/query` maps `RpcFailure` to 400,
+  so a kernel bug there reads as a bad request.
+- **`close()` never raises**: it SIGKILLs the group, waits 5 s, and leaves a
+  kernel that outlives that to the OS with one stderr line. It removes the temp
+  directory with `ignore_cleanup_errors`, since a child outside the group can
+  keep writing into it. Cost: such a kernel stays unreaped, and such a directory
+  stays on disk, silently.
+- **Dataset metadata lasts until the next step**: `execute` caches the metadata
+  of its writes, and `list_datasets` reuses it and caches what it describes.
+  Every `execute` clears the cache first, since a step can change a dataset
+  without naming it, through a helper, an alias or `globals()`. The server lists
+  datasets on every prompt step, view mount and `/datasets` request, and
+  previews run plans. `describe` still counts rows and ignores the cache. Cost:
+  a source changed outside a step, such as a rewritten parquet file under a
+  LazyFrame, shows a stale preview until the next step.
 - **Malformed lines never kill a reader**: the kernel answers an undecodable
   request with an `RpcError` when it can recover an integer id, and otherwise
   logs it to stderr. The client treats an undecodable response as a dead kernel.
@@ -176,9 +195,15 @@ them.
 - **The kernel runs in its own session**: it is spawned with
   `start_new_session=True`, so a terminal Ctrl-C aimed at the server never
   interrupts a step. The server owns interrupts.
-- **`POST /interrupt` passes delivery through**: it answers `{"ok": delivered}`
-  with the kernel's flag, so a client knows when to retry. The plan's
-  `{"ok": true}` hid an interrupt that hit nothing.
+- **`POST /interrupt` reports whether it stopped something**: it cancels a
+  running prompt step, then interrupts the kernel, and answers
+  `{"ok": delivered or cancelled}`, so a client knows when to retry. The plan's
+  `{"ok": true}` hid an interrupt that hit nothing. The cancel comes first, so
+  it holds even when a dead kernel makes the route answer 503.
+- **Steps take a cancel**: `run_agent_step` checks a cancel event before each
+  provider call and each tool call, and ends the step `interrupted`, even on the
+  last turn the 12-call cap allows. A step waiting on the model takes no kernel
+  interrupt. Cost: the provider call in flight still runs to completion.
 
 ## Lineage
 
@@ -257,11 +282,23 @@ them.
   calling step's variables. The spec's `duckdb.register` was dropped because
   registered views returned stale data after a rebind. `catalog` left the
   namespace for the same reason, and the spec is amended.
-- **`loaders.toml` never stops the kernel**: a syntax error, a malformed or
-  duplicate entry, a non-identifier name or a failed import each becomes a
-  `LoaderFailure`, and the rest still bind. A loader raising `SystemExit` at
-  import counts as failed, while `KeyboardInterrupt` propagates. One typo had
-  killed every kernel.
+- **`loaders.toml` never stops the kernel**: an unreadable file, a syntax error,
+  a malformed or duplicate entry, a non-identifier name or a failed import each
+  becomes a `LoaderFailure`, and the rest still bind. A loader raising
+  `SystemExit` at import counts as failed, while `KeyboardInterrupt` propagates.
+  One typo had killed every kernel.
+- **A slow loader import is named, not stopped**: an import still running after
+  10 s prints a notice naming the loader to stderr, and the import goes on.
+  Cost: a loader that hangs still hangs the server at startup.
+- **A missing `mssql` extra says so**: `sql()` without `arrow_odbc` raises
+  `ModuleNotFoundError` with the install command. Any other missing module
+  re-raises unchanged.
+- **An unreadable cache path is skipped**: `scan_layout` never raises. It drops
+  an unreadable root or dataset, lists a directory holding parquet files
+  directly as `not partitioned`, and reads only the dataset directory and its
+  first-level partitions, taking the second key from the first readable one. An
+  unreadable cache had stopped `quarry serve`. Cost: an unreadable cache looks
+  empty to the agent, with no log line.
 - **`sql()` keeps the schema on zero rows**: it reads arrow-odbc's pyarrow
   `RecordBatchReader` with `read_all()`, which carries the schema when no rows
   return. Parameters are sent as text, because arrow-odbc binds every parameter
@@ -276,13 +313,28 @@ them.
   models every key in the spec §11 template. A misspelled `kernel_memorry_mb`
   had left the kernel uncapped without a word. Cost: a new key needs its model
   before it can appear in `config.toml`.
-- **Config ranges**: `row_cap` must be at least 1, and `kernel_memory_mb` at
-  least 0, where 0 means unlimited. A zero `row_cap` returned no rows from every
-  query.
-- **A `root` key in `config.toml` overrides the root argument**: spec §11 says
-  the root can be overridden "with --root or config". Precedence against
-  `--root` is an [open question](../open-items.md#open-questions). Cost: setting
-  the key redirects every root-relative resource.
+- **Config errors never echo input**: every config model sets
+  `hide_input_in_errors`, and `mssql_dsn` and the license keys stay out of
+  reprs. A misspelled DSN key had printed its password at startup. Cost:
+  validation errors omit the offending value, and `ValidationError.errors()`
+  still includes it, so code that shows those errors must pass
+  `include_input=False`.
+- **Config ranges**: `row_cap` must be at least 1, and `kernel_memory_mb` and
+  `kernel_threads` at least 0, where 0 means no limit. A zero `row_cap` returned
+  no rows from every query.
+- **Only `--root` sets the root**: a `root` key in `config.toml` is a
+  `ConfigError`. The key lives inside the root it would override, and it
+  silently redirected every root-relative resource. Spec §11 is amended. Cost: a
+  config that set `root` fails at startup.
+- **Config paths are absolute**: a `QuarryConfig` validator makes the root
+  absolute, expands `~` in every path field and resolves a relative one against
+  the root, so the server and kernels agree whatever their working directories.
+  An unknown `~user` is a `ConfigError`. Cost: a new `Path` field is anchored at
+  the root automatically.
+- **The API key file is read once**: `api_key` checks the permissions of the
+  open file with `fstat` and reads that same file, and every failure is a
+  `ConfigError`. A non-UTF-8 key file's error leaves out the decode message,
+  which quotes a byte of the key.
 
 ## Shared-machine safety
 
@@ -290,20 +342,33 @@ them.
   directory per kernel, passes it as `--temp-dir`, and removes it on close.
   DuckDB's default `.tmp` under the server's working directory wrote researcher
   data with umask permissions.
+- **The memory cap is `RLIMIT_DATA`**: `kernel_memory_mb` caps the kernel's data
+  segment. `RLIMIT_AS` counted mmapped parquet, thread stacks and malloc arenas,
+  so a cap near the working set broke polars and DuckDB in confusing ways. Cost:
+  Linux still counts thread stacks against it, so a 256 MB cap killed a kernel
+  on 14 cores at polars start, while `kernel_threads = 2` survived.
 - **DuckDB memory follows the kernel cap**: with `kernel_memory_mb` set,
   DuckDB's `memory_limit` is 70% of it. DuckDB's default of 80% of RAM ignores
-  `RLIMIT_AS`, so DuckDB would fail past the cap instead of spilling. Cost: 70%
+  the rlimit, so DuckDB would fail past the cap instead of spilling. Cost: 70%
   is an unmeasured heuristic.
 - **The memory cap is skipped where the OS refuses it**: macOS rejects
-  `RLIMIT_AS`, so the kernel writes a warning to stderr and runs uncapped.
+  `RLIMIT_DATA`, so the kernel writes a warning to stderr and runs uncapped.
   Target machines run Linux, where the cap applies.
+- **Threads per kernel are opt-in**: `data.kernel_threads`, 0 by default for
+  every core, caps polars and DuckDB. `KernelClient.spawn` sets
+  `POLARS_MAX_THREADS`, because polars reads it at import, before the kernel
+  reads its config, and the kernel runs `SET threads` from its own config. Cost:
+  two processes read the one value, and a kernel started outside the client caps
+  DuckDB only.
 - **The kernel dies with its server**: on socket EOF the kernel flushes and
   calls `os._exit(0)`, even mid-step. An orphaned kernel can hold tens of GB,
   and nobody is left to receive the step's result.
-- **Shutdown is prompt and final**: `shutdown` answers, interrupts a running
-  step, refuses queued requests with `KernelShutdown`, and ends with
-  `os._exit(0)`. A shutdown mid-step had left later calls hung, and a step's
-  thread kept a stopped kernel alive.
+- **Shutdown is prompt and final**: `shutdown` answers, stops the executor,
+  interrupts a running step, refuses queued requests with `KernelShutdown`, and
+  ends with `os._exit(0)`. A stopped executor ends any step or describe of a
+  write that starts after the stop, which a request already taken but not yet
+  running had escaped. A shutdown mid-step had left later calls hung, and a
+  step's thread kept a stopped kernel alive.
 - **Close kills the whole process group**: `close()` and a startup timeout
   SIGKILL the group the kernel leads, so processes a step started die too. The
   client kills the group in the call that first sees the kernel exit, never
@@ -349,6 +414,12 @@ them.
 - **Replay reports instead of raising**: replay stops at the first run that was
   `ok` and now is not, or that kills the kernel, and returns a `ReplayReport`
   naming its step. `/restart` answers 503 only when the new kernel cannot start.
+- **The server stamps `origin_step`**: the kernel has no step ids, so a finished
+  step's datasets carry its id, and `/datasets` takes each name's latest writer
+  from the saved steps, or null when no step wrote it. The kernel takes no
+  session id, and spec §5 and §6 are amended. Cost: until a step is saved, its
+  datasets carry null in the agent's tools and summary, and `/datasets` names
+  the previous writer or null.
 - **Prompt-step lineage is a fold**: `step_lineage` combines the `ExecResult` of
   each `run_python` call. Reads are names a call read before an earlier call in
   the step wrote them, writes and defines are unions, and each dataset's
@@ -362,11 +433,21 @@ them.
 - **Each step thread has one boundary**: the prompt and manual step threads turn
   any `Exception` into a failed step, and the session is freed even when saving
   the step or starting the thread fails. An escaped exception had left the
-  session answering 409 for good.
-- **One step or replay at a time**: a step posted while another step or a replay
-  runs gets 409, and so does a restart while a step runs. Cost: a hung step can
-  be escaped only by killing the kernel; see
-  [open questions](../open-items.md#open-questions).
+  session answering 409 for good. A crashed prompt step keeps the runs recorded
+  before the crash and their lineage, so restart replays them and `/datasets`
+  credits the step.
+- **One step or restart at a time**: a step posted while another step or a
+  restart runs gets 409, and so does a second restart.
+- **Restart stops a running step**: `/restart` while a step runs cancels it,
+  kills the kernel's process group, waits for the step to save itself, then
+  replays. The step ends `interrupted` with the error "stopped by a restart" and
+  keeps the runs that finished. Some code takes no interrupt, such as a long
+  polars `collect()`, and the researcher chose restart as the way to always get
+  control back. Cost: a step waiting on the model holds `/restart` until the
+  provider answers, and under uvicorn that also delays a graceful Ctrl-C.
+- **Transpile checks time out**: `CommandTranspiler` gives up after 30 s and
+  reports a transpile error to the model, and the step goes on. A hung check
+  would otherwise hold the step, and a restart waiting on it.
 - **The repair rule is checked after each call**: the second failed `run_python`
   call in a row ends the step at once, even mid-turn, so later calls in the same
   turn never run. Their tool results are left out of the transcript, which no
@@ -397,8 +478,15 @@ them.
   had listed every route without a token. Tokens are compared as bytes, because
   `compare_digest` raises on a non-ASCII `str`.
 - **Session files**: a step is saved once, when it finishes, as 0-based
-  `steps/NNNN.json` through a temp file and `Path.replace`. Transcripts hold
-  provider-neutral `Message`s.
+  `steps/NNNN.json`. Transcripts hold provider-neutral `Message`s.
+- **Session files are private and durable**: `quarry serve` creates a missing
+  root 0700, and the store creates `sessions/`, each session and its
+  `steps/` 0700. The store writes every file 0600 to a temp file, fsyncs it,
+  moves it into place with `Path.replace`, and fsyncs its directory. Other
+  researchers on the machine could read prompts and code, and a crash could lose
+  a finished step. Cost: an existing root keeps its mode, macOS `fsync` does not
+  flush the drive cache, and a filesystem that refuses a directory fsync fails
+  the save after the file is already in place.
 - **The summary budget is a code default**: `build_summary` collapses steps
   older than the last eight once the summary passes 24,000 estimated tokens,
   with no config key. Spec §8 is amended.
@@ -496,6 +584,8 @@ them.
   `fallbacks` were checked only on 1.12.1, so the floor is that release line.
 - **CI installs from the lock**: CI runs `uv sync --locked`, so a stale
   `uv.lock` fails instead of re-resolving.
+- **CI times out**: the test job stops after 20 minutes, so a hung test fails
+  instead of running to GitHub's 6-hour limit.
 - **Local Python matches CI**: `.python-version` pins 3.11. The local venv had
   resolved 3.14, so failures specific to 3.11 surfaced only in CI.
 - **Tests are annotated**: ruff's ANN rules apply to tests as well as `src`,

@@ -13,7 +13,7 @@ Terms as Quarry's code and docs use them. Section numbers point into the
   `quarry.kernel`.
 - **Client**: `KernelClient`, the handle that spawns a kernel, calls its
   methods, interrupts it and closes it. It raises `KernelDead` when the kernel
-  is gone and `RpcFailure` when a call fails.
+  is gone or cannot start, and `RpcFailure` when a call fails.
 - **Namespace**: the kernel's module-level globals, where step code runs. It
   starts with `pl`, `duckdb`, `loaders`, `sql`, `pq` and `sql_local`, plus
   `_conn` (the DuckDB connection) and `_registry` (the loader registry).
@@ -28,9 +28,10 @@ Terms as Quarry's code and docs use them. Section numbers point into the
   polars. INTERVAL and UNION columns become VARCHAR, and repeated column names
   become unique.
 - **`DatasetMeta`**: a dataset's description: backing, schema as polars dtype
-  strings, row count, preview, and an error when it cannot be described (§5).
-- **Preview**: a dataset's first 20 rows as JSON, computed when a step writes
-  it.
+  strings, row count, preview, `origin_step` (the step that last wrote it,
+  stamped by the server), and an error when it cannot be described (§5).
+- **Preview**: a dataset's first 20 rows as JSON, computed when a step writes it
+  and kept until the next step.
 - **Dataset snapshot**: a dataset written to a parquet file by the kernel's
   `snapshot` method. Stage 4 uses it for pinned project datasets. Not to be
   confused with a view's state snapshot.
@@ -92,11 +93,14 @@ Terms as Quarry's code and docs use them. Section numbers point into the
   `build_summary`.
 - **Pending view**: the view a `render_view` or `write_view` call records on its
   step. Stage 2 validates and saves it, and nothing renders it until Stage 3.
-- **Transpile check**: the server-side syntax check `write_view` runs on
-  generated TSX, through `transpile-check.mjs` under node when that file exists
-  (§8).
+- **Transpile check**: the server-side syntax check `render_view` and
+  `write_view` run on generated TSX, through `transpile-check.mjs` under node
+  when that file exists, for up to 30 s (§8).
+- **Cancel**: a running step's stop signal, set by `/interrupt` for a prompt
+  step and by `/restart`. The agent loop checks it before each provider call and
+  tool call, and ends the step `interrupted`.
 - **Run**: one execution of code in the kernel, saved on its step as
   `{code, status}`: each `run_python` call of a prompt step, or a manual step's
   code.
 - **Replay**: rerunning a session's runs in order on a new kernel, which
-  `POST /sessions/{id}/restart` does (§6).
+  `POST /sessions/{id}/restart` does after stopping any running step (§6).
