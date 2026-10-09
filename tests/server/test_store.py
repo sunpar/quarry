@@ -1,6 +1,7 @@
 import os
 import stat
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -54,14 +55,20 @@ def mode(path: Path) -> int:
     return stat.S_IMODE(path.stat().st_mode)
 
 
-@pytest.fixture
-def umask_022() -> Iterator[None]:
-    """A typical umask, under which default modes (0o755, 0o644) would let others read."""
-    previous = os.umask(0o022)
+@contextmanager
+def umask(mask: int) -> Iterator[None]:
+    previous = os.umask(mask)
     try:
         yield
     finally:
         os.umask(previous)
+
+
+@pytest.fixture
+def umask_022() -> Iterator[None]:
+    """A typical umask, under which default modes (0o755, 0o644) would let others read."""
+    with umask(0o022):
+        yield
 
 
 @pytest.mark.usefixtures("umask_022")
@@ -93,22 +100,37 @@ def test_write_syncs_the_file_before_replace_and_the_directory_after(
 ) -> None:
     store = SessionStore(tmp_path)
     meta = store.create(title="t", provider=ProviderInfo(name="openai", model="gpt"))
+    steps_dir = tmp_path / "sessions" / meta.id / "steps"
     events: list[str] = []
+    synced: list[os.stat_result] = []
     fsync = os.fsync
     replace = Path.replace
 
     def recording_fsync(fd: int) -> None:
-        events.append("fsync dir" if stat.S_ISDIR(os.fstat(fd).st_mode) else "fsync file")
+        info = os.fstat(fd)
+        events.append("fsync dir" if stat.S_ISDIR(info.st_mode) else "fsync file")
+        synced.append(info)
         fsync(fd)
 
     def recording_replace(self: Path, target: Path) -> Path:
         events.append("replace")
         return replace(self, target)
 
+    def no_chmod(*_: object, **__: object) -> None:
+        raise AssertionError("the temp file is created private, not narrowed afterwards")
+
     monkeypatch.setattr(os, "fsync", recording_fsync)
     monkeypatch.setattr(Path, "replace", recording_replace)
-    store.append_step(meta.id, step(0))
+    monkeypatch.setattr(os, "chmod", no_chmod)
+    monkeypatch.setattr(os, "fchmod", no_chmod)
+    # Under umask 0 the mode the file is created with is the mode it has: a wider default
+    # (0o666) would show here.
+    with umask(0):
+        store.append_step(meta.id, step(0))
     assert events == ["fsync file", "replace", "fsync dir"]
+    temp_info, dir_info = synced
+    assert stat.S_IMODE(temp_info.st_mode) == 0o600
+    assert os.path.samestat(dir_info, steps_dir.stat())
 
 
 def test_failed_write_leaves_sessions_readable(
