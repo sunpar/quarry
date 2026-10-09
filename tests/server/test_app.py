@@ -603,7 +603,9 @@ def test_interrupt_when_idle_reports_nothing_interrupted(tmp_path: Path) -> None
         assert client.post(f"/sessions/{sid}/interrupt").json() == {"ok": False}
 
 
-def test_save_failure_frees_the_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_save_failure_frees_the_session_and_kills_its_kernel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     escaped: list[threading.ExceptHookArgs] = []
     monkeypatch.setattr(threading, "excepthook", escaped.append)
     with make_client(tmp_path, []) as client:
@@ -622,12 +624,33 @@ def test_save_failure_frees_the_session(tmp_path: Path, monkeypatch: pytest.Monk
         assert first.status_code == 202
         status = wait_idle(client, sid, timeout=5)
         assert status["last_error"] == "failed to save step: disk full"
+        # `a = 1` ran but is not on disk, so the kernel is dead until a restart replays the disk.
+        assert status["kernel"]["status"] == "dead"
+        assert client.post(f"/sessions/{sid}/restart").json()["replayed"] == 0
         second = client.post(f"/sessions/{sid}/steps/manual", json={"code": "b = 2"})
         assert second.status_code == 202
         assert wait_idle(client, sid)["last_error"] is None
         assert [s["code"] for s in client.get(f"/sessions/{sid}").json()["steps"]] == ["b = 2"]
     # The save error still escapes the step thread rather than being swallowed.
     assert [type(e.exc_value) for e in escaped] == [OSError]
+
+
+@pytest.mark.parametrize(
+    ("route", "body"), [("steps", {"prompt": "go"}), ("steps/manual", {"code": "a = 1"})]
+)
+def test_a_base_exception_fails_the_step(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, route: str, body: dict[str, str]
+) -> None:
+    def panics(_session_id: str, *, has_steps: bool = False) -> KernelClient:
+        raise BaseException("boom")  # as a polars panic is
+
+    with make_client(tmp_path, []) as client:
+        # Both step threads start by getting the session's kernel.
+        monkeypatch.setattr(client.app.state.service._kernels, "get", panics)
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/{route}", json=body)
+        assert "boom" in wait_idle(client, sid, timeout=5)["last_error"]
+        assert client.get(f"/sessions/{sid}").json()["steps"][0]["status"] == "error"
 
 
 def test_thread_start_failure_frees_the_session(

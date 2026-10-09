@@ -113,13 +113,17 @@ def test_unreadable_manifest_is_skipped(tmp_path: Path, caplog: pytest.LogCaptur
     assert "locked" in caplog.text
 
 
-def test_manifest_for_another_contract_version_is_skipped(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+@pytest.mark.parametrize(
+    "override",
+    [{"contract_version": 2}, {"contract_verison": 2}, {"schema": {"require": []}}],
+)
+def test_manifest_quarry_cannot_mount_is_skipped(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, override: dict[str, object]
 ) -> None:
     write_component(tmp_path, "good", ["a"], [])
     write_component(tmp_path, "future", ["a"], [])
     manifest = tmp_path / "future" / "manifest.json"
-    manifest.write_text(json.dumps({**json.loads(manifest.read_text()), "contract_version": 2}))
+    manifest.write_text(json.dumps({**json.loads(manifest.read_text()), **override}))
     with caplog.at_level(logging.WARNING):
         entries = ComponentLibrary([tmp_path]).entries()
     assert [e.manifest.id for e in entries] == ["good"]
