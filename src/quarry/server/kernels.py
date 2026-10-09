@@ -22,9 +22,11 @@ class KernelManager:
         self._root = root
         self._clients: dict[str, KernelClient] = {}
         self._running: set[str] = set()
+        # Sessions whose kernel was respawned under existing steps and has not replayed them.
+        self._replay_needed: set[str] = set()
         self._lock = threading.Lock()
 
-    def get(self, session_id: str) -> KernelClient:
+    def get(self, session_id: str, *, has_steps: bool = False) -> KernelClient:
         with self._lock:
             client = self._clients.get(session_id)
             if client is None or not client.is_alive():
@@ -32,16 +34,21 @@ class KernelManager:
                     client.close()
                 client = KernelClient.spawn(self._root)
                 self._clients[session_id] = client
+                if has_steps:
+                    self._replay_needed.add(session_id)
             return client
 
     def status(self, session_id: str) -> KernelStatus:
         client = self._clients.get(session_id)
+        replay_needed = session_id in self._replay_needed
         if client is None:
-            return KernelStatus(status="starting")
+            return KernelStatus(status="starting", replay_needed=replay_needed)
         if not client.is_alive():
-            return KernelStatus(status="dead", pid=client.pid)
+            return KernelStatus(status="dead", pid=client.pid, replay_needed=replay_needed)
         running = session_id in self._running
-        return KernelStatus(status="running" if running else "idle", pid=client.pid)
+        return KernelStatus(
+            status="running" if running else "idle", pid=client.pid, replay_needed=replay_needed
+        )
 
     def mark_running(self, session_id: str, running: bool) -> None:
         if running:
@@ -60,6 +67,7 @@ class KernelManager:
             if old is not None:
                 old.close()
         client = self.get(session_id)
+        self._replay_needed.discard(session_id)
         for replayed, step in enumerate(sorted(steps, key=lambda s: s.index)):
             try:
                 result = client.execute(step.code)

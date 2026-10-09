@@ -184,13 +184,13 @@ class SessionService:
         )
 
     def interrupt(self, session_id: str) -> bool:
-        return self._kernels.get(session_id).interrupt()
+        return self._kernel(session_id).interrupt()
 
     def query(self, session_id: str, spec: QuerySpec) -> QueryResult:
-        return self._kernels.get(session_id).query(spec)
+        return self._kernel(session_id).query(spec)
 
     def datasets(self, session_id: str) -> builtins.list[DatasetMeta]:
-        return self._kernels.get(session_id).list_datasets()
+        return self._kernel(session_id).list_datasets()
 
     def restart(self, session_id: str) -> ReplayReport:
         with self._lock:
@@ -210,6 +210,9 @@ class SessionService:
             with self._lock:
                 self._kernels.mark_running(session_id, False)
                 self._running.pop(session_id, None)
+
+    def _kernel(self, session_id: str) -> KernelClient:
+        return self._kernels.get(session_id, has_steps=self._store.next_index(session_id) > 0)
 
     def shutdown(self) -> None:
         self._kernels.close_all()
@@ -246,7 +249,7 @@ class SessionService:
         started = time.monotonic()
         try:
             provider = self._provider_factory(self._config)
-            kernel = self._kernels.get(session_id)
+            kernel = self._kernel(session_id)
             tools = ToolExecutor(kernel=kernel, library=self._library, transpiler=self._transpiler)
             summary = build_summary(self._store.get(session_id).steps, _safe_datasets(kernel))
             outcome = run_agent_step(
@@ -283,7 +286,7 @@ class SessionService:
     def _run_manual(self, session_id: str, step: Step) -> None:
         started = time.monotonic()
         try:
-            result = self._kernels.get(session_id).execute(step.code)
+            result = self._kernel(session_id).execute(step.code)
             done = _apply_exec(step, result, started)
         except KernelDead as exc:
             done = _failed(step, _death(exc), started)

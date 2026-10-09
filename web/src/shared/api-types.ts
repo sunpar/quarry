@@ -141,6 +141,7 @@ export interface Session {
 export interface KernelStatus {
   status: "starting" | "idle" | "running" | "dead";
   pid: number | null;
+  replay_needed: boolean;
 }
 
 export interface SessionStatus {

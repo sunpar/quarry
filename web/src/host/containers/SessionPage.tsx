@@ -56,6 +56,8 @@ function SessionColumn({ id }: { id: string }) {
         kernel={status.data?.kernel}
         lastError={status.data?.last_error ?? null}
         restarting={restart.isPending}
+        restartError={restart.error?.message ?? null}
+        replay={restart.data ?? null}
         onRestart={() => restart.mutate()}
       />
       <div className="min-h-0 flex-1 overflow-y-auto">

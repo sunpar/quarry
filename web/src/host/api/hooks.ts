@@ -63,6 +63,10 @@ export function useRestart(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => api.restart(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.session(id) }),
+    onSuccess: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: keys.session(id) }),
+        qc.invalidateQueries({ queryKey: keys.status(id) }),
+      ]),
   });
 }

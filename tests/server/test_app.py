@@ -168,6 +168,20 @@ def test_kernel_death_then_restart_replays(tmp_path: Path) -> None:
         assert client.get(f"/sessions/{sid}/status").json()["kernel"]["status"] == "idle"
 
 
+def test_respawn_after_death_reports_replay_needed(tmp_path: Path) -> None:
+    with make_client(tmp_path, []) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps/manual", json={"code": "a = 1"})
+        assert wait_idle(client, sid)["kernel"]["replay_needed"] is False
+        client.post(f"/sessions/{sid}/steps/manual", json={"code": "import os\nos._exit(2)\n"})
+        assert wait_idle(client, sid)["kernel"]["status"] == "dead"
+        assert client.get(f"/sessions/{sid}/datasets").status_code == 200
+        kernel = client.get(f"/sessions/{sid}/status").json()["kernel"]
+        assert kernel["status"] == "idle" and kernel["replay_needed"] is True
+        assert client.post(f"/sessions/{sid}/restart").json()["replayed"] == 1
+        assert client.get(f"/sessions/{sid}/status").json()["kernel"]["replay_needed"] is False
+
+
 def test_restart_while_step_runs_is_409(tmp_path: Path) -> None:
     with make_client(tmp_path, []) as client:
         sid = client.post("/sessions", json={}).json()["id"]
