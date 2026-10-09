@@ -86,6 +86,7 @@ export default function DataTable({ datasets }: Props) {
           columnDefs={columnDefs}
           onSortChanged={onSortChanged}
           suppressMultiSort
+          suppressFieldDotNotation
         />
       </div>
     </div>

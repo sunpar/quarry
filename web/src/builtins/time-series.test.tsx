@@ -44,8 +44,8 @@ describe("time-series built-in", () => {
         { name: "ts", dtype: "Datetime" },
         { name: "px", dtype: "Float64" },
       ],
-      rowCount: 5,
-      truncated: false,
+      rowCount: 7,
+      truncated: true,
       rows: [
         { ts: null, px: 1 },
         { ts: "2024-01-02T10:00:00", px: null },
@@ -63,5 +63,7 @@ describe("time-series built-in", () => {
       { time: base + 5, value: 4 },
       { time: base + 6, value: 4.25 },
     ]);
+    // The server's row cap can sit below the chart's limit.
+    expect(screen.getByText("Showing the first 7 rows.")).toBeTruthy();
   });
 });

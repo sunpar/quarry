@@ -22,6 +22,9 @@ export function ViewFrameContainer({
   const api = useApi();
   const queryClient = useQueryClient();
   const frameRef = useRef<HTMLIFrameElement>(null);
+  // The frame loads once, as soon as it is committed; the bridge arrives later, in the effect.
+  const loaded = useRef(false);
+  const bridgeRef = useRef<HostBridge | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Snapshots append to step.view on every poll, so the effect keys on the content hash and
   // reads the (immutable) source, initial state and datasets through a ref.
@@ -65,18 +68,18 @@ export function ViewFrameContainer({
       onError: (message) => setError(message),
     });
     const stop = bridge.listen(window);
-    // The runtime posts `ready` once while loading, which can beat this listener; the
-    // frame's `load` event is the fallback.
-    const onLoad = () => bridge.frameLoaded();
-    frame.addEventListener("load", onLoad);
+    bridgeRef.current = bridge;
     setError(null);
     bridge.mount({
       source: view.source,
       initialState: view.initial_state,
       datasets: view.datasets,
     });
+    // The runtime posts `ready` once while loading, which can beat this listener; a frame
+    // that has already loaded is listening, so mount now.
+    if (loaded.current) bridge.frameLoaded();
     return () => {
-      frame.removeEventListener("load", onLoad);
+      bridgeRef.current = null;
       stop();
     };
   }, [api, queryClient, sessionId, step.id, contentHash, ownDatasets]);
@@ -89,6 +92,10 @@ export function ViewFrameContainer({
       error={error}
       disabled={running}
       onFix={() => error !== null && onRepair({ step_id: step.id, error })}
+      onLoad={() => {
+        loaded.current = true;
+        bridgeRef.current?.frameLoaded();
+      }}
     />
   );
 }

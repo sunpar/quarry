@@ -9,8 +9,12 @@ vi.mock("@quarry/hooks", () => ({
   useDatasetSchema: () => null,
 }));
 // The grid itself is AG Grid's to test; jsdom has no layout, so stub it and check the contract.
+const gridProps = vi.fn();
 vi.mock("ag-grid-react", () => ({
-  AgGridReact: () => <div data-testid="grid" />,
+  AgGridReact: (props: object) => {
+    gridProps(props);
+    return <div data-testid="grid" />;
+  },
 }));
 vi.mock("ag-grid-community", () => ({
   AllCommunityModule: {},
@@ -34,6 +38,10 @@ describe("data-table built-in", () => {
       expect.objectContaining({ dataset: "df", limit: 1000 }),
     );
     expect(screen.getByText("Showing the first 1 rows.")).toBeTruthy();
+    // A column named "a.b" is a literal key in the rows, not a nested path.
+    expect(gridProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({ suppressFieldDotNotation: true }),
+    );
   });
 
   it("shows the notice when a full page comes back and hides it otherwise", () => {

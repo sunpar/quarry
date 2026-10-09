@@ -68,10 +68,24 @@ function mount(onRepair = vi.fn()) {
     window.dispatchEvent(
       new MessageEvent("message", { data, source: iframe.contentWindow }),
     );
-  return { fetchImpl, send, onRepair };
+  return { fetchImpl, send, onRepair, iframe };
 }
 
 describe("ViewFrameContainer", () => {
+  it("mounts on the frame's load when ready never arrives", async () => {
+    const { iframe } = mount();
+    const posted: unknown[] = [];
+    vi.spyOn(iframe.contentWindow as Window, "postMessage").mockImplementation(
+      (m: unknown) => posted.push(m),
+    );
+    await act(async () => {
+      iframe.dispatchEvent(new Event("load"));
+    });
+    expect(posted).toEqual([
+      expect.objectContaining({ type: "mount", viewId: "s1" }),
+    ]);
+  });
+
   it("posts snapshots for stateChanged", async () => {
     const { fetchImpl, send } = mount();
     await act(async () => {

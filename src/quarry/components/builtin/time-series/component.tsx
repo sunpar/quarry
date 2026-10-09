@@ -97,7 +97,7 @@ export default function TimeSeries({ datasets }: Props) {
           onChange={(v) => setChosen({ time, value: v })}
         />
       </div>
-      {result.rows.length >= LIMIT && (
+      {(result.truncated || result.rows.length >= LIMIT) && (
         <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
           Showing the first {result.rows.length.toLocaleString()} rows.
         </p>

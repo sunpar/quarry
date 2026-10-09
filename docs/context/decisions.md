@@ -519,7 +519,8 @@ them.
 - **`replay_needed` on kernel status**: `KernelManager.get` records a session
   whose kernel it spawned while the session already had steps, and `restart`
   clears it only once a replay runs through; `status` reports it from the
-  persisted steps before the kernel starts. A session reopened after a server
+  persisted steps before the kernel starts, and `restart` sets it for any
+  session with steps. A session reopened after a server
   restart gets an empty kernel on its first read and never offered "Restart
   kernel". The banner shows on `dead` or `replay_needed` and reports a replay
   that stopped early; the prompt stays enabled, since a fresh kernel is
@@ -529,7 +530,9 @@ them.
   so a view asking for it rendered an empty table.
 - **The frame's `load` event is the mount fallback**: the runtime posts `ready`
   once while loading, which can beat the host's listener; `HostBridge.frameLoaded`
-  sends the queued mount if `ready` was missed. A `ready` that arrives after
+  sends the queued mount if `ready` was missed. The `onLoad` handler is wired
+  on the iframe element itself and remembered, so a frame that loaded before the
+  bridge existed mounts as soon as the effect runs. A `ready` that arrives after
   `load` mounts a second time, which the runtime tolerates.
 - **A repair step keeps the researcher's prompt**: the view source and browser
   error go only to the agent; the persisted step shows "Fix the view so it

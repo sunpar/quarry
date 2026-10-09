@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { readSession, sessionHash } from "../api/auth";
 import { ApiError } from "../api/client";
 import { KernelBanner } from "../components/KernelBanner";
@@ -26,6 +26,12 @@ export function SessionPage({ token }: SessionPageProps) {
   const [activeId, setActiveId] = useState(() =>
     readSession(window.location.hash),
   );
+  // A pasted link for another session on this server changes only the fragment.
+  useEffect(() => {
+    const onHashChange = () => setActiveId(readSession(window.location.hash));
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
   const current = activeId ?? sessions.data?.[0]?.id ?? null;
   const select = (id: string) => {
     setActiveId(id);

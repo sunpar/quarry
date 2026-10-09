@@ -6,10 +6,11 @@ interface ViewFrameProps {
   error: string | null;
   disabled: boolean;
   onFix: () => void;
+  onLoad: () => void;
 }
 
 export const ViewFrame = forwardRef<HTMLIFrameElement, ViewFrameProps>(
-  function ViewFrame({ title, error, disabled, onFix }, ref) {
+  function ViewFrame({ title, error, disabled, onFix, onLoad }, ref) {
     return (
       <div className="relative border-y border-border bg-card">
         <iframe
@@ -18,6 +19,7 @@ export const ViewFrame = forwardRef<HTMLIFrameElement, ViewFrameProps>(
           src="/runtime.html"
           sandbox="allow-scripts"
           className="block h-[420px] w-full"
+          onLoad={onLoad}
         />
         {error !== null && (
           <div className="absolute inset-0 flex flex-col gap-3 overflow-auto bg-card p-4">
