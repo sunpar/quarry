@@ -21,9 +21,12 @@ from quarry.config import QuarryConfig
 from quarry.kernel.client import KernelDead, RpcFailure
 from quarry.kernel.datasets import DatasetMeta
 from quarry.kernel.executor import QueryResult
+from quarry.projects.store import ProjectStore
 from quarry.query.spec import Json, QueryError, QuerySpec
 from quarry.server.kernels import KernelManager, ReplayReport, SessionBusy
 from quarry.server.models import Session, SessionMeta, Step
+from quarry.server.project_routes import register_project_routes
+from quarry.server.projects import ProjectService
 from quarry.server.service import (
     CreateSessionRequest,
     ManualStepRequest,
@@ -61,6 +64,12 @@ def create_app(
         library=ComponentLibrary(roots),
         transpiler=default_transpiler(static),
         libraries=enabled_libraries(config, runtime_libraries(static)),
+    )
+    projects = ProjectService(
+        config=config,
+        store=ProjectStore(config.root),
+        sessions=service,
+        provider_factory=provider_factory,
     )
 
     @asynccontextmanager
@@ -171,6 +180,7 @@ def create_app(
     async def kernel_dead(_request: Request, exc: KernelDead) -> JSONResponse:
         return JSONResponse(status_code=503, content={"detail": f"kernel is not running: {exc}"})
 
+    register_project_routes(api, projects, service)
     app.include_router(api)
     if (static / "index.html").exists():
         # The sandboxed view frame has an opaque origin, so its module scripts, CSS and fonts
