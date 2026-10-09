@@ -38,6 +38,14 @@ describe("loadComponent", () => {
     );
   });
 
+  it("ignores import-like text in strings and comments", async () => {
+    const source = `
+      // require("fs")
+      export default function V() { return <pre>{"require('fs')"}</pre>; }`;
+    const component = await loadComponent(source, table);
+    expect(typeof component).toBe("function");
+  });
+
   it("refuses names inherited from Object.prototype", async () => {
     const source = `import x from "constructor"; export default () => null;`;
     await expect(loadComponent(source, table)).rejects.toThrow(

@@ -51,6 +51,26 @@ describe("PromptBox", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it("refuses prompts while the kernel is dead", () => {
+    const onSubmit = vi.fn(() => Promise.resolve());
+    render(
+      <PromptBox
+        running={false}
+        kernelDead
+        onSubmit={onSubmit}
+        onStop={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("textbox")).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Run" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(
+      screen.getByPlaceholderText("Restart the kernel to continue"),
+    ).toBeTruthy();
+  });
+
   it("disables input and offers Stop while running", () => {
     const onStop = vi.fn();
     render(

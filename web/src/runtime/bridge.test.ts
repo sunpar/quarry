@@ -52,11 +52,12 @@ describe("RuntimeBridge", () => {
     await expect(promise).rejects.toThrow("bad");
   });
 
-  it("stateChanged carries the specs issued since the last change", () => {
+  it("stateChanged carries the specs used since the last change, once each", () => {
     const { bridge, sent } = setup();
-    void bridge.query({ dataset: "a" });
+    bridge.useQuery({ dataset: "a" });
+    bridge.useQuery({ dataset: "a" });
     bridge.stateChanged({ k: 1 });
-    void bridge.query({ dataset: "b" });
+    bridge.useQuery({ dataset: "b" });
     bridge.stateChanged({ k: 2 });
     const changes = sent.filter((m) => m.type === "stateChanged");
     expect(

@@ -85,6 +85,33 @@ describe("hooks", () => {
     expect(screen.getByTestId("status").textContent).toBe("error");
   });
 
+  it("records a query served from cache for the next state change", async () => {
+    const { bridge, cache, sent } = harness();
+    const spec = { dataset: "df" };
+    cache.ensureQuery(spec);
+    const msg = sent.find((m) => m.type === "query");
+    if (msg?.type !== "query") throw new Error("expected query");
+    bridge.handle({
+      type: "queryResult",
+      viewId: "v1",
+      id: msg.id,
+      ok: true,
+      result: {
+        schema: [],
+        rows: [],
+        arrow_base64: null,
+        row_count: 0,
+        truncated: false,
+      },
+    });
+    await Promise.resolve();
+    bridge.stateChanged({});
+    expect(cache.ensureQuery(spec).status).toBe("success");
+    bridge.stateChanged({});
+    const changes = sent.filter((m) => m.type === "stateChanged");
+    expect(changes.at(-1)).toMatchObject({ queries: [spec] });
+  });
+
   it("useViewState reads the mounted state and re-queries on change", async () => {
     const { sent, wrap } = harness();
     render(wrap(<Probe />));

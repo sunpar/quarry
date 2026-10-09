@@ -112,6 +112,7 @@ function SessionColumn({ id }: { id: string }) {
       </div>
       <PromptBox
         running={running}
+        kernelDead={status.data?.kernel.status === "dead"}
         onSubmit={(prompt) => submit.mutateAsync({ prompt })}
         onStop={() => interrupt.mutate()}
       />

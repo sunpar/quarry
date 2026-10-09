@@ -46,6 +46,9 @@ export default function DataTable({ datasets }: Props) {
       sortable: true,
       resizable: true,
       sort: sort?.col === column.name ? (sort.desc ? "desc" : "asc") : null,
+      // The query spec sorts on the server; the grid's own sort would compare Decimal
+      // strings as text, so it keeps the rows in the order they came.
+      comparator: () => 0,
       type: /^(Int|UInt|Float|Decimal)/.test(column.dtype)
         ? "numericColumn"
         : undefined,

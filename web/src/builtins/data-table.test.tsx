@@ -42,6 +42,11 @@ describe("data-table built-in", () => {
     expect(gridProps).toHaveBeenLastCalledWith(
       expect.objectContaining({ suppressFieldDotNotation: true }),
     );
+    // The server sorts; the grid keeps that order rather than comparing "10" < "2".
+    const [{ columnDefs }] = gridProps.mock.lastCall as [
+      { columnDefs: { comparator: (a: unknown, b: unknown) => number }[] },
+    ];
+    expect(columnDefs[0]?.comparator("10", "2")).toBe(0);
   });
 
   it("shows the notice when a full page comes back and hides it otherwise", () => {

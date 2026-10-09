@@ -20,22 +20,22 @@ export async function loadComponent(
     production: true,
     keepUnusedImports: true,
   });
+  // The scan only preloads allowed modules: it also matches text in strings and comments,
+  // so the refusal belongs to `require`, which sees only real imports.
   const names = new Set([...code.matchAll(REQUIRE)].map((m) => m[2] ?? ""));
   const resolved = new Map<string, unknown>();
   for (const name of names) {
     // Own keys only: "constructor" and friends live on the prototype of every object.
     const load = Object.hasOwn(table, name) ? table[name] : undefined;
-    if (load === undefined) {
+    if (load !== undefined) resolved.set(name, await load());
+  }
+  const require = (name: string): unknown => {
+    if (!resolved.has(name)) {
       const allowed = Object.keys(table).join(", ");
       throw new Error(
         `"${name}" is not available in views. Allowed imports: ${allowed}`,
       );
     }
-    resolved.set(name, await load());
-  }
-  const require = (name: string): unknown => {
-    if (!resolved.has(name))
-      throw new Error(`"${name}" is not available in views`);
     return resolved.get(name);
   };
   const module: { exports: Record<string, unknown> } = { exports: {} };

@@ -31,18 +31,15 @@ export function ViewFrameContainer({
   const viewRef = useRef(step.view);
   viewRef.current = step.view;
   const contentHash = step.view?.content_hash ?? null;
-  const ownDatasets = step.datasets;
 
   // One bridge per iframe for its lifetime; the window listener is the effect's only job.
   useEffect(() => {
     const frame = frameRef.current;
     const view = viewRef.current;
     if (frame === null || view === null || contentHash === null) return;
-    // The step already carries the schema of everything it wrote; only datasets from earlier
-    // steps need the API, fetched fresh so a view never sees a list from before its step ran.
+    // Schemas come from the live kernel, as queries do: a later step may have redefined the
+    // name. Fetched fresh so a view never sees a list from before its step ran.
     const schemaFor = async (dataset: string): Promise<Column[]> => {
-      const own = ownDatasets.find((d) => d.name === dataset);
-      if (own !== undefined) return own.schema;
       const datasets = await queryClient.fetchQuery({
         queryKey: keys.datasets(sessionId),
         queryFn: () => api.datasets(sessionId),
@@ -82,7 +79,7 @@ export function ViewFrameContainer({
       bridgeRef.current = null;
       stop();
     };
-  }, [api, queryClient, sessionId, step.id, contentHash, ownDatasets]);
+  }, [api, queryClient, sessionId, step.id, contentHash]);
 
   if (step.view === null) return null;
   return (

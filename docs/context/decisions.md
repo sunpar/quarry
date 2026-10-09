@@ -543,6 +543,16 @@ them.
   kernel". The banner shows on `dead` or `replay_needed` and reports a replay
   that stopped early; the prompt stays enabled, since a fresh kernel is
   sometimes what the researcher wants.
+- **The server owns row order**: the data table pushes its sort into the query
+  spec and gives every grid column a comparator that returns 0, so AG Grid
+  keeps the server's order instead of comparing Decimal strings as text.
+- **A dead kernel locks the prompt**: the server keeps a dead kernel dead until
+  restart, so a prompt would only add a failed step. `replay_needed` alone
+  leaves the prompt open.
+- **Snapshots record the queries a view used**: the cache notes every query a
+  render asks for, served from cache or not, so a sort toggled back still
+  appears in the next snapshot. Schemas come from the live kernel, as queries
+  do, not from the step that wrote the dataset.
 - **Views get JSON rows only**: `useQuery` reports an Arrow result as an error
   and the contract no longer lists `format`. The runtime has no Arrow decoder,
   so a view asking for it rendered an empty table.

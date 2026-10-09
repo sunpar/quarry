@@ -21,6 +21,7 @@ export class RequestCache {
   constructor(private readonly bridge: RuntimeBridge) {}
 
   ensureQuery(spec: QuerySpec): QueryState {
+    this.bridge.useQuery(spec);
     const key = JSON.stringify(spec);
     const known = this.queries.get(key);
     if (known !== undefined) return known;

@@ -9,7 +9,8 @@ interface Pending {
 
 export class RuntimeBridge {
   private readonly pending = new Map<string, Pending>();
-  private issued: QuerySpec[] = [];
+  // Keyed by spec, so a query used on every render is recorded once.
+  private used = new Map<string, QuerySpec>();
   private counter = 0;
 
   constructor(
@@ -21,8 +22,12 @@ export class RuntimeBridge {
     this.post({ type: "ready" });
   }
 
+  /** Note a query the view used, served from cache or not, for the next `stateChanged`. */
+  useQuery(spec: QuerySpec): void {
+    this.used.set(JSON.stringify(spec), spec);
+  }
+
   query(spec: QuerySpec): Promise<QueryResult> {
-    this.issued.push(spec);
     const id = this.nextId();
     this.post({ type: "query", viewId: this.viewId, id, spec });
     return this.wait<QueryResult>(id);
@@ -35,8 +40,8 @@ export class RuntimeBridge {
   }
 
   stateChanged(state: JsonObject): void {
-    const queries = this.issued;
-    this.issued = [];
+    const queries = [...this.used.values()];
+    this.used = new Map();
     this.post({ type: "stateChanged", viewId: this.viewId, state, queries });
   }
 
