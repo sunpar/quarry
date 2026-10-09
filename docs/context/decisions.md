@@ -332,6 +332,10 @@ them.
 - **An empty dataset searches by tags**: `search_components` takes `dataset: ""`
   to skip the schema filter. Strict mode made `dataset` required, which left no
   way to search before a dataset existed.
+- **Only written views are transpile-checked**: `render_view` mounts a library
+  component without the check, since library components are files a person wrote
+  rather than model output. Spec §8 is amended. Cost: a broken library component
+  fails only at mount.
 - **`write_view` names its datasets**: it takes `datasets` as `render_view`
   does, so a written view records the datasets it reads. Spec §8 is amended.
 - **A prompt step's code is the blocks that ran**: `Step.code` joins only the
@@ -378,9 +382,10 @@ them.
   56 of 1000 tries in a probe, and `/status` returned 500 once in 400 polls
   through `TestClient`. Cost: every poll parses every step file under that lock.
 - **Only health and the UI are open**: `GET /healthz`, `GET /` and the static
-  files need no token. The OpenAPI schema and docs pages are off, since
-  `/openapi.json` had listed every route without a token. Tokens are compared as
-  bytes, because `compare_digest` raises on a non-ASCII `str`.
+  files need no token, since a browser loading the page cannot send it. Spec §12
+  is amended. The OpenAPI schema and docs pages are off, since `/openapi.json`
+  had listed every route without a token. Tokens are compared as bytes, because
+  `compare_digest` raises on a non-ASCII `str`.
 - **Session files**: a step is saved once, when it finishes, as 0-based
   `steps/NNNN.json` through a temp file and `Path.replace`. Transcripts hold
   provider-neutral `Message`s.

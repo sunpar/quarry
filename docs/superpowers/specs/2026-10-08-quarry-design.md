@@ -411,8 +411,8 @@ backoff, then fail the step with the provider's message.
 Tool schemas are strict, so every input is required and `initial_state` is a
 JSON object encoded as a string.
 
-`render_view` and `write_view` run a server-side transpile check with Sucrase
-before accepting, so syntax errors come back without a browser round trip.
+`write_view` runs a server-side transpile check with Sucrase before
+accepting, so syntax errors come back without a browser round trip.
 Mount errors from the browser are not available synchronously (the agent loop
 is finished before the browser mounts), so the first mount is optimistic. If
 the browser reports a mount error, the host offers "fix this" which starts a
@@ -637,8 +637,10 @@ scichart_path = ""            # path to a locally installed scichart npm package
 
 - Server binds `127.0.0.1` only.
 - A random 32-byte token is generated per `quarry serve`, printed once, and
-  required as a bearer header on every request. The printed URL carries it in
-  the fragment; the host app reads it on load and keeps it in memory only.
+  required as a bearer header on every API request. The health check and the
+  host app's static files are open, since a browser loading the page cannot
+  send the header. The printed URL carries the token in the fragment; the host
+  app reads it on load and keeps it in memory only.
 - The kernel runs as the researcher's own user. It executes their code on
   their behalf, exactly as a notebook kernel does.
 - Generated TSX runs only in the iframe with a no-network CSP. The bridge is

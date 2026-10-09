@@ -37,9 +37,9 @@ in [open-items.md](open-items.md).
 
 - Neither provider adapter has called its real API yet; see the
   [open questions](open-items.md#open-questions).
-- Waiting on the researcher: whether the [Stage 2 items](open-items.md#stage-2)
-  land in sunpar/quarry#2 or a follow-up, and whether to turn on CI Auto-fix for
-  the pull request.
+- Open decisions for the maintainer: whether the
+  [Stage 2 items](open-items.md#stage-2) land in sunpar/quarry#2 or a follow-up,
+  and whether to turn on CI Auto-fix for the pull request.
 
 ## Latest verification
 

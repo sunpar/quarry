@@ -20,8 +20,8 @@ made and could revisit belongs in [decisions](decisions.md) instead.
 
 - One researcher, one server, one session at a time, on a shared development
   machine reached by SSH. Steps in a session are linear (spec §1).
-- The server binds `127.0.0.1` only, and every request carries a per-run bearer
-  token (spec §12).
+- The server binds `127.0.0.1` only, and every API request carries a per-run
+  bearer token (spec §12).
 - The browser never holds a full dataset. Views ask the kernel for slices
   through a query spec, capped at `row_cap` rows (spec §4, §6).
 - Every result must be reproducible as plain Python a researcher can run in a
