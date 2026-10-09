@@ -71,4 +71,4 @@ def test_refused_import_offers_fix(serve: Serve, page: Page) -> None:
     )
     page.get_by_role("button", name="Fix this view").click()
     expect(page.get_by_text("fixed", exact=True)).to_be_visible(timeout=30_000)
-    expect(page.get_by_text("Its source:")).to_be_visible()
+    expect(page.get_by_text("Fix the view so it mounts.")).to_be_visible()

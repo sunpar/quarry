@@ -374,11 +374,9 @@ def test_repair_prompt_includes_source_and_error(tmp_path: Path) -> None:
     client.post(f"/sessions/{sid}/steps", json=body)
     wait_idle(client, sid)
     steps = client.get(f"/sessions/{sid}").json()["steps"]
-    prompt = steps[1]["prompt"]
-    assert '"d3" is not available' in prompt
-    assert "export default" in prompt
-    assert prompt.endswith("Fix the view.")
+    assert steps[1]["prompt"] == "Fix the view."
     last_user = [m for m in provider.calls[-1][1] if m.role == "user"][-1]
+    assert '"d3" is not available' in last_user.text
     assert "export default" in last_user.text
 
 

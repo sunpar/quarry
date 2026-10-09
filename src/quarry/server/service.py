@@ -129,10 +129,9 @@ class SessionService:
     def start_prompt(
         self, session_id: str, prompt: str, repair: RepairRequest | None = None
     ) -> Step:
-        if repair is not None:
-            prompt = self._repair_prompt(session_id, repair, prompt)
+        text = prompt if repair is None else self._repair_prompt(session_id, repair, prompt)
         step = self._begin(session_id, kind="prompt", prompt=prompt, code="")
-        self._start(session_id, self._run_prompt, (session_id, step, prompt))
+        self._start(session_id, self._run_prompt, (session_id, step, text))
         return step
 
     def _repair_prompt(self, session_id: str, repair: RepairRequest, prompt: str) -> str:
