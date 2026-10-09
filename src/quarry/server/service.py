@@ -277,11 +277,12 @@ class SessionService:
         self, session_id: str, step: Step, prompt: str, cancel: threading.Event
     ) -> None:
         started = time.monotonic()
-        tools: ToolExecutor | None = None
+        ran: list[tuple[str, ExecResult]] = []
         try:
             provider = self._provider_factory(self._config)
             kernel = self._kernel(session_id)
             tools = ToolExecutor(kernel=kernel, library=self._library, transpiler=self._transpiler)
+            ran = tools.runs
             summary = build_summary(self._store.get(session_id).steps, _safe_datasets(kernel))
             outcome = run_agent_step(
                 prompt=prompt,
@@ -296,25 +297,22 @@ class SessionService:
                 if outcome.error_message
                 else None
             )
-            done = _recorded(step, outcome.runs, outcome.exec_results).model_copy(
-                update={
-                    "status": outcome.status,
-                    "note": outcome.note,
-                    "code": outcome.code,
-                    "error": error,
-                    "transcript": outcome.transcript,
-                    "view": View.from_pending(outcome.view) if outcome.view else None,
-                    "duration_ms": int((time.monotonic() - started) * 1000),
-                }
+            done = _ended(
+                _recorded(step, ran),
+                started,
+                status=outcome.status,
+                note=outcome.note,
+                code=outcome.code,
+                error=error,
+                transcript=outcome.transcript,
+                view=View.from_pending(outcome.view) if outcome.view else None,
             )
         except KernelDead as exc:
             done = _died(step, exc, cancel, started)
         # The step thread's boundary: anything else would leave the session busy for good.
         except Exception as exc:
             # What ran stays with the step: restart replays it, and its writes name this step.
-            ran = tools.runs if tools is not None else []
-            runs = [CodeRun(code=code, status=result.status) for code, result in ran]
-            done = _recorded(_failed(step, _crash(exc), started), runs, [r for _, r in ran])
+            done = _recorded(_failed(step, _crash(exc), started), ran)
         self._finish(session_id, done)
 
     def _run_manual(self, session_id: str, step: Step, cancel: threading.Event) -> None:
@@ -379,28 +377,27 @@ class SessionService:
 
 
 def _apply_exec(step: Step, result: ExecResult, started: float) -> Step:
-    return step.model_copy(
-        update={
-            "status": result.status,
-            "runs": [CodeRun(code=step.code, status=result.status)],
-            "error": result.error,
-            "stdout_tail": result.stdout_tail,
-            "stderr_tail": result.stderr_tail,
-            "reads": result.reads,
-            "writes": result.writes,
-            "defines": result.defines,
-            "datasets": result.datasets,
-            "duration_ms": int((time.monotonic() - started) * 1000),
-        }
+    return _ended(
+        step,
+        started,
+        status=result.status,
+        runs=[CodeRun(code=step.code, status=result.status)],
+        error=result.error,
+        stdout_tail=result.stdout_tail,
+        stderr_tail=result.stderr_tail,
+        reads=result.reads,
+        writes=result.writes,
+        defines=result.defines,
+        datasets=result.datasets,
     )
 
 
-def _recorded(step: Step, runs: list[CodeRun], results: list[ExecResult]) -> Step:
+def _recorded(step: Step, ran: list[tuple[str, ExecResult]]) -> Step:
     """`step` with the runs a prompt step made, for replay, and the lineage they fold to."""
-    lineage = step_lineage(results)
+    lineage = step_lineage([result for _, result in ran])
     return step.model_copy(
         update={
-            "runs": runs,
+            "runs": [CodeRun(code=code, status=result.status) for code, result in ran],
             "reads": lineage.reads,
             "writes": lineage.writes,
             "defines": lineage.defines,
@@ -409,20 +406,18 @@ def _recorded(step: Step, runs: list[CodeRun], results: list[ExecResult]) -> Ste
     )
 
 
+def _ended(step: Step, started: float, **update: object) -> Step:
+    """`step` as it finished: `update` applied, and its duration since `started`."""
+    duration_ms = int((time.monotonic() - started) * 1000)
+    return step.model_copy(update={**update, "duration_ms": duration_ms})
+
+
 def _failed(step: Step, error: ExecError, started: float) -> Step:
-    return step.model_copy(
-        update={
-            "status": "error",
-            "error": error,
-            "duration_ms": int((time.monotonic() - started) * 1000),
-        }
-    )
+    return _ended(step, started, status="error", error=error)
 
 
 def _stopped(step: Step, started: float) -> Step:
-    return step.model_copy(
-        update={"status": "interrupted", "duration_ms": int((time.monotonic() - started) * 1000)}
-    )
+    return _ended(step, started, status="interrupted")
 
 
 def _died(step: Step, exc: KernelDead, cancel: threading.Event, started: float) -> Step:

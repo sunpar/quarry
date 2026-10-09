@@ -1,6 +1,3 @@
-import os
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 
 import duckdb
@@ -9,6 +6,7 @@ import pytest
 
 from quarry.data import parquet
 from quarry.data.parquet import ParquetCatalog, scan_layout
+from tests.fixtures import chmodded, root_ignores_modes
 
 
 def build_cache(root: Path) -> None:
@@ -36,18 +34,6 @@ def write_frame(path: Path) -> None:
     pl.DataFrame({"ticker": ["A"]}).write_parquet(path)
 
 
-@contextmanager
-def mode(path: Path, bits: int) -> Iterator[None]:
-    path.chmod(bits)
-    try:
-        yield
-    finally:
-        path.chmod(0o755)
-
-
-root_ignores_modes = pytest.mark.skipif(os.geteuid() == 0, reason="root reads any directory")
-
-
 def test_scan_layout_lists_an_unpartitioned_dataset_with_no_keys(tmp_path: Path) -> None:
     build_cache(tmp_path)
     write_frame(tmp_path / "flat" / "part.parquet")
@@ -65,7 +51,7 @@ def test_scan_layout_lists_an_unpartitioned_dataset_with_no_keys(tmp_path: Path)
 def test_scan_layout_skips_an_unreadable_dataset(tmp_path: Path) -> None:
     build_cache(tmp_path)
     write_frame(tmp_path / "locked" / "part.parquet")
-    with mode(tmp_path / "locked", 0o000):
+    with chmodded(tmp_path / "locked", 0o000):
         layout = scan_layout(tmp_path)
     assert [entry.dataset for entry in layout] == ["prices"]
 
@@ -75,7 +61,7 @@ def test_scan_layout_skips_a_dataset_whose_entries_cannot_be_inspected(tmp_path:
     # r-- on a directory lists its names but forbids stat on them, which is where is_dir() raises.
     build_cache(tmp_path)
     write_frame(tmp_path / "listed" / "part.parquet")
-    with mode(tmp_path / "listed", 0o444):
+    with chmodded(tmp_path / "listed", 0o444):
         layout = scan_layout(tmp_path)
     assert [entry.dataset for entry in layout] == ["prices"]
 
@@ -85,7 +71,7 @@ def test_scan_layout_takes_the_next_key_from_the_sibling_of_an_unreadable_partit
     tmp_path: Path,
 ) -> None:
     build_cache(tmp_path)
-    with mode(tmp_path / "prices" / "year=2023", 0o000):
+    with chmodded(tmp_path / "prices" / "year=2023", 0o000):
         layout = scan_layout(tmp_path)
     assert [(entry.dataset, entry.keys) for entry in layout] == [("prices", ["year", "month"])]
 
@@ -93,7 +79,8 @@ def test_scan_layout_takes_the_next_key_from_the_sibling_of_an_unreadable_partit
 @root_ignores_modes
 def test_scan_layout_keeps_the_first_key_when_no_partition_can_be_read(tmp_path: Path) -> None:
     build_cache(tmp_path)
-    with mode(tmp_path / "prices" / "year=2023", 0o000), mode(tmp_path / "prices" / "year=2024", 0):
+    prices = tmp_path / "prices"
+    with chmodded(prices / "year=2023", 0o000), chmodded(prices / "year=2024", 0o000):
         layout = scan_layout(tmp_path)
     assert [(entry.dataset, entry.keys) for entry in layout] == [("prices", ["year"])]
 
@@ -117,7 +104,7 @@ def test_scan_layout_does_not_read_the_leaf_partitions(
 @root_ignores_modes
 def test_scan_layout_of_unreadable_root_is_empty(tmp_path: Path) -> None:
     build_cache(tmp_path)
-    with mode(tmp_path, 0o000):
+    with chmodded(tmp_path, 0o000):
         assert scan_layout(tmp_path) == []
 
 

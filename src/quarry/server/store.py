@@ -18,11 +18,9 @@ class SessionStore:
     def create(self, *, title: str, provider: ProviderInfo) -> SessionMeta:
         meta = SessionMeta(id=new_id(), title=title, created_at=now_iso(), provider=provider)
         path = self._dir / meta.id
-        # Several researchers share a machine: only the owner reads prompts and code. The root is
-        # not managed here (`quarry serve` creates it private); `parents=True` only keeps a store
-        # on a missing root working. Each level the store makes gets 0o700, one mkdir apiece,
-        # because `parents=True` applies the mode to the last level alone.
-        self._dir.mkdir(parents=True, mode=_PRIVATE_DIR, exist_ok=True)
+        # Several researchers share a machine: only the owner reads prompts and code. The root
+        # is `quarry serve`'s to create private; each level below it gets 0o700.
+        self._dir.mkdir(mode=_PRIVATE_DIR, exist_ok=True)
         path.mkdir(mode=_PRIVATE_DIR)
         (path / "steps").mkdir(mode=_PRIVATE_DIR)
         _write_atomic(path / "session.json", meta.model_dump_json(indent=2))

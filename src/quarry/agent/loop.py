@@ -30,7 +30,6 @@ class StepOutcome(BaseModel):
     code: str
     runs: list[CodeRun]
     iterations: int
-    exec_results: list[ExecResult]
 
 
 class Lineage(BaseModel):
@@ -86,7 +85,6 @@ def run_agent_step(
             code="\n\n".join(code for code, r in tools.runs if r.status == "ok"),
             runs=[CodeRun(code=code, status=r.status) for code, r in tools.runs],
             iterations=iterations,
-            exec_results=[r for _, r in tools.runs],
         )
 
     while not cancel.is_set():
