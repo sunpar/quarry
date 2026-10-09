@@ -513,8 +513,13 @@ def test_interrupt_cancels_a_step_waiting_on_the_model_after_its_kernel_died(
         assert len(provider.calls) == 1
 
 
-def test_crashed_prompt_step_keeps_its_runs(tmp_path: Path) -> None:
+def test_crashed_prompt_step_keeps_its_runs_and_lineage(tmp_path: Path) -> None:
     load = "df = pl.DataFrame({'a': [1]})"
+
+    def origins() -> dict[str, str | None]:
+        listed = client.get(f"/sessions/{sid}/datasets").json()
+        return {d["name"]: d["origin_step"] for d in listed}
+
     # Out of turns, the provider raises on its second call, as a bug in an adapter would.
     with make_client(tmp_path, [py("c1", load)]) as client:
         sid = client.post("/sessions", json={}).json()["id"]
@@ -523,9 +528,11 @@ def test_crashed_prompt_step_keeps_its_runs(tmp_path: Path) -> None:
         step = client.get(f"/sessions/{sid}").json()["steps"][0]
         assert step["status"] == "error" and step["error"]["type"] == "AssertionError"
         assert step["runs"] == [{"code": load, "status": "ok"}]
+        assert step["writes"] == ["df"] and [d["name"] for d in step["datasets"]] == ["df"]
+        assert origins() == {"df": step["id"]}
         report = client.post(f"/sessions/{sid}/restart").json()
         assert report == {"replayed": 1, "failed_step": None, "error": None}
-        assert dataset_names(client, sid) == ["df"]
+        assert origins() == {"df": step["id"]}
 
 
 def test_interrupt_when_idle_reports_nothing_interrupted(tmp_path: Path) -> None:

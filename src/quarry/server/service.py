@@ -7,7 +7,7 @@ import logging
 import threading
 import time
 import traceback
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 
 from pydantic import BaseModel
 
@@ -232,25 +232,19 @@ class SessionService:
                 tools=tools,
                 cancel=cancel,
             )
-            lineage = step_lineage(outcome.exec_results)
             error = (
                 ExecError(type="StepError", message=outcome.error_message, traceback="")
                 if outcome.error_message
                 else None
             )
-            done = step.model_copy(
+            done = _recorded(step, outcome.runs, outcome.exec_results).model_copy(
                 update={
                     "status": outcome.status,
                     "note": outcome.note,
                     "code": outcome.code,
-                    "runs": outcome.runs,
                     "error": error,
                     "transcript": outcome.transcript,
                     "view": View.from_pending(outcome.view) if outcome.view else None,
-                    "reads": lineage.reads,
-                    "writes": lineage.writes,
-                    "defines": lineage.defines,
-                    "datasets": lineage.datasets,
                     "duration_ms": int((time.monotonic() - started) * 1000),
                 }
             )
@@ -258,10 +252,10 @@ class SessionService:
             done = _died(step, exc, cancel, started)
         # The step thread's boundary: anything else would leave the session busy for good.
         except Exception as exc:
-            # The blocks that ran stay with the step, so restart replays them.
+            # What ran stays with the step: restart replays it, and its writes name this step.
             ran = tools.runs if tools is not None else []
             runs = [CodeRun(code=code, status=result.status) for code, result in ran]
-            done = _failed(step, _crash(exc), started, runs)
+            done = _recorded(_failed(step, _crash(exc), started), runs, [r for _, r in ran])
         self._finish(session_id, done)
 
     def _run_manual(self, session_id: str, step: Step, cancel: threading.Event) -> None:
@@ -342,12 +336,25 @@ def _apply_exec(step: Step, result: ExecResult, started: float) -> Step:
     )
 
 
-def _failed(step: Step, error: ExecError, started: float, runs: Sequence[CodeRun] = ()) -> Step:
+def _recorded(step: Step, runs: list[CodeRun], results: list[ExecResult]) -> Step:
+    """`step` with the runs a prompt step made, for replay, and the lineage they fold to."""
+    lineage = step_lineage(results)
+    return step.model_copy(
+        update={
+            "runs": runs,
+            "reads": lineage.reads,
+            "writes": lineage.writes,
+            "defines": lineage.defines,
+            "datasets": lineage.datasets,
+        }
+    )
+
+
+def _failed(step: Step, error: ExecError, started: float) -> Step:
     return step.model_copy(
         update={
             "status": "error",
             "error": error,
-            "runs": list(runs),
             "duration_ms": int((time.monotonic() - started) * 1000),
         }
     )
