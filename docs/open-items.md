@@ -208,8 +208,6 @@ has made yet. Decisions already made are in
   kernel, so a recipe that hangs hangs the save request, which is synchronous so
   that it can show a saving state. The session stays usable, since the hold is
   released first.
-- Two clients on one project can race: `create()` can pick the same slug twice,
-  and `_touch` can overwrite a canvas written at the same moment.
 - A failed view recall keeps its view on the step, so the frame shows a query
   error under the recall's traceback.
 - Canvas cards: a card is blank when its saved view fails to load, a card whose

@@ -5,6 +5,7 @@ from __future__ import annotations
 import builtins
 import json
 import re
+import threading
 from pathlib import Path
 from typing import TypeVar
 
@@ -49,18 +50,22 @@ def _read_all(directory: Path, model: type[M]) -> list[M]:
 class ProjectStore:
     def __init__(self, root: Path) -> None:
         self._dir = root / "projects"
+        # Routes run on a thread pool: every read-modify-write of project.json, and the slug
+        # choice in create, happens under this lock so a save's touch cannot drop a canvas write.
+        self._meta_lock = threading.Lock()
 
     def create(self, name: str, description: str = "") -> ProjectMeta:
         base = slugify(name)
-        slug, n = base, 1
-        while (self._dir / slug).exists():
-            n += 1
-            slug = f"{base}-{n}"
-        now = now_iso()
-        meta = ProjectMeta(
-            slug=slug, name=name, description=description, created_at=now, updated_at=now
-        )
-        self._write_meta(meta)
+        with self._meta_lock:
+            slug, n = base, 1
+            while (self._dir / slug).exists():
+                n += 1
+                slug = f"{base}-{n}"
+            now = now_iso()
+            meta = ProjectMeta(
+                slug=slug, name=name, description=description, created_at=now, updated_at=now
+            )
+            self._write_meta(meta)
         return meta
 
     def list(self) -> list[ProjectMeta]:
@@ -87,8 +92,9 @@ class ProjectStore:
         views = [c.view for c in cards]
         if len(set(views)) != len(views):  # a card is keyed by its view
             raise ValueError("a canvas holds each view once")
-        meta = self._read_meta(slug).model_copy(update={"canvas": cards})
-        self._write_meta(meta)
+        with self._meta_lock:
+            meta = self._read_meta(slug).model_copy(update={"canvas": cards})
+            self._write_meta(meta)
         return meta
 
     def write_dataset(self, slug: str, meta: SavedDatasetMeta, *, recipe: str, raw: str) -> None:
@@ -170,4 +176,5 @@ class ProjectStore:
         write_atomic(path / "project.json", meta.model_dump_json(indent=2))
 
     def _touch(self, slug: str) -> None:
-        self._write_meta(self._read_meta(slug).model_copy(update={"updated_at": now_iso()}))
+        with self._meta_lock:
+            self._write_meta(self._read_meta(slug).model_copy(update={"updated_at": now_iso()}))

@@ -716,8 +716,11 @@ them.
   before the kernel's snapshot, whose own `mkdir` would follow the kernel's
   umask, and makes `data.parquet` 0600 once the snapshot returns. The plan's
   helper made directories and wrote text in place, while recipes hold the same
-  code that made session files private. Cost if wrong: a researcher must `chmod`
-  a project to share it in place, and the fsyncs add a little save latency.
+  code that made session files private. One lock in `ProjectStore` covers every
+  read-modify-write of `project.json` and the slug choice in `create`, so a
+  save's `updated_at` touch cannot drop a canvas write made at the same moment.
+  Cost if wrong: a researcher must `chmod` a project to share it in place, and
+  the fsyncs add a little save latency.
 - **Projects list by name, then slug**: `ProjectStore.list` sorts by lowercased
   name with the slug breaking ties, since "Momentum" and "momentum" share a
   lowercased name and `iterdir` order is arbitrary. The plan sorted by name
