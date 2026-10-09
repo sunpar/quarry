@@ -51,6 +51,12 @@ class ExecError(BaseModel):
     message: str
     traceback: str
 
+    @classmethod
+    def from_exception(cls, exc: BaseException) -> ExecError:
+        # format_exception already survives a failing __str__ ("<exception str() failed>").
+        trace = "".join(traceback.format_exception(exc))
+        return cls(type=type(exc).__name__, message=exception_message(exc), traceback=trace)
+
 
 class ExecResult(BaseModel):
     status: Status
@@ -90,14 +96,35 @@ class Executor:
         self._tail = tail_bytes
         # Each helper an earlier step defined, with a test that its name still holds it.
         self._defined: dict[str, _IsSame] = {}
+        # The metadata `execute` and `list_datasets` computed for each dataset since the last step.
+        # Step code is what changes datasets, so each step clears it; a preview runs a plan or a
+        # query, and the server lists on every prompt step.
+        self._described: dict[str, DatasetMeta] = {}
         self._running = False
         self._interrupted = False  # whether the SIGINT handler interrupted the current step
+        self._stopped = False
 
     @property
     def running(self) -> bool:
         """True only inside a step's `exec` or one describe of its writes: the guarded regions,
         the only places an interrupt may land."""
         return self._running
+
+    @property
+    def stopped(self) -> bool:
+        return self._stopped
+
+    def stop(self) -> None:
+        """Interrupt every step from now on: the one running, found by a SIGINT sent after this,
+        and each guarded region that starts after it (a step's exec, a describe of its writes),
+        which ends as soon as it is running. A step about to start never runs."""
+        self._stopped = True
+
+    def _check_stopped(self) -> None:
+        """Called in a guarded region, after `_running` is set: end it as an interrupt would."""
+        if self._stopped:
+            self._interrupted = True
+            raise KeyboardInterrupt
 
     def on_sigint(self, signum: int, frame: FrameType | None) -> None:
         """The kernel's SIGINT handler: interrupt the step's guarded region, and record it.
@@ -116,6 +143,9 @@ class Executor:
         """Run `code` in the namespace; every failure, even describing a write, is a result."""
         started = time.monotonic()
         self._interrupted = False
+        # Whatever the step ends as, it may have changed any dataset, even in place
+        # (`df.extend(...)`); the writes below are described after it, so they are current.
+        self._described.clear()
         before = {name: _identity_check(self._ns[name]) for name in dataset_names(self._ns)}
         out, err = _TailWriter(self._tail), _TailWriter(self._tail)
         status, error, names, prior = self._exec(code, out, err)
@@ -124,6 +154,7 @@ class Executor:
         stored = names if names is not None and status == "ok" else _NOTHING_STORED
         writes = _written(stored, before, self._ns)
         described = [self._describe_write(name) for name in writes]
+        self._described.update({meta.name: meta for meta, _ in described if meta.error is None})
         describe_errors = [e for _, e in described if e is not None]
         if self._interrupted:
             # Whatever followed the interrupt: DuckDB raises its own RuntimeError for it, and a
@@ -158,8 +189,19 @@ class Executor:
         return describe_dataset(name, self._dataset(name), count_rows=True)
 
     def list_datasets(self) -> list[DatasetMeta]:
-        """Every dataset; one that cannot be described carries an `error` instead of a schema."""
-        return [self._describe_guarded(name)[0] for name in sorted(dataset_names(self._ns))]
+        """Every dataset; one that cannot be described carries an `error` instead of a schema.
+
+        A dataset is described once between steps; a failed description is not kept.
+        """
+        metas: list[DatasetMeta] = []
+        for name in sorted(dataset_names(self._ns)):
+            meta = self._described.get(name)
+            if meta is None:
+                meta = self._describe_guarded(name)[0]
+                if meta.error is None:
+                    self._described[name] = meta
+            metas.append(meta)
+        return metas
 
     def query(self, spec: QuerySpec) -> QueryResult:
         """Run `spec`, returning at most `row_cap` rows; `truncated` when more rows exist."""
@@ -210,6 +252,7 @@ class Executor:
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 self._running = True
                 try:
+                    self._check_stopped()  # a SIGINT that missed this step came after `stop`
                     exec(compiled, self._ns)  # executing researcher code is the kernel's job
                 finally:
                     self._running = False
@@ -217,7 +260,7 @@ class Executor:
             return "interrupted", None, names, prior
         # SystemExit included: a step calling exit() must not end the kernel.
         except BaseException as exc:
-            return "error", _exec_error(exc), names, prior
+            return "error", ExecError.from_exception(exc), names, prior
         return "ok", None, names, prior
 
     def _describe_write(self, name: str) -> tuple[DatasetMeta, ExecError | None]:
@@ -229,6 +272,7 @@ class Executor:
                 # signal's handler with the flag still set, outside this try.
                 self._running = True
                 try:
+                    self._check_stopped()
                     described = self._describe_guarded(name)
                 finally:
                     self._running = False
@@ -244,7 +288,7 @@ class Executor:
         except NOT_FAILURES:
             raise
         except BaseException as exc:  # polars panics are BaseException, not Exception
-            error = _exec_error(exc)
+            error = ExecError.from_exception(exc)
             meta = undescribed(name, obj, error=f"{error.type}: {error.message}")
             return meta, error.model_copy(update={"message": f"{name}: {error.message}"})
 
@@ -366,9 +410,3 @@ def _arrow_base64(frame: pl.DataFrame) -> str:
     buffer = io.BytesIO()
     frame.write_ipc(buffer)
     return base64.b64encode(buffer.getvalue()).decode("ascii")
-
-
-def _exec_error(exc: BaseException) -> ExecError:
-    # format_exception already survives a failing __str__ ("<exception str() failed>").
-    trace = "".join(traceback.format_exception(exc))
-    return ExecError(type=type(exc).__name__, message=exception_message(exc), traceback=trace)

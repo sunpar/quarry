@@ -1,7 +1,7 @@
 # Open items
 
-Gaps in the shipped Stage 1 code, work deferred to later stages, and decisions
-nobody has made yet. Decisions already made are in
+Gaps in the shipped code, work deferred to later stages, and decisions nobody
+has made yet. Decisions already made are in
 [decisions.md](context/decisions.md).
 
 ## Known problems
@@ -23,10 +23,12 @@ nobody has made yet. Decisions already made are in
   `snapshot` run outside the guarded regions, so a slow relation preview, query
   or snapshot holds the kernel until it ends. Silent: `interrupt` answers
   `delivered: false`.
-- **Previews run eagerly and are not cached**: every step describes its writes,
-  so a LazyFrame or relation runs its plan as soon as it is assigned.
-  `list_datasets` recomputes every preview on each call. Silent cost, with no
-  error.
+- **Previews run eagerly**: every step describes its writes, so a LazyFrame or
+  relation runs its plan as soon as it is assigned. Silent cost, with no error.
+- **Stale previews from outside a step**: the kernel clears cached dataset
+  metadata only when a step runs, so a parquet file rewritten under a LazyFrame,
+  or a DuckDB file another process writes, shows an old preview until the next
+  step. Silent.
 - **Time and UUID filters**: an ISO string against a Time column fails on the
   polars target with `InvalidOperationError`, since only Date and Datetime
   literals are coerced. Relation UUID columns are described as String, yet
@@ -76,62 +78,64 @@ nobody has made yet. Decisions already made are in
 - **A step's child can outlive the kernel**: a process a step started that calls
   `setsid` leaves the kernel's process group, so `close()` does not kill it.
   Silent.
-- **No memory cap on macOS**: macOS rejects `RLIMIT_AS`, so the kernel runs
+- **No memory cap on macOS**: macOS rejects `RLIMIT_DATA`, so the kernel runs
   uncapped. Silent to the client; the only sign is one line on the kernel's
   stderr.
-- **Config errors can print secrets**: pydantic echoes the input of an unknown
-  key, so a misspelled `mssql_dsn` key prints its password when startup fails.
-  `mssql_dsn` and the license keys also appear in the config model's repr. Fails
-  loudly, with the secret in the output.
+- **Small memory caps need a thread cap**: on Linux `RLIMIT_DATA` counts thread
+  stacks, so with every core in use a small cap kills the kernel as polars
+  starts, as 256 MB on 14 cores did. Loud: the kernel dies. `kernel_threads`
+  avoids it.
 - **`close()` right after `shutdown()` can cut off a snapshot**: `close()` sends
   SIGKILL at once, so a snapshot still writing leaves a stray `.tmp` file beside
   its target. The target keeps its old contents. Silent.
 - **Output tails count characters**: the spec promises the last 4 KB of output,
   and the tail keeps 4096 characters. Silent; multi-byte output runs past 4 KB.
+- **A loader that hangs at import hangs startup**: the server imports loaders to
+  describe them to the agent, and each kernel imports them at start. Loud only
+  through a stderr notice naming the loader after 10 s.
+- **Some cache layouts are hidden or misread**: `scan_layout` skips an
+  unreadable directory without a log line, and misses a dataset whose parquet
+  files sit only in nested directories not named `key=value`. A dangling
+  `*.parquet` symlink still lists its dataset. Silent.
+- **Cancel waits for the model**: `/interrupt` and `/restart` stop a prompt step
+  only once the provider answers the call in flight, bounded only by the
+  provider client's timeout. Meanwhile `/restart` holds its request, a second
+  restart gets 409, and under uvicorn a graceful Ctrl-C waits too. Silent.
+- **A crashed prompt step saves no code or transcript**: an exception other than
+  `ProviderError` or `KernelDead` saves the step's runs and their lineage, but
+  leaves `code` empty and saves no view or transcript. Silent.
+- **Restart can mislabel a step**: a step that a kernel crash or the
+  researcher's cancel ended right before a restart is saved with "stopped by a
+  restart". Silent; the status is right.
+- **A stuck kernel holds the manager lock**: `KernelManager.kill` and `restart`
+  close the old client under the manager's lock, and `close()` waits up to 5 s
+  for a killed kernel, so every session's kernel lookup waits too. Silent.
+- **`origin_step` can name a step replay dropped**: replay skips interrupted
+  runs and stops at the first failure, but `/datasets` still credits the latest
+  saved writer. After a step that rebound `df` is interrupted and the session
+  restarts, `df` holds the older data and names the interrupted step. Silent.
+- **Saving a step stalls every route**: `_finish` writes and fsyncs the step
+  file and its directory under the service lock that every route takes. With a 1
+  s fsync in a probe, another session's `/status` took 2 s, so a slow filesystem
+  such as an NFS home directory stalls all sessions. A failed save also kills
+  the kernel under that lock, which can wait up to 5 s for the process to exit.
+  Silent.
+- **A kernel never started reads as `starting`**: after a server restart,
+  `/status` reports `starting` for a session whose kernel was never spawned, so
+  a client cannot tell that its namespace is empty. Silent.
+- **Restart shows no progress**: replay runs inside the `/restart` request,
+  while spec §6 wants progress in the UI. Silent until it returns.
+- **Every `/status` poll parses every step**: it loads the whole session under
+  the service lock, since no route reads one step, and `/datasets` parses every
+  step too. A silent cost that grows with the session.
+- **Prompt-step tracebacks land in the message**: a prompt step's error puts the
+  traceback in `error.message` and leaves `traceback` empty, while manual steps
+  fill `traceback`. Silent.
+- **No transpile check runs yet**: spec §8 promises a Sucrase check, but
+  `transpile-check.mjs` ships with the Stage 3 frontend, so `render_view` and
+  `write_view` accept any source until then. Silent.
 
 ## Deferred work
-
-### Stage 2
-
-- Add a restart escalation for interrupts that cannot land, such as a running
-  polars `collect()`, so the researcher can always get control back.
-- Cache dataset metadata per write identity, so `list_datasets` stops
-  recomputing previews and the uninterruptible RPCs stay fast.
-- Stamp `DatasetMeta.origin_step` in the server and pass the kernel a
-  `--session` argument, since the kernel has no step ids.
-- Expose loader failures over RPC and wire in `scan_layout` for the parquet
-  layout, because the agent's context needs both.
-- Fix `scan_layout` before wiring it: it drops unpartitioned dataset directories
-  and lets `PermissionError` escape.
-- Make loader problems clear at startup: name a loader that hangs at import, and
-  explain a missing `mssql` extra instead of a bare `ModuleNotFoundError`.
-- Catch a `PermissionError` from `path.exists()` in `load_loaders`, which is
-  meant never to raise.
-- Set `hide_input_in_errors` and keep `mssql_dsn` and license keys out of reprs
-  before any config logging or UI, so secrets cannot leak.
-- Make `api_key` raise only `ConfigError`: `PermissionError`,
-  `IsADirectoryError` and `UnicodeDecodeError` escape today, and its
-  exists-stat-read sequence can race. Stage 2 is its first caller.
-- Expand `~` in every config path and resolve relative paths against the root,
-  since the server and kernel working directories can differ. Today these fail
-  loudly.
-- Add config tests for the OpenAI env mapping, env-over-file precedence, mode
-  0o604, missing or empty key files, `~` expansion and secret-free errors.
-- Kill the kernel when a Ctrl-C lands in `spawn` after `Popen`, and release the
-  socket and temp directory when `close()` times out.
-- Keep every client failure inside `KernelDead` or `RpcFailure`: a long `TMPDIR`
-  makes the socket bind raise `OSError`, and a malformed result raises
-  `ValidationError`.
-- Refuse or interrupt a step when `shutdown` lands between dequeue and `exec`;
-  today only `close()` or socket EOF ends it.
-- Test the memory-cap wiring in `main`, since both current tests monkeypatch
-  `setrlimit`.
-- The server must not pipe the kernel's stdout or stderr, because `_exit_now`
-  flushes them and would block on a full, undrained pipe.
-- Add config models before new keys appear in `config.toml`, because unknown
-  keys now fail startup.
-- Settle the open questions on the root override, memory limits, CPU thread
-  caps, previews and result streams.
 
 ### Stage 3
 
@@ -144,6 +148,12 @@ nobody has made yet. Decisions already made are in
   `artifacts`.
 - Explain in the UI why an interrupt may not stop a step at once, and offer the
   Stage 2 restart.
+- Run restart in the background and report replay progress through `/status`, as
+  spec §6 asks.
+- Report a kernel that was never started apart from one starting, so the UI can
+  offer a restart after the server restarts.
+- Add a route that reads one step, so polling stops parsing the whole session.
+- Put prompt-step tracebacks in `error.traceback`, as manual steps do.
 - Fix filter coercion for Time literals, UUID and other natively imported
   relation columns, strings against integer columns, and datetime-shaped strings
   against Date columns.
@@ -189,6 +199,9 @@ nobody has made yet. Decisions already made are in
 - Keep the version in one place: `pyproject.toml` and `src/quarry/__init__.py`
   both hold it, and the test checks only its type.
 - Run mypy on `tests` as well as `src`.
+- Open `config.toml` once in `load_config`: it checks `exists()`, opens the
+  file, then stats it again for the DSN warning, so a file swapped in between is
+  checked apart from what was read.
 - Count output tails in bytes, as the spec's "last 4 KB" says.
 - Type the op sets in `quarry/query/spec.py` as `frozenset[FilterOp]` rather
   than `frozenset[str]`.
@@ -202,18 +215,12 @@ nobody has made yet. Decisions already made are in
   equivalence `normalize` sorts rows, so order is compared only under a limit.
 - Tighten tests further: some `match=` patterns in `test_spec.py` also match
   pydantic's echoed input, and the polars target has no direct nulls-first test.
+- Close Stage 2 test gaps: nothing checks the arguments the OpenAI adapter
+  sends, that every tool schema stays strict, or that a SciChart key enables
+  SciChart.
 
 ## Open questions
 
-- **`--root` or a config `root` key**: which wins, and should a `root` key in
-  `config.toml` exist at all, given it lives inside the root it overrides?
-  Options: drop the key, keep it with `--root` winning, or keep it with the
-  config winning.
-- **Memory limits**: `RLIMIT_AS` counts virtual memory, including mmapped
-  parquet, thread stacks and malloc arenas. A cap near the working set then
-  breaks polars and DuckDB in confusing ways. Options: keep `RLIMIT_AS`, use
-  cgroups through `systemd-run --user -p MemoryMax`, or use `RLIMIT_DATA`.
-  DuckDB's 70% share of the cap is unmeasured too.
 - **JSON contract for the Stage 3 renderer**: decimals arrive as exact strings,
   so every sum over integers of up to 64 bits is a string, while a 128-bit sum
   is a number. A Map is an object when its key type allows one and no value
@@ -225,15 +232,13 @@ nobody has made yet. Decisions already made are in
   where only nanosecond columns convert an offset to UTC, or pick one rule for
   every unit? The current rule follows DuckDB's cast, which an upgrade could
   change.
-- **Interrupt escalation and restart UX**: Stage 2 needs a restart escalation,
-  and the UI must explain it. When to offer or force the restart, and what the
-  researcher sees meanwhile, is open.
-- **Previews**: cache them per write identity in Stage 2, or compute them on
-  demand when a client asks? Today every write forces lazy plans to run.
-- **CPU threads per kernel**: polars and DuckDB each default to every core, so
-  several kernels on one machine oversubscribe it. Options: cap threads per
-  kernel through config (`POLARS_MAX_THREADS` and DuckDB's `threads` setting),
-  or keep the defaults.
+- **Restart UX**: restart always works, and it kills a running step. When the UI
+  offers or forces a restart, and what the researcher sees meanwhile, is open.
+- **Live provider calls**: neither adapter has called its real API. Whether the
+  Anthropic API accepts `fallbacks="default"` with the
+  `server-side-fallback-2026-07-01` beta, and whether `gpt-5` is the right
+  OpenAI model name, is unverified. `tests/agent/test_live_providers.py` checks
+  both once keys are set.
 - **Exact class-body lineage**: keep over-reporting class-body reads, or add
   execution-order analysis covering conditionals, loops, `del` and `try`?
   Over-reporting adds recipe dependencies but never drops one.

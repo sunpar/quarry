@@ -58,10 +58,14 @@ def main() -> None:
 
 
 def apply_memory_cap(megabytes: int) -> None:
-    """Cap the address space at `megabytes`; where the OS refuses (macOS does), run uncapped."""
+    """Cap the data segment at `megabytes`; where the OS refuses (macOS does), run uncapped.
+
+    Not the address space: `RLIMIT_AS` also counts mmapped files, thread stacks and malloc
+    arenas, so a cap near the working set broke polars and DuckDB in confusing ways.
+    """
     limit = megabytes * 1024 * 1024
     try:
-        resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+        resource.setrlimit(resource.RLIMIT_DATA, (limit, limit))
     except (ValueError, OSError) as exc:
         _warn(f"memory cap of {megabytes} MB not applied: {exc}")
 
@@ -92,7 +96,6 @@ def serve(
     executing_thread = threading.get_ident()
     send = _sender(conn)
     requests: queue.Queue[Request | None] = queue.Queue()
-    stopping = threading.Event()
 
     def interrupt_step() -> bool:
         """Signal the running step, if there is one; whether there was."""
@@ -108,7 +111,7 @@ def serve(
                 send(Response(id=request.id, result=delivered.model_dump()))
             case "shutdown":
                 send(service.handle(request))  # answered before the main thread can exit
-                stopping.set()
+                executor.stop()  # before the interrupt: a step about to start sees the flag
                 interrupt_step()
                 requests.put(None)
             case _:
@@ -127,7 +130,7 @@ def serve(
 
     threading.Thread(target=reader, daemon=True).start()
     while (request := requests.get()) is not None:
-        response = _refused(request) if stopping.is_set() else service.handle(request)
+        response = _refused(request) if executor.stopped else service.handle(request)
         if not send(response):
             break
     conn.close()

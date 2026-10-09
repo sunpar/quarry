@@ -20,8 +20,8 @@ made and could revisit belongs in [decisions](decisions.md) instead.
 
 - One researcher, one server, one session at a time, on a shared development
   machine reached by SSH. Steps in a session are linear (spec §1).
-- The server binds `127.0.0.1` only, and every request carries a per-run bearer
-  token (spec §12).
+- The server binds `127.0.0.1` only, and every API request carries a per-run
+  bearer token (spec §12).
 - The browser never holds a full dataset. Views ask the kernel for slices
   through a query spec, capped at `row_cap` rows (spec §4, §6).
 - Every result must be reproducible as plain Python a researcher can run in a
@@ -41,7 +41,7 @@ made and could revisit belongs in [decisions](decisions.md) instead.
 - Several researchers share each machine, so files a kernel writes can be read
   by others unless made private, and kernels compete for memory and cores.
 - Target machines run Linux, and development happens on macOS. macOS rejects
-  `RLIMIT_AS`, so the kernel memory cap applies only on Linux. macOS has no
+  `RLIMIT_DATA`, so the kernel memory cap applies only on Linux. macOS has no
   `os.waitid`, so the client cannot test whether the kernel is alive without
   reaping it.
 

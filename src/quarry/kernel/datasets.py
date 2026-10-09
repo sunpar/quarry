@@ -50,6 +50,9 @@ class DatasetMeta(BaseModel):
     # "<ExcType>: <message>", with schema and preview empty, when the dataset exists but could
     # not be described.
     error: str | None = None
+    # The id of the step that last wrote the dataset. The kernel has no step ids, so the server
+    # fills this in.
+    origin_step: str | None = None
 
 
 # Both test type(obj): isinstance falls back to `obj.__class__`, which a proxy can make raise.

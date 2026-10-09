@@ -1,8 +1,14 @@
+import sys
+import threading
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import pytest
 
-from quarry.data.loaders import describe_loaders, load_loaders
+from quarry.data import loaders
+from quarry.data.loaders import describe_failures, describe_loaders, load_loaders
+from tests.fixtures import chmodded, root_ignores_modes
 
 
 def write(tmp_path: Path, body: str) -> Path:
@@ -165,6 +171,8 @@ def test_duplicate_name_keeps_the_first_entry(tmp_path: Path) -> None:
     assert [s.name for s in reg.specs] == ["daily_returns"]
     assert reg.bound().daily_returns(["X"])["ticker"].to_list() == ["X"]
     assert describe_loaders(reg) == "loaders.daily_returns: f() -- d"
+    assert describe_failures(reg).startswith("daily_returns: ")
+    assert "duplicate" in describe_failures(reg)
 
 
 def test_name_that_is_not_an_identifier_is_skipped(tmp_path: Path) -> None:
@@ -173,3 +181,94 @@ def test_name_that_is_not_an_identifier_is_skipped(tmp_path: Path) -> None:
     assert [f.name for f in reg.failures] == ["daily-returns", "class"]
     assert all("identifier" in f.error for f in reg.failures)
     assert list(reg.functions) == ["daily_returns"]
+
+
+@root_ignores_modes
+def test_unreadable_file_is_one_failure(tmp_path: Path) -> None:
+    path = write(tmp_path, entry("daily_returns"))
+    with chmodded(path, 0o000):
+        reg = load_loaders(path)
+    assert reg.specs == [] and reg.functions == {}
+    assert [f.name for f in reg.failures] == ["loaders.toml"]
+    assert "PermissionError" in reg.failures[0].error
+
+
+@root_ignores_modes
+def test_unreadable_directory_is_one_failure(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = write(home, entry("daily_returns"))
+    with chmodded(home, 0o000):
+        reg = load_loaders(path)
+    assert reg.specs == [] and reg.functions == {}
+    assert [f.name for f in reg.failures] == ["loaders.toml"]
+    assert "PermissionError" in reg.failures[0].error
+
+
+def test_directory_in_place_of_the_file_is_one_failure(tmp_path: Path) -> None:
+    (tmp_path / "loaders.toml").mkdir()
+    reg = load_loaders(tmp_path / "loaders.toml")
+    assert [f.name for f in reg.failures] == ["loaders.toml"]
+
+
+def slow_module(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, seconds: float) -> Path:
+    (tmp_path / "quarry_test_slow_import.py").write_text(
+        f"import time\ntime.sleep({seconds})\n\ndef fn():\n    return 1\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    # setitem remembers the module as absent, so teardown drops it again after the import adds it
+    # and a rerun in the same process imports it afresh.
+    monkeypatch.setitem(sys.modules, "quarry_test_slow_import", ModuleType("placeholder"))
+    monkeypatch.delitem(sys.modules, "quarry_test_slow_import")
+    return write(tmp_path, entry("slow", "quarry_test_slow_import:fn"))
+
+
+def test_slow_import_is_named_on_stderr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(loaders, "IMPORT_NOTICE_SECONDS", 0.05)
+    reg = load_loaders(slow_module(tmp_path, monkeypatch, 0.4))
+    assert list(reg.functions) == ["slow"]
+    assert capsys.readouterr().err == (
+        "quarry: still importing loader slow (quarry_test_slow_import:fn) after 0.05 s\n"
+    )
+
+
+def record_timers(monkeypatch: pytest.MonkeyPatch) -> list[threading.Timer]:
+    timers: list[threading.Timer] = []
+
+    class RecordedTimer(threading.Timer):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            timers.append(self)
+
+    monkeypatch.setattr(threading, "Timer", RecordedTimer)
+    return timers
+
+
+def test_import_that_returns_in_time_cancels_its_notice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A threshold no import reaches, so nothing here depends on how fast the machine is: a timer
+    # still waiting after the load returned was not cancelled.
+    monkeypatch.setattr(loaders, "IMPORT_NOTICE_SECONDS", 60)
+    timers = record_timers(monkeypatch)
+    reg = load_loaders(write(tmp_path, entry("daily_returns")))
+    assert list(reg.functions) == ["daily_returns"]
+    assert len(timers) == 1
+    timers[0].join(timeout=5)
+    assert not timers[0].is_alive()
+    assert capsys.readouterr().err == ""
+
+
+def test_failed_import_cancels_its_notice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(loaders, "IMPORT_NOTICE_SECONDS", 60)
+    timers = record_timers(monkeypatch)
+    reg = load_loaders(write(tmp_path, entry("broken", "no.such.module:fn")))
+    assert [f.name for f in reg.failures] == ["broken"]
+    assert len(timers) == 1
+    timers[0].join(timeout=5)
+    assert not timers[0].is_alive()
+    assert capsys.readouterr().err == ""

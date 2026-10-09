@@ -1,0 +1,177 @@
+import sys
+import threading
+import time
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+
+from quarry.agent.tools import CodeRun
+from quarry.kernel.client import KernelDead
+from quarry.kernel.executor import Status
+from quarry.server.kernels import KernelManager, SessionBusy
+from quarry.server.models import Step, now_iso
+
+
+def step(i: int, code: str, *runs: tuple[str, Status]) -> Step:
+    """A step whose runs are `runs`, or one ok run of `code`."""
+    return Step(
+        id=f"s{i}",
+        index=i,
+        kind="prompt" if runs else "manual",
+        prompt=None,
+        code=code,
+        runs=[CodeRun(code=c, status=s) for c, s in runs] or [CodeRun(code=code, status="ok")],
+        status="ok",
+        error=None,
+        created_at=now_iso(),
+    )
+
+
+@pytest.fixture
+def manager(tmp_path: Path) -> Iterator[KernelManager]:
+    m = KernelManager(tmp_path)
+    yield m
+    m.close_all()
+
+
+def test_get_spawns_once_and_status(manager: KernelManager) -> None:
+    assert manager.status("s").status == "starting"
+    assert manager.status("s").pid is None
+    a = manager.get("s")
+    assert manager.get("s") is a
+    assert manager.status("s").status == "idle"
+    assert isinstance(manager.status("s").pid, int)
+    manager.mark_running("s", True)
+    assert manager.status("s").status == "running"
+    manager.mark_running("s", False)
+
+
+def test_threads_cap_polars_in_every_kernel(tmp_path: Path) -> None:
+    capped = KernelManager(tmp_path, threads=2)
+    try:
+        for session_id in ("a", "b"):
+            result = capped.get(session_id).execute("print(pl.thread_pool_size())")
+            assert result.stdout_tail.strip() == "2"
+    finally:
+        capped.close_all()
+
+
+def test_dead_kernel_stays_dead_until_restart(manager: KernelManager) -> None:
+    a = manager.get("s")
+    with pytest.raises(KernelDead):
+        a.execute("import os\nos._exit(1)\n")
+    assert manager.status("s").status == "dead"
+    with pytest.raises(KernelDead, match="restart"):
+        manager.get("s")
+    assert manager.status("s").status == "dead"
+    manager.restart("s", [])
+    b = manager.get("s")
+    assert b is not a and b.execute("x = 1").status == "ok"
+
+
+def test_kill_leaves_the_kernel_dead_until_restart(manager: KernelManager) -> None:
+    a = manager.get("s")
+    manager.kill("s")
+    assert manager.status("s").status == "dead" and not a.is_alive()
+    with pytest.raises(KernelDead, match="restart"):
+        manager.get("s")
+    manager.restart("s", [])
+    assert manager.get("s") is not a and manager.status("s").status == "idle"
+    manager.kill("never-started")  # nothing to kill, and nothing started
+    assert manager.status("never-started").status == "starting"
+
+
+def test_restart_replays_in_order_and_stops_on_failure(manager: KernelManager) -> None:
+    k = manager.get("s")
+    k.execute("x = 1")
+    steps = [step(0, "a = 1"), step(1, "b = a + 1"), step(2, "c = zzz"), step(3, "d = 1")]
+    report = manager.restart("s", steps)
+    assert report.replayed == 2
+    assert report.failed_step == 2
+    assert report.error is not None and "NameError" in report.error
+    fresh = manager.get("s")
+    assert fresh is not k
+    assert fresh.execute("print(b)").stdout_tail.strip() == "2"
+    assert fresh.execute("print(d)").status == "error"
+
+
+def test_restart_counts_replayed_steps_not_indices(manager: KernelManager) -> None:
+    report = manager.restart("s", [step(0, "a = 1"), step(2, "c = zzz")])
+    assert report.replayed == 1
+    assert report.failed_step == 2
+
+
+def test_restart_reports_a_kernel_that_dies_during_replay(manager: KernelManager) -> None:
+    report = manager.restart("s", [step(0, "a = 1"), step(1, "import os\nos._exit(1)\n")])
+    assert report.replayed == 1
+    assert report.failed_step == 1
+    assert report.error is not None and "kernel died" in report.error
+
+
+def test_restart_replays_failed_runs_for_their_partial_effects(manager: KernelManager) -> None:
+    steps = [
+        step(0, "", ("df = 1\n1 / 0", "error"), ("y = df + 1", "ok")),
+        step(1, "z = y + 1"),
+    ]
+    report = manager.restart("s", steps)
+    assert (report.replayed, report.failed_step) == (2, None)
+    assert manager.get("s").execute("print(z)").stdout_tail.strip() == "3"
+
+
+def test_restart_runs_each_run_on_its_own(manager: KernelManager) -> None:
+    # Joined into one string, the future import would follow a statement: a SyntaxError.
+    runs = [("x = 1", "ok"), ("from __future__ import annotations\ny = x", "ok")]
+    report = manager.restart("s", [step(0, "", *runs)])
+    assert (report.replayed, report.failed_step) == (1, None)
+
+
+def test_restart_skips_interrupted_runs(manager: KernelManager) -> None:
+    runs = [("import time\ntime.sleep(60)", "interrupted"), ("a = 1", "ok")]
+    report = manager.restart("s", [step(0, "", *runs)])
+    assert (report.replayed, report.failed_step) == (1, None)
+
+
+def test_closed_manager_starts_no_kernel(manager: KernelManager) -> None:
+    manager.close_all()
+    with pytest.raises(KernelDead, match="shutting down"):
+        manager.get("s")
+    assert manager.status("s").status == "starting"  # nothing was spawned
+
+
+def test_replay_stops_at_an_interrupt_even_in_a_run_that_failed(manager: KernelManager) -> None:
+    # Its partial effects were not rebuilt, whatever its saved status.
+    steps = [step(0, "", ("raise KeyboardInterrupt", "error")), step(1, "x = 1")]
+    report = manager.restart("s", steps)
+    assert report.failed_step == 0 and report.replayed == 0
+
+
+def test_failed_restart_leaves_the_session_dead(
+    manager: KernelManager, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager.get("s").execute("x = 1")
+    with monkeypatch.context() as patch:
+        patch.setattr(sys, "executable", str(tmp_path / "no-such-python"))
+        with pytest.raises(KernelDead, match="cannot start"):
+            manager.restart("s", [])
+    # Not a fresh, empty kernel: the session still needs a restart to replay its steps.
+    with pytest.raises(KernelDead, match="restart"):
+        manager.get("s")
+
+
+def test_get_is_busy_while_a_restart_replays(manager: KernelManager, tmp_path: Path) -> None:
+    flag = tmp_path / "go"
+    wait = f"import time, pathlib\nwhile not pathlib.Path({str(flag)!r}).exists(): time.sleep(0.01)"
+    restart = threading.Thread(target=manager.restart, args=("s", [step(0, wait)]))
+    restart.start()
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            manager.get("s")
+        except SessionBusy:
+            break
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    flag.touch()
+    restart.join(timeout=30)
+    assert manager.get("s").execute("y = 1").status == "ok"

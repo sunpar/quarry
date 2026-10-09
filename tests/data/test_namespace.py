@@ -39,20 +39,32 @@ def default_connection_restored() -> Iterator[None]:
 
 def test_connection_spills_under_the_temp_dir(tmp_path: Path) -> None:
     conn = duckdb.connect()
-    configure_connection(conn, tmp_path, memory_mb=0)
+    configure_connection(conn, tmp_path, memory_mb=0, threads=0)
     assert Path(str(setting(conn, "temp_directory"))).parent == tmp_path
 
 
 def test_memory_limit_is_70_percent_of_the_kernel_cap(tmp_path: Path) -> None:
     conn = duckdb.connect()
-    configure_connection(conn, tmp_path, memory_mb=1000)
+    configure_connection(conn, tmp_path, memory_mb=1000, threads=0)
     assert setting(conn, "memory_limit") == "700.0 MiB"
 
 
 def test_memory_limit_stays_the_default_without_a_cap(tmp_path: Path) -> None:
     conn = duckdb.connect()
-    configure_connection(conn, tmp_path, memory_mb=0)
+    configure_connection(conn, tmp_path, memory_mb=0, threads=0)
     assert setting(conn, "memory_limit") == setting(duckdb.connect(), "memory_limit")
+
+
+def test_threads_caps_duckdb(tmp_path: Path) -> None:
+    conn = duckdb.connect()
+    configure_connection(conn, tmp_path, memory_mb=0, threads=2)
+    assert setting(conn, "threads") == 2
+
+
+def test_threads_stay_the_default_without_a_cap(tmp_path: Path) -> None:
+    conn = duckdb.connect()
+    configure_connection(conn, tmp_path, memory_mb=0, threads=0)
+    assert setting(conn, "threads") == setting(duckdb.connect(), "threads")
 
 
 def test_naive_iso_string_against_timestamptz_reads_as_utc(tmp_path: Path) -> None:
@@ -62,7 +74,7 @@ def test_naive_iso_string_against_timestamptz_reads_as_utc(tmp_path: Path) -> No
         select=["n"],
     )
     configured = duckdb.connect()
-    configure_connection(configured, tmp_path, memory_mb=0)
+    configure_connection(configured, tmp_path, memory_mb=0, threads=0)
     new_york = duckdb.connect()
     new_york.execute("SET TimeZone = 'America/New_York'")
     assert Executor({"t": configured.sql(UTC_ROWS)}, conn=configured, row_cap=10).query(

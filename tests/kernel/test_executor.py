@@ -12,6 +12,9 @@ import polars as pl
 import pytest
 from polars.exceptions import ColumnNotFoundError
 
+from quarry.kernel import datasets
+from quarry.kernel import executor as executor_module
+from quarry.kernel.datasets import Dataset, DatasetMeta
 from quarry.kernel.executor import Executor, _identity_check, _TailWriter
 from quarry.query import Agg, Backing, Filter, Json, Pivot, QueryError, QuerySpec, Sort
 from quarry.query.sql_target import relation_view
@@ -98,6 +101,20 @@ def interrupt_soon(ex: Executor) -> threading.Thread:
     thread = threading.Thread(target=send)
     thread.start()
     return thread
+
+
+@pytest.fixture
+def described(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """The names the executor describes, in order, appended to as it does."""
+    names: list[str] = []
+    real = datasets.describe
+
+    def counting(name: str, obj: Dataset, *, count_rows: bool) -> DatasetMeta:
+        names.append(name)
+        return real(name, obj, count_rows=count_rows)
+
+    monkeypatch.setattr(executor_module, "describe_dataset", counting)
+    return names
 
 
 def quarry_views(conn: duckdb.DuckDBPyConnection, dataset: str) -> list[tuple[str]]:
@@ -191,6 +208,25 @@ def test_execute_code_too_deep_to_parse_is_structured() -> None:
 def test_execute_keyboard_interrupt_is_interrupted_status() -> None:
     result = make().execute("raise KeyboardInterrupt")
     assert result.status == "interrupted"
+
+
+def test_stopped_executor_interrupts_a_step_before_it_runs() -> None:
+    namespace: dict[str, object] = {}
+    ex = Executor(namespace, conn=duckdb.connect(), row_cap=3)
+    ex.stop()
+    result = ex.execute("print('ran')\nx = 1")
+    assert (result.status, result.error, result.stdout_tail) == ("interrupted", None, "")
+    assert "x" not in namespace
+
+
+def test_executor_stopped_during_a_step_leaves_its_writes_undescribed() -> None:
+    namespace: dict[str, object] = {"pl": pl}
+    ex = Executor(namespace, conn=duckdb.connect(), row_cap=3)
+    namespace["stop"] = ex.stop
+    result = ex.execute("stop()\ndf = pl.DataFrame({'a': [1]})")
+    assert (result.status, result.error, result.writes) == ("interrupted", None, ["df"])
+    assert [(m.name, m.error, m.schema_) for m in result.datasets] == [("df", "interrupted", [])]
+    assert ex.running is False
 
 
 def test_execute_system_exit_is_structured_error() -> None:
@@ -473,6 +509,106 @@ def test_interrupt_while_describing_writes_leaves_them_undescribed(
     ]
     assert ex.running is False
     assert ex.execute("x = 1").status == "ok"
+
+
+def test_list_datasets_reuses_the_metadata_execute_computed(described: list[str]) -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1, 2]})")
+    assert described == ["df"]
+    first, second = ex.list_datasets(), ex.list_datasets()
+    assert described == ["df"]
+    assert [m.preview for m in first] == [[{"a": 1}, {"a": 2}]] == [m.preview for m in second]
+
+
+def test_list_datasets_describes_a_dataset_once(described: list[str]) -> None:
+    namespace: dict[str, object] = {"b": pl.DataFrame({"a": [1]}), "a": pl.DataFrame({"a": [2]})}
+    ex = Executor(namespace, conn=duckdb.connect(), row_cap=3)
+    assert [m.name for m in ex.list_datasets()] == ["a", "b"]
+    assert [m.name for m in ex.list_datasets()] == ["a", "b"]
+    assert described == ["a", "b"]
+
+
+def test_step_that_rebinds_a_dataset_refreshes_its_metadata(described: list[str]) -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1]})")
+    ex.execute("df = pl.DataFrame({'a': [1, 2]})")
+    (meta,) = ex.list_datasets()
+    assert (meta.rows, meta.preview) == (2, [{"a": 1}, {"a": 2}])
+    assert described == ["df", "df"]
+
+
+@pytest.mark.parametrize("ending", ["", "\nraise ValueError", "\nraise KeyboardInterrupt"])
+def test_step_that_changes_a_dataset_in_place_refreshes_it_whatever_its_status(
+    ending: str, described: list[str]
+) -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1]})")
+    ex.list_datasets()
+    ex.execute(f"df.extend(pl.DataFrame({{'a': [2]}})){ending}")
+    assert described == ["df"]  # nothing was rebound, so nothing was described
+    (meta,) = ex.list_datasets()
+    assert (meta.rows, meta.preview) == (2, [{"a": 1}, {"a": 2}])
+    ex.list_datasets()
+    assert described == ["df", "df"]
+
+
+def test_step_that_changes_a_dataset_through_a_helper_refreshes_it() -> None:
+    ex = make()
+    ex.execute(
+        "df = pl.DataFrame({'a': [1]})\ndef grow():\n    df.extend(pl.DataFrame({'a': [2]}))"
+    )
+    ex.list_datasets()
+    ex.execute("grow()")  # reads the helper, not df
+    assert [m.rows for m in ex.list_datasets()] == [2]
+
+
+def test_any_step_refreshes_the_datasets_it_did_not_write(described: list[str]) -> None:
+    ex = make()
+    ex.execute("a = pl.DataFrame({'a': [1]})")
+    ex.execute("b = pl.DataFrame({'b': [1]})")
+    ex.execute("x = 1")
+    assert [m.name for m in ex.list_datasets()] == ["a", "b"]
+    assert described == ["a", "b", "a", "b"]
+    ex.execute("c = pl.DataFrame({'c': [1]})")  # c is current; a and b are not
+    assert [m.name for m in ex.list_datasets()] == ["a", "b", "c"]
+    assert described == ["a", "b", "a", "b", "c", "a", "b"]
+
+
+def test_interrupted_write_is_described_by_the_next_list(described: list[str]) -> None:
+    namespace: dict[str, object] = {"pl": pl}
+    ex = Executor(namespace, conn=duckdb.connect(), row_cap=3)
+    namespace["stop"] = ex.stop
+    result = ex.execute("stop()\ndf = pl.DataFrame({'a': [1]})")
+    assert [m.error for m in result.datasets] == ["interrupted"]
+    assert described == []
+    (meta,) = ex.list_datasets()
+    assert (meta.error, meta.rows) == (None, 1)
+    assert described == ["df"]
+
+
+def test_undescribable_dataset_is_described_on_every_list(described: list[str]) -> None:
+    ex = make()
+    ex.execute(BAD_PLAN)
+    ex.list_datasets()
+    ex.list_datasets()
+    assert described == ["lf", "lf", "lf"]
+
+
+def test_deleted_dataset_leaves_the_list() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1]})\nkept = pl.DataFrame({'a': [2]})")
+    assert [m.name for m in ex.list_datasets()] == ["df", "kept"]
+    ex.execute("del df")
+    assert [m.name for m in ex.list_datasets()] == ["kept"]
+
+
+def test_describe_counts_rows_and_leaves_the_listed_metadata_alone(described: list[str]) -> None:
+    ex = make()
+    ex.execute("lf = pl.DataFrame({'a': [1, 2, 3]}).lazy()")
+    assert [m.rows for m in ex.list_datasets()] == [None]
+    assert ex.describe("lf").rows == 3
+    assert [m.rows for m in ex.list_datasets()] == [None]
+    assert described == ["lf", "lf"]
 
 
 def test_describe_and_unknown_name() -> None:

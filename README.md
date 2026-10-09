@@ -51,3 +51,18 @@ starts with:
 (`reads`, `writes`, `defines`) and metadata for the datasets it wrote. The client
 also has `describe`, `list_datasets`, `query`, `interrupt` and `snapshot`.
 `shutdown()` stops the kernel, and `close()` then releases its socket directory.
+
+## Driving the server from curl (Stage 2)
+
+```bash
+export QUARRY_ANTHROPIC_API_KEY=...   # or QUARRY_OPENAI_API_KEY, with provider.name = "openai" and provider.model = "gpt-5" in config.toml
+quarry serve --root ~/.quarry          # prints the port and token
+T="Bearer <token>"; U=http://127.0.0.1:<port>
+SID=$(curl -s -X POST $U/sessions -H "Authorization: $T" -H 'Content-Type: application/json' -d '{"title":"demo"}' | jq -r .id)
+curl -s -X POST $U/sessions/$SID/steps -H "Authorization: $T" -H 'Content-Type: application/json' -d '{"prompt":"load the parquet cache prices for 2024 and show the first rows"}'
+curl -s $U/sessions/$SID/status -H "Authorization: $T"          # poll until running_step is null
+curl -s $U/sessions/$SID -H "Authorization: $T" | jq '.steps[-1] | {status, note, writes}'
+curl -s -X POST $U/sessions/$SID/query -H "Authorization: $T" -H 'Content-Type: application/json' -d '{"dataset":"prices","limit":5}'
+```
+
+Server-side refusal fallbacks are enabled by default on Anthropic requests.

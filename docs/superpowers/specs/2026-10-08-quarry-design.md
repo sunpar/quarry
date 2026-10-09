@@ -156,7 +156,9 @@ Step {
   id, index,
   kind: "prompt" | "manual" | "load" | "recall",
   prompt: string | null,     // the researcher's text for prompt steps
+  provider: { name, model } | null,  // the model a prompt step called
   code: string,              // the final Python that ran
+  runs: { code, status }[],  // each execution in order, for replay
   status: "running" | "ok" | "error" | "interrupted",
   error: { type, message, traceback } | null,
   stdout_tail, stderr_tail,  // last 4 KB each
@@ -188,7 +190,7 @@ DatasetMeta {
   schema: [{ name, dtype }],       // dtype as polars dtype string
   rows: number | null,             // null for lazy or relation until counted
   preview: Row[],                  // first 20 rows, JSON
-  origin_step: step id
+  origin_step: step id | null      // the step that last wrote it
 }
 ```
 
@@ -284,9 +286,10 @@ them.
 
 ## 6. Kernel
 
-A plain Python process, started by the server with the session id and socket
-path as arguments. It imports polars and duckdb, builds the data layer
-(section 7) into a module-level namespace, and serves JSON-RPC.
+A plain Python process, started by the server with its socket path, the
+quarry root and a private temp directory as arguments. It imports polars and
+duckdb, builds the data layer (section 7) into a module-level namespace, and
+serves JSON-RPC.
 
 ### Methods
 
@@ -301,9 +304,12 @@ path as arguments. It imports polars and duckdb, builds the data layer
 | `shutdown()`           | Clean exit.                                                                                                                                                                       |
 
 The server treats a broken socket as a dead kernel. Recovery is restart and
-replay: a new kernel, then every step's code re-executed in order. Replay
-runs as a single "restart" operation with progress in the UI, and stops at
-the first failing step.
+replay: a new kernel, then every step's runs re-executed in order, one at a
+time. A run that failed the first time may fail again, so its partial effects
+come back; interrupted runs are skipped. Replay runs as a single "restart"
+operation with progress in the UI, and stops at the first run that succeeded
+before and fails now, or that is interrupted. A restart while a step runs
+cancels the step and kills the kernel first, and saves the step as interrupted.
 
 ### Lineage capture
 
@@ -325,9 +331,10 @@ the step; the dependency graph is derived, not stored.
 
 ### Resource limits
 
-Optional memory cap from config applied with `resource.setrlimit(RLIMIT_AS)`
-at kernel start. Query results are capped at `row_cap` rows regardless of the
-spec. Execution has no timeout; the researcher interrupts.
+Optional memory cap from config applied with
+`resource.setrlimit(RLIMIT_DATA)` at kernel start, and an optional thread cap
+for polars and DuckDB. Query results are capped at `row_cap` rows regardless
+of the spec. Execution has no timeout; the researcher interrupts.
 
 ## 7. Data layer
 
@@ -405,9 +412,12 @@ backoff, then fail the step with the provider's message.
 | ------------------- | ------------------------------------------- | -------------------------------------------------------------------------------- |
 | `run_python`        | `code`                                      | stdout, stderr, error, and `DatasetMeta` for each dataset written                |
 | `describe_dataset`  | `name`                                      | `DatasetMeta` with a full row count                                              |
-| `search_components` | `tags?`, `dataset?`                         | Manifests whose schema requirements the dataset satisfies, ranked by tag overlap |
+| `search_components` | `tags`, `dataset` (`""` for none)           | Manifests whose schema requirements the dataset satisfies, ranked by tag overlap |
 | `render_view`       | `component_id`, `datasets`, `initial_state` | Mount result: ok, or the mount error                                             |
-| `write_view`        | `source`, `initial_state`                   | Mount result: ok, or the transpile or mount error                                |
+| `write_view`        | `source`, `datasets`, `initial_state`       | Mount result: ok, or the transpile or mount error                                |
+
+Tool schemas are strict, so every input is required and `initial_state` is a
+JSON object encoded as a string.
 
 `render_view` and `write_view` run a server-side transpile check with Sucrase
 before accepting, so syntax errors come back without a browser round trip.
@@ -426,9 +436,11 @@ layout, the names of the data layer helpers, and the rule that computation
 belongs in Python and in query specs, not in component JavaScript.
 
 Session summary, rebuilt per step: for each prior step, its prompt and the
-code that ran, plus the current dataset list with schemas. Once the summary
-exceeds a configured token budget, steps older than the last eight collapse
-to prompt and datasets written only. Full transcripts are never replayed.
+code that ran, plus the current dataset list with schemas. The dataset list
+counts against a token budget of 24,000 estimated tokens first; if it alone
+exceeds the budget, each dataset keeps only its column count. Once the steps
+exceed what is left, steps older than the last eight collapse to prompt and
+datasets written only. Full transcripts are never replayed.
 
 ### Library guide, as given to the model
 
@@ -594,7 +606,7 @@ for reference. A saved dataset also exports alone as a `.py` script.
 ## 11. Persistence layout
 
 ```
-<quarry root>  (default ~/.quarry, override with --root or config)
+<quarry root>  (default ~/.quarry, override with --root)
   config.toml
   loaders.toml
   sessions/<session-id>/
@@ -612,7 +624,7 @@ step. Everything is plain text except pinned parquet.
 ```toml
 [provider]
 name = "anthropic"            # or "openai"
-model = "claude-sonnet-5-5"
+model = "claude-opus-5-5"
 # api key from QUARRY_ANTHROPIC_API_KEY / QUARRY_OPENAI_API_KEY, or:
 api_key_file = "~/.quarry/anthropic.key"   # owner-only permissions enforced
 
@@ -621,6 +633,7 @@ parquet_root = "/data/cache"
 mssql_dsn = ""                # or QUARRY_MSSQL_DSN
 row_cap = 50000
 kernel_memory_mb = 0          # 0 = unlimited
+kernel_threads = 0            # 0 = every core
 
 [libraries]
 team_components = ""          # optional shared library path
@@ -634,12 +647,17 @@ scichart_path = ""            # path to a locally installed scichart npm package
 
 - Server binds `127.0.0.1` only.
 - A random 32-byte token is generated per `quarry serve`, printed once, and
-  required as a bearer header on every request. The printed URL carries it in
-  the fragment; the host app reads it on load and keeps it in memory only.
+  required as a bearer header on every API request. The health check and the
+  host app's static files are open, since a browser loading the page cannot
+  send the header. The printed URL carries the token in the fragment; the host
+  app reads it on load and keeps it in memory only.
 - The kernel runs as the researcher's own user. It executes their code on
   their behalf, exactly as a notebook kernel does.
 - Generated TSX runs only in the iframe with a no-network CSP. The bridge is
   the only path out and has three request types.
+- `quarry serve` creates a missing quarry root owner-only, and the server
+  creates session directories and writes session files owner-only, since
+  several researchers share each machine.
 - API keys come from environment variables or an owner-only file. The server
   refuses a key file with group or world permissions and never logs key
   values.
