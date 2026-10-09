@@ -17,6 +17,8 @@ type Columns = {
   value: string | null;
 };
 
+const LIMIT = 50000;
+
 const isTime = (dtype: string) =>
   dtype === "Date" || dtype.startsWith("Datetime");
 const isNumeric = (dtype: string) => /^(Int|UInt|Float|Decimal)/.test(dtype);
@@ -35,7 +37,7 @@ export default function TimeSeries({ datasets }: Props) {
   const ready = time !== null && value !== null;
   const result = useQuery(
     ready
-      ? { dataset, select: [time, value], sort: [{ col: time }], limit: 50000 }
+      ? { dataset, select: [time, value], sort: [{ col: time }], limit: LIMIT }
       : { dataset, limit: 1 },
   );
   const rows = result.status === "success" ? result.rows : null;
@@ -95,6 +97,11 @@ export default function TimeSeries({ datasets }: Props) {
           onChange={(v) => setChosen({ time, value: v })}
         />
       </div>
+      {result.rows.length >= LIMIT && (
+        <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
+          Showing the first {result.rows.length.toLocaleString()} rows.
+        </p>
+      )}
       <div ref={container} className="min-h-0 flex-1" />
     </div>
   );

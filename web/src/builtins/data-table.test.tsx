@@ -33,7 +33,25 @@ describe("data-table built-in", () => {
     expect(query).toHaveBeenCalledWith(
       expect.objectContaining({ dataset: "df", limit: 1000 }),
     );
-    expect(screen.getByText(/showing 1 of 50,000 rows/i)).toBeTruthy();
+    expect(screen.getByText("Showing the first 1 rows.")).toBeTruthy();
+  });
+
+  it("shows the notice when a full page comes back and hides it otherwise", () => {
+    const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ a: i }));
+    const page = (n: number): QueryHookResult => ({
+      status: "success",
+      rows: rows(n),
+      schema: [{ name: "a", dtype: "Int64" }],
+      rowCount: n,
+      truncated: false,
+    });
+    query.mockReturnValue(page(1000));
+    const { unmount } = render(<DataTable datasets={["df"]} />);
+    expect(screen.getByText("Showing the first 1,000 rows.")).toBeTruthy();
+    unmount();
+    query.mockReturnValue(page(999));
+    render(<DataTable datasets={["df"]} />);
+    expect(screen.queryByText(/Showing the first/)).toBeNull();
   });
 
   it("shows query errors in place", () => {

@@ -45,7 +45,6 @@ export default function DataTable({ datasets }: Props) {
       headerName: column.name,
       sortable: true,
       resizable: true,
-      filter: true,
       sort: sort?.col === column.name ? (sort.desc ? "desc" : "asc") : null,
       type: /^(Int|UInt|Float|Decimal)/.test(column.dtype)
         ? "numericColumn"
@@ -75,11 +74,9 @@ export default function DataTable({ datasets }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      {result.truncated && (
+      {(result.truncated || result.rows.length >= limit) && (
         <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
-          Showing {result.rows.length.toLocaleString()} of{" "}
-          {result.rowCount.toLocaleString()} rows. Sort or filter to narrow the
-          data.
+          Showing the first {result.rows.length.toLocaleString()} rows.
         </p>
       )}
       <div className="min-h-0 flex-1">
