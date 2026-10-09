@@ -19,9 +19,10 @@ nobody has made yet. Decisions already made are in
 - **A running polars `collect()` ignores interrupts**: the `KeyboardInterrupt`
   lands only once the collect finishes, so a long collect cannot be stopped.
   Silent: `interrupt` reports the signal delivered, and the step keeps running.
-- **Three RPCs cannot be interrupted**: `describe`, `list_datasets` and `query`
-  run outside the guarded regions, so a slow relation preview or query holds the
-  kernel until it ends. Silent: `interrupt` answers `delivered: false`.
+- **Four RPCs cannot be interrupted**: `describe`, `list_datasets`, `query` and
+  `snapshot` run outside the guarded regions, so a slow relation preview, query
+  or snapshot holds the kernel until it ends. Silent: `interrupt` answers
+  `delivered: false`.
 - **Previews run eagerly and are not cached**: every step describes its writes,
   so a LazyFrame or relation runs its plan as soon as it is assigned.
   `list_datasets` recomputes every preview on each call. Silent cost, with no
@@ -47,9 +48,10 @@ nobody has made yet. Decisions already made are in
 - **Odd temporal values**: DuckDB `'infinity'` in a TIMESTAMP_S or TIMESTAMP_NS
   column arrives as a wrong in-range date, 1969-12-31 or 2262-04-11. TIMETZ
   arrives as Time with its offset dropped. Both silent.
-- **Large and opaque integers in JSON rows**: Int64 and UInt64 values above 2^53
-  are JSON numbers, which JavaScript rounds. VARINT and BIT values arrive as
-  base64 of DuckDB's internal bytes. Both silent.
+- **Large and opaque integers in JSON rows**: 64-bit and 128-bit integers above
+  2^53, including sums over 128-bit columns, are JSON numbers, which JavaScript
+  rounds. VARINT and BIT values arrive as base64 of DuckDB's internal bytes.
+  Both silent.
 - **Lineage blind spots**: table names inside SQL strings, such as
   `sql_local("... FROM recent")`, are not reads. Helpers bound without `def` or
   `class` (lambdas, `partial`, imports) and attribute mutation such as
@@ -213,10 +215,12 @@ nobody has made yet. Decisions already made are in
   cgroups through `systemd-run --user -p MemoryMax`, or use `RLIMIT_DATA`.
   DuckDB's 70% share of the cap is unmeasured too.
 - **JSON contract for the Stage 3 renderer**: decimals arrive as exact strings,
-  so every integer sum is a string. A Map is an object or a list of
-  `{key, value}` entries by key type, and integers above 2^53 are numbers
-  JavaScript rounds. Options: keep these and parse by schema dtype, send large
-  integers as strings, or use Arrow where exact values matter.
+  so every sum over integers of up to 64 bits is a string, while a 128-bit sum
+  is a number. A Map is an object when its key type allows one and no value
+  needs converting, such as Binary to base64; otherwise it is a list of
+  `{key, value}` entries, and integers above 2^53 are numbers JavaScript rounds.
+  Options: keep these and parse by schema dtype, send large integers as strings,
+  or use Arrow where exact values matter.
 - **Naive timestamps and offset strings**: keep DuckDB 1.5.6's per-unit rule,
   where only nanosecond columns convert an offset to UTC, or pick one rule for
   every unit? The current rule follows DuckDB's cast, which an upgrade could
