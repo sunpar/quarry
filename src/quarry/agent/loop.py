@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from typing import Final, Literal
 
 from pydantic import BaseModel
@@ -14,6 +15,7 @@ from quarry.kernel.datasets import DatasetMeta
 from quarry.kernel.executor import ExecResult
 
 MAX_ITERATIONS: Final = 12
+_INTERRUPTED: Final = "interrupted by researcher"
 
 StepStatus = Literal["ok", "error", "interrupted"]
 
@@ -65,8 +67,11 @@ def run_agent_step(
     summary: str,
     provider: Provider,
     tools: ToolExecutor,
+    cancel: threading.Event,
     max_iterations: int = MAX_ITERATIONS,
 ) -> StepOutcome:
+    """Run one prompt step. Once `cancel` is set it ends as interrupted, before its next provider
+    or tool call: no kernel interrupt reaches a step that waits on the model."""
     transcript: list[Message] = [Message(role="user", text=f"{summary}\n\n# Request\n{prompt}")]
     consecutive_failures = 0
     iterations = 0
@@ -85,6 +90,8 @@ def run_agent_step(
         )
 
     while iterations < max_iterations:
+        if cancel.is_set():
+            return finish("interrupted", error=_INTERRUPTED)
         iterations += 1
         try:
             turn = provider.complete(system=system, messages=transcript, tools=TOOL_DEFS)
@@ -101,16 +108,21 @@ def run_agent_step(
         results: list[ToolResult] = []
         halt: tuple[StepStatus, str] | None = None
         for call in turn.tool_calls:
+            if cancel.is_set():
+                halt = ("interrupted", _INTERRUPTED)
+                break
             try:
                 result = tools.run(call)
             except KernelDead:
+                if cancel.is_set():  # a restart cancels the step, then kills the kernel under it
+                    return finish("interrupted", error=_INTERRUPTED)
                 return finish("error", error="kernel died during execution")
             results.append(result)
             if call.name != "run_python":
                 continue
             # Needs a fresh ToolExecutor per step and a halt on the first interrupted result.
             if any(r.status == "interrupted" for _, r in tools.runs):
-                halt = ("interrupted", "interrupted by researcher")
+                halt = ("interrupted", _INTERRUPTED)
                 break
             consecutive_failures = consecutive_failures + 1 if result.is_error else 0
             if consecutive_failures >= 2:

@@ -67,6 +67,18 @@ def test_dead_kernel_stays_dead_until_restart(manager: KernelManager) -> None:
     assert b is not a and b.execute("x = 1").status == "ok"
 
 
+def test_kill_leaves_the_kernel_dead_until_restart(manager: KernelManager) -> None:
+    a = manager.get("s")
+    manager.kill("s")
+    assert manager.status("s").status == "dead" and not a.is_alive()
+    with pytest.raises(KernelDead, match="restart"):
+        manager.get("s")
+    manager.restart("s", [])
+    assert manager.get("s") is not a and manager.status("s").status == "idle"
+    manager.kill("never-started")  # nothing to kill, and nothing started
+    assert manager.status("never-started").status == "starting"
+
+
 def test_restart_replays_in_order_and_stops_on_failure(manager: KernelManager) -> None:
     k = manager.get("s")
     k.execute("x = 1")

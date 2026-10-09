@@ -12,14 +12,17 @@ from fastapi.testclient import TestClient
 from starlette.routing import BaseRoute
 
 from quarry.agent.fake import FakeProvider
-from quarry.agent.types import AssistantTurn, Provider, ToolCall
+from quarry.agent.types import AssistantTurn, Message, Provider, ToolCall, ToolDef
 from quarry.config import ConfigError, DataConfig, QuarryConfig
+from quarry.kernel.client import KernelClient
 from quarry.server import service as service_module
 from quarry.server.app import create_app
+from quarry.server.kernels import ReplayReport
 from quarry.server.models import Step
 from quarry.server.service import ProviderFactory
 
 TOKEN = "t0k3n"
+RESTARTED = "stopped by a restart"
 
 
 def py(call_id: str, code: str) -> AssistantTurn:
@@ -59,14 +62,47 @@ def wait_idle(client: TestClient, sid: str, timeout: float = 30.0) -> dict[str, 
     raise AssertionError("step did not finish")
 
 
-def wait_kernel_running(client: TestClient, sid: str, timeout: float = 30.0) -> None:
+def wait_kernel(client: TestClient, sid: str, status: str, timeout: float = 30.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        kernel = client.get(f"/sessions/{sid}/status").json()["kernel"]
-        if kernel["status"] == "running" and kernel["pid"] is not None:
+        if client.get(f"/sessions/{sid}/status").json()["kernel"]["status"] == status:
             return
         time.sleep(0.05)
-    raise AssertionError("kernel never started running the step")
+    raise AssertionError(f"kernel never reached {status!r}")
+
+
+def hang(flag: Path) -> str:
+    """Code that creates `flag` once it runs, then sleeps longer than any test waits."""
+    return f"open({str(flag)!r}, 'w').close()\nimport time\ntime.sleep(60)\n"
+
+
+def wait_for_file(path: Path, timeout: float = 30.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not path.exists():
+        if time.monotonic() > deadline:
+            raise AssertionError(f"{path} never appeared")
+        time.sleep(0.02)
+
+
+def dataset_names(client: TestClient, sid: str) -> list[str]:
+    return [d["name"] for d in client.get(f"/sessions/{sid}/datasets").json()]
+
+
+class GatedProvider(FakeProvider):
+    """A FakeProvider whose first call sets `waiting`, then waits for `release`."""
+
+    def __init__(self, turns: list[AssistantTurn]) -> None:
+        super().__init__(turns)
+        self.waiting = threading.Event()
+        self.release = threading.Event()
+
+    def complete(
+        self, *, system: str, messages: list[Message], tools: list[ToolDef]
+    ) -> AssistantTurn:
+        if not self.calls:
+            self.waiting.set()
+            assert self.release.wait(30)
+        return super().complete(system=system, messages=messages, tools=tools)
 
 
 def api_routes(routes: list[BaseRoute]) -> Iterator[APIRoute]:
@@ -184,14 +220,136 @@ def test_kernel_death_then_restart_replays(tmp_path: Path) -> None:
         assert [d["name"] for d in client.get(f"/sessions/{sid}/datasets").json()] == []
 
 
-def test_restart_while_step_runs_is_409(tmp_path: Path) -> None:
+def test_restart_kills_a_hung_manual_step_and_replays(tmp_path: Path) -> None:
+    started = tmp_path / "started"
     with make_client(tmp_path, []) as client:
         sid = client.post("/sessions", json={}).json()["id"]
-        slow = {"code": "import time\ntime.sleep(1.5)\nx = 1"}
-        assert client.post(f"/sessions/{sid}/steps/manual", json=slow).status_code == 202
-        assert client.post(f"/sessions/{sid}/restart").status_code == 409
+        client.post(
+            f"/sessions/{sid}/steps/manual", json={"code": "base = pl.DataFrame({'a': [1]})"}
+        )
         wait_idle(client, sid)
-        assert client.get(f"/sessions/{sid}").json()["steps"][0]["status"] == "ok"
+        client.post(f"/sessions/{sid}/steps/manual", json={"code": hang(started)})
+        wait_for_file(started)
+        began = time.monotonic()
+        report = client.post(f"/sessions/{sid}/restart").json()
+        assert time.monotonic() - began < 30  # the step sleeps for 60 seconds
+        assert report == {"replayed": 2, "failed_step": None, "error": None}
+        steps = client.get(f"/sessions/{sid}").json()["steps"]
+        assert [s["status"] for s in steps] == ["ok", "interrupted"]
+        assert steps[1]["error"]["message"] == RESTARTED and steps[1]["runs"] == []
+        assert dataset_names(client, sid) == ["base"]
+        assert client.get(f"/sessions/{sid}/status").json()["kernel"]["status"] == "idle"
+
+
+def test_restart_kills_a_hung_prompt_step_and_replays_its_runs(tmp_path: Path) -> None:
+    started = tmp_path / "started"
+    load = "df = base.with_columns(b=pl.lit(2))"
+    turns = [py("c1", load), py("c2", hang(started)), end()]
+    with make_client(tmp_path, turns) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(
+            f"/sessions/{sid}/steps/manual", json={"code": "base = pl.DataFrame({'a': [1]})"}
+        )
+        wait_idle(client, sid)
+        client.post(f"/sessions/{sid}/steps", json={"prompt": "load"})
+        wait_for_file(started)
+        began = time.monotonic()
+        report = client.post(f"/sessions/{sid}/restart").json()
+        assert time.monotonic() - began < 30  # the step sleeps for 60 seconds
+        assert report == {"replayed": 2, "failed_step": None, "error": None}
+        step = client.get(f"/sessions/{sid}").json()["steps"][1]
+        assert step["status"] == "interrupted" and step["error"]["message"] == RESTARTED
+        # The run the kill cut short is not kept; the one before it is, and was replayed.
+        assert step["runs"] == [{"code": load, "status": "ok"}]
+        assert dataset_names(client, sid) == ["base", "df"]
+
+
+@pytest.mark.parametrize("warm", [False, True], ids=["no-kernel-yet", "kernel-running"])
+def test_restart_before_a_step_reaches_its_kernel_stops_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, warm: bool
+) -> None:
+    started = tmp_path / "started"
+    with make_client(tmp_path, []) as client:
+        kernels = client.app.state.service._kernels
+        sid = client.post("/sessions", json={}).json()["id"]
+        if warm:
+            client.post(f"/sessions/{sid}/steps/manual", json={"code": "a = 1"})
+            wait_idle(client, sid)
+        get, kill = kernels.get, kernels.kill
+        in_get, killed = threading.Event(), threading.Event()
+
+        # The step thread gets its kernel only after the restart's kill, found one or not.
+        def get_after_kill(session_id: str) -> KernelClient:
+            in_get.set()
+            assert killed.wait(30)
+            return get(session_id)
+
+        def kill_and_signal(session_id: str) -> None:
+            kill(session_id)
+            killed.set()
+
+        monkeypatch.setattr(kernels, "get", get_after_kill)
+        monkeypatch.setattr(kernels, "kill", kill_and_signal)
+        client.post(f"/sessions/{sid}/steps/manual", json={"code": hang(started)})
+        assert in_get.wait(30)
+        assert client.post(f"/sessions/{sid}/restart").json()["failed_step"] is None
+        step = client.get(f"/sessions/{sid}").json()["steps"][-1]
+        assert step["status"] == "interrupted" and step["error"]["message"] == RESTARTED
+        assert not started.exists()  # its code never ran, on the old kernel or a new one
+
+
+def test_restart_stops_a_step_waiting_on_the_model(tmp_path: Path) -> None:
+    provider = GatedProvider([py("c1", "x = 1"), end()])
+    with make_client(tmp_path, [], provider_factory=lambda _cfg: provider) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps", json={"prompt": "go"})
+        assert provider.waiting.wait(30)
+        reports: list[dict[str, Any]] = []
+        restart = threading.Thread(
+            target=lambda: reports.append(client.post(f"/sessions/{sid}/restart").json())
+        )
+        restart.start()
+        wait_kernel(client, sid, "dead")  # the restart cancelled the step and killed its kernel
+        # The restart waits on the model for its step; it holds the session meanwhile.
+        assert client.post(f"/sessions/{sid}/restart").status_code == 409
+        assert client.post(f"/sessions/{sid}/steps", json={"prompt": "x"}).status_code == 409
+        provider.release.set()
+        restart.join(30)
+        assert reports == [{"replayed": 1, "failed_step": None, "error": None}]
+        step = client.get(f"/sessions/{sid}").json()["steps"][0]
+        assert step["status"] == "interrupted" and step["error"]["message"] == RESTARTED
+        assert step["runs"] == [] and len(provider.calls) == 1
+
+
+def test_restart_refuses_steps_and_restarts_while_it_replays(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with make_client(tmp_path, []) as client:
+        kernels = client.app.state.service._kernels
+        replay = kernels.restart
+        replaying, finish = threading.Event(), threading.Event()
+
+        def gated_replay(session_id: str, steps: list[Step]) -> ReplayReport:
+            replaying.set()
+            assert finish.wait(30)
+            return replay(session_id, steps)
+
+        monkeypatch.setattr(kernels, "restart", gated_replay)
+        sid = client.post("/sessions", json={}).json()["id"]
+        codes: list[int] = []
+        restart = threading.Thread(
+            target=lambda: codes.append(client.post(f"/sessions/{sid}/restart").status_code)
+        )
+        restart.start()
+        assert replaying.wait(30)
+        assert client.post(f"/sessions/{sid}/restart").status_code == 409
+        manual = {"code": "a = 1"}
+        assert client.post(f"/sessions/{sid}/steps/manual", json=manual).status_code == 409
+        finish.set()
+        restart.join(30)
+        assert codes == [200]
+        assert client.post(f"/sessions/{sid}/steps/manual", json=manual).status_code == 202
+        wait_idle(client, sid)
 
 
 def test_provider_failure_ends_step_and_frees_session(tmp_path: Path) -> None:
@@ -227,7 +385,7 @@ def test_interrupt_running_step(tmp_path: Path) -> None:
     with make_client(tmp_path, turns) as client:
         sid = client.post("/sessions", json={}).json()["id"]
         client.post(f"/sessions/{sid}/steps", json={"prompt": "spin"})
-        wait_kernel_running(client, sid)
+        wait_kernel(client, sid, "running")
         time.sleep(0.3)  # the kernel exists; give the step a beat to start executing
         assert client.post(f"/sessions/{sid}/interrupt").json() == {"ok": True}
         wait_idle(client, sid)
@@ -275,6 +433,37 @@ def test_restart_replays_ok_code_of_a_prompt_step_the_kernel_died_in(tmp_path: P
         report = client.post(f"/sessions/{sid}/restart").json()
         assert report["failed_step"] is None and report["replayed"] == 1
         assert [d["name"] for d in client.get(f"/sessions/{sid}/datasets").json()] == ["df"]
+
+
+def test_interrupt_cancels_a_step_waiting_on_the_model(tmp_path: Path) -> None:
+    provider = GatedProvider([py("c1", "x = 1"), end()])
+    with make_client(tmp_path, [], provider_factory=lambda _cfg: provider) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps", json={"prompt": "go"})
+        assert provider.waiting.wait(30)
+        # The kernel runs nothing, so only the cancel stops the step.
+        assert client.post(f"/sessions/{sid}/interrupt").json() == {"ok": True}
+        provider.release.set()
+        wait_idle(client, sid)
+        step = client.get(f"/sessions/{sid}").json()["steps"][0]
+        assert step["status"] == "interrupted"
+        assert step["error"]["message"] == "interrupted by researcher"
+        assert step["runs"] == [] and len(provider.calls) == 1
+
+
+def test_crashed_prompt_step_keeps_its_runs(tmp_path: Path) -> None:
+    load = "df = pl.DataFrame({'a': [1]})"
+    # Out of turns, the provider raises on its second call, as a bug in an adapter would.
+    with make_client(tmp_path, [py("c1", load)]) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps", json={"prompt": "load"})
+        wait_idle(client, sid)
+        step = client.get(f"/sessions/{sid}").json()["steps"][0]
+        assert step["status"] == "error" and step["error"]["type"] == "AssertionError"
+        assert step["runs"] == [{"code": load, "status": "ok"}]
+        report = client.post(f"/sessions/{sid}/restart").json()
+        assert report == {"replayed": 1, "failed_step": None, "error": None}
+        assert dataset_names(client, sid) == ["df"]
 
 
 def test_interrupt_when_idle_reports_nothing_interrupted(tmp_path: Path) -> None:
@@ -325,7 +514,9 @@ def test_thread_start_failure_frees_the_session(
     with make_client(tmp_path, []) as client:
         sid = client.post("/sessions", json={}).json()["id"]
         with monkeypatch.context() as patch:
-            patch.setattr(service_module, "threading", SimpleNamespace(Thread=NoThread))
+            patch.setattr(
+                service_module, "threading", SimpleNamespace(Thread=NoThread, Event=threading.Event)
+            )
             with pytest.raises(RuntimeError, match="can't start new thread"):
                 client.post(f"/sessions/{sid}/steps/manual", json={"code": "a = 1"})
         status = client.get(f"/sessions/{sid}/status").json()

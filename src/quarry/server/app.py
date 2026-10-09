@@ -102,7 +102,7 @@ def create_app(
         try:
             return service.start_prompt(session_id, body.prompt)
         except SessionBusy as exc:
-            raise HTTPException(status_code=409, detail="a step is already running") from exc
+            raise HTTPException(status_code=409, detail="a step or restart is running") from exc
 
     @api.post("/sessions/{session_id}/steps/manual", status_code=202)
     def post_manual(session_id: str, body: ManualStepRequest) -> Step:
@@ -110,7 +110,7 @@ def create_app(
         try:
             return service.start_manual(session_id, body.code)
         except SessionBusy as exc:
-            raise HTTPException(status_code=409, detail="a step is already running") from exc
+            raise HTTPException(status_code=409, detail="a step or restart is running") from exc
 
     @api.get("/sessions/{session_id}/status")
     def get_status(session_id: str) -> SessionStatus:
@@ -146,7 +146,7 @@ def create_app(
         try:
             return service.restart(session_id)
         except SessionBusy as exc:
-            raise HTTPException(status_code=409, detail="a step or replay is running") from exc
+            raise HTTPException(status_code=409, detail="a restart is already running") from exc
 
     # A dead kernel, or one that cannot start, on any route that touches it.
     @app.exception_handler(KernelDead)
