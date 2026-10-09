@@ -29,18 +29,34 @@ class ParquetCatalog:
 
 
 def scan_layout(root: Path) -> list[PartitionLayout]:
-    if not root.is_dir():
-        return []
+    """The datasets under `root` with their partition keys, none for a dataset that has none.
+    Never raises: a directory that cannot be read is left out, so an unreadable `root` gives []."""
     layouts: list[PartitionLayout] = []
-    for dataset_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+    for dataset_dir in _read_dir(root)[0]:
+        subdirs, parquet_files = _read_dir(dataset_dir)
         keys: list[str] = []
-        current = dataset_dir
         for _ in range(2):
-            children = sorted(p for p in current.iterdir() if p.is_dir() and "=" in p.name)
-            if not children:
+            partitions = [p for p in subdirs if "=" in p.name]
+            if not partitions:
                 break
-            keys.append(children[0].name.split("=", 1)[0])
-            current = children[0]
-        if keys:
+            keys.append(partitions[0].name.split("=", 1)[0])
+            subdirs = _read_dir(partitions[0])[0]
+        if keys or parquet_files:
             layouts.append(PartitionLayout(dataset=dataset_dir.name, keys=keys))
     return layouts
+
+
+def _read_dir(path: Path) -> tuple[list[Path], list[Path]]:
+    """The subdirectories and the parquet files directly in `path`, sorted; both empty when
+    `path` or anything in it cannot be read."""
+    dirs: list[Path] = []
+    files: list[Path] = []
+    try:
+        for entry in sorted(path.iterdir()):
+            if entry.is_dir():
+                dirs.append(entry)
+            elif entry.suffix == ".parquet":
+                files.append(entry)
+    except OSError:
+        return [], []
+    return dirs, files
