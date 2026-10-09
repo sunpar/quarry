@@ -62,6 +62,14 @@ class KernelManager:
         else:
             self._running.discard(session_id)
 
+    def kill(self, session_id: str) -> None:
+        """Kill the session's kernel and what it runs. Like a kernel that died, it stays dead
+        until restart, so `get` never starts a fresh one in its place."""
+        with self._lock:
+            client = self._clients.get(session_id)
+            if client is not None:
+                client.close()
+
     def restart(self, session_id: str, steps: list[Step]) -> ReplayReport:
         """Replace the kernel and re-run each step's runs in index order.
 

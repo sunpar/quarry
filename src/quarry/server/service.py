@@ -7,7 +7,7 @@ import logging
 import threading
 import time
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Final
 
 from pydantic import BaseModel
@@ -107,10 +107,15 @@ class SessionService:
         self._library = library
         self._transpiler = transpiler
         self._libraries = libraries if libraries is not None else enabled_libraries(config)
-        # A session in here is busy: its running step, or None while a restart replays.
-        self._running: dict[str, Step | None] = {}
+        # A session in here has a running step, which its event cancels.
+        self._running: dict[str, Step] = {}
+        self._cancels: dict[str, threading.Event] = {}
+        # A session in here is restarting: stopping its running step, then replaying.
+        self._restarts: set[str] = set()
         self._last_error: dict[str, str] = {}
         self._lock = threading.Lock()
+        # Notified each time a step frees its session, which a restart waits for.
+        self._released = threading.Condition(self._lock)
         self._system = build_system(self._system_context())
 
     def create(self, title: str) -> SessionMeta:
@@ -133,8 +138,8 @@ class SessionService:
         self, session_id: str, prompt: str, repair: RepairRequest | None = None
     ) -> Step:
         text = prompt if repair is None else self._repair_prompt(session_id, repair, prompt)
-        step = self._begin(session_id, kind="prompt", prompt=prompt, code="")
-        self._start(session_id, self._run_prompt, (session_id, step, text))
+        step, cancel = self._begin(session_id, kind="prompt", prompt=prompt, code="")
+        self._start(session_id, self._run_prompt, (session_id, step, text, cancel))
         return step
 
     def _repair_prompt(self, session_id: str, repair: RepairRequest, prompt: str) -> str:
@@ -172,8 +177,8 @@ class SessionService:
         raise StepNotFound(step_id)
 
     def start_manual(self, session_id: str, code: str) -> Step:
-        step = self._begin(session_id, kind="manual", prompt=None, code=code)
-        self._start(session_id, self._run_manual, (session_id, step))
+        step, cancel = self._begin(session_id, kind="manual", prompt=None, code=code)
+        self._start(session_id, self._run_manual, (session_id, step, cancel))
         return step
 
     def status(self, session_id: str) -> SessionStatus:
@@ -186,7 +191,15 @@ class SessionService:
         )
 
     def interrupt(self, session_id: str) -> bool:
-        return self._kernel(session_id).interrupt()
+        """Interrupt the kernel and cancel a running prompt step, which may be waiting on the
+        model where no kernel interrupt reaches; False when there was nothing to stop."""
+        delivered = self._kernel(session_id).interrupt()
+        with self._lock:
+            running = self._running.get(session_id)
+            cancelled = running is not None and running.kind == "prompt"
+            if cancelled:
+                self._cancels[session_id].set()
+        return delivered or cancelled
 
     def query(self, session_id: str, spec: QuerySpec) -> QueryResult:
         return self._kernel(session_id).query(spec)
@@ -195,17 +208,26 @@ class SessionService:
         return self._kernel(session_id).list_datasets()
 
     def restart(self, session_id: str) -> ReplayReport:
+        """Replace the kernel and replay the session's steps. Killing the old kernel stops code
+        no interrupt reaches, and a running step is cancelled too; it saves itself as interrupted
+        before the replay. A step waiting on the model stops once the model answers."""
         with self._lock:
-            if session_id in self._running:
+            if session_id in self._restarts:
                 raise SessionBusy(session_id)
-            self._running[session_id] = None
-            self._kernels.mark_running(session_id, True)
+            self._restarts.add(session_id)
+            cancel = self._cancels.get(session_id)
+            if cancel is not None:
+                cancel.set()
         try:
+            self._kernels.kill(session_id)
+            with self._lock:
+                self._released.wait_for(lambda: session_id not in self._running)
+                self._kernels.mark_running(session_id, True)
             return self._kernels.restart(session_id, self._store.get(session_id).steps)
         finally:
             with self._lock:
                 self._kernels.mark_running(session_id, False)
-                self._running.pop(session_id, None)
+                self._restarts.discard(session_id)
 
     def _kernel(self, session_id: str) -> KernelClient:
         return self._kernels.get(session_id, has_steps=self._has_steps(session_id))
@@ -216,9 +238,11 @@ class SessionService:
     def shutdown(self) -> None:
         self._kernels.close_all()
 
-    def _begin(self, session_id: str, *, kind: StepKind, prompt: str | None, code: str) -> Step:
+    def _begin(
+        self, session_id: str, *, kind: StepKind, prompt: str | None, code: str
+    ) -> tuple[Step, threading.Event]:
         with self._lock:
-            if session_id in self._running:
+            if session_id in self._running or session_id in self._restarts:
                 raise SessionBusy(session_id)
             step = Step(
                 id=new_id(),
@@ -230,9 +254,11 @@ class SessionService:
                 error=None,
                 created_at=now_iso(),
             )
+            cancel = threading.Event()
             self._running[session_id] = step
+            self._cancels[session_id] = cancel
             self._kernels.mark_running(session_id, True)
-            return step
+            return step, cancel
 
     def _start(
         self, session_id: str, target: Callable[..., None], args: tuple[object, ...]
@@ -244,15 +270,23 @@ class SessionService:
                 self._release(session_id, f"failed to start step: {exc}")
             raise
 
-    def _run_prompt(self, session_id: str, step: Step, prompt: str) -> None:
+    def _run_prompt(
+        self, session_id: str, step: Step, prompt: str, cancel: threading.Event
+    ) -> None:
         started = time.monotonic()
+        tools: ToolExecutor | None = None
         try:
             provider = self._provider_factory(self._config)
             kernel = self._kernel(session_id)
             tools = ToolExecutor(kernel=kernel, library=self._library, transpiler=self._transpiler)
             summary = build_summary(self._store.get(session_id).steps, _safe_datasets(kernel))
             outcome = run_agent_step(
-                prompt=prompt, system=self._system, summary=summary, provider=provider, tools=tools
+                prompt=prompt,
+                system=self._system,
+                summary=summary,
+                provider=provider,
+                tools=tools,
+                cancel=cancel,
             )
             lineage = step_lineage(outcome.exec_results)
             error = (
@@ -277,27 +311,39 @@ class SessionService:
                 }
             )
         except KernelDead as exc:
-            done = _failed(step, _death(exc), started)
+            done = _died(step, exc, cancel, started)
         # The step thread's boundary: anything else would leave the session busy for good.
         except Exception as exc:
-            done = _failed(step, _crash(exc), started)
+            # The blocks that ran stay with the step, so restart replays them.
+            ran = tools.runs if tools is not None else []
+            runs = [CodeRun(code=code, status=result.status) for code, result in ran]
+            done = _failed(step, _crash(exc), started, runs)
         self._finish(session_id, done)
 
-    def _run_manual(self, session_id: str, step: Step) -> None:
+    def _run_manual(self, session_id: str, step: Step, cancel: threading.Event) -> None:
         started = time.monotonic()
         try:
-            result = self._kernel(session_id).execute(step.code)
-            done = _apply_exec(step, result, started)
+            kernel = self._kernel(session_id)
+            # A restart cancels, then kills the kernel: one it found none to kill may be new.
+            if cancel.is_set():
+                done = _stopped(step, started)
+            else:
+                done = _apply_exec(step, kernel.execute(step.code), started)
         except KernelDead as exc:
-            done = _failed(step, _death(exc), started)
+            done = _died(step, exc, cancel, started)
         # The step thread's boundary: anything else would leave the session busy for good.
         except Exception as exc:
             done = _failed(step, _crash(exc), started)
         self._finish(session_id, done)
 
     def _finish(self, session_id: str, step: Step) -> None:
-        error = step.error.message if step.error is not None else None
         with self._lock:
+            # A restart cancels its running step and kills the kernel, so the step ends
+            # interrupted, whichever of the two stopped it.
+            if step.status == "interrupted" and session_id in self._restarts:
+                stopped = ExecError(type="Restart", message="stopped by a restart", traceback="")
+                step = step.model_copy(update={"error": stopped})
+            error = step.error.message if step.error is not None else None
             try:
                 self._store.append_step(session_id, step)
             except Exception as exc:
@@ -313,6 +359,8 @@ class SessionService:
             self._last_error[session_id] = error
         else:
             self._last_error.pop(session_id, None)
+        self._cancels.pop(session_id, None)
+        self._released.notify_all()  # waiters wake once the caller lets go of the lock
         # Last: status() reads _running without the lock and treats None as fully finished.
         self._running.pop(session_id, None)
 
@@ -347,18 +395,30 @@ def _apply_exec(step: Step, result: ExecResult, started: float) -> Step:
     )
 
 
-def _failed(step: Step, error: ExecError, started: float) -> Step:
+def _failed(step: Step, error: ExecError, started: float, runs: Sequence[CodeRun] = ()) -> Step:
     return step.model_copy(
         update={
             "status": "error",
             "error": error,
+            "runs": list(runs),
             "duration_ms": int((time.monotonic() - started) * 1000),
         }
     )
 
 
-def _death(exc: KernelDead) -> ExecError:
-    return ExecError(type="KernelDead", message=f"kernel died: {exc}", traceback="")
+def _stopped(step: Step, started: float) -> Step:
+    return step.model_copy(
+        update={"status": "interrupted", "duration_ms": int((time.monotonic() - started) * 1000)}
+    )
+
+
+def _died(step: Step, exc: KernelDead, cancel: threading.Event, started: float) -> Step:
+    """The step whose kernel died. Once cancelled it was stopped instead: a restart cancels the
+    step before it kills the kernel."""
+    if cancel.is_set():
+        return _stopped(step, started)
+    error = ExecError(type="KernelDead", message=f"kernel died: {exc}", traceback="")
+    return _failed(step, error, started)
 
 
 def _crash(exc: Exception) -> ExecError:

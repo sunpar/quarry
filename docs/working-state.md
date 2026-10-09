@@ -11,7 +11,9 @@ be true next month belongs in [context/](context/) or
 Land Stage 3, the first UI, on top of Stage 2. Stage 3 is implemented on
 `claude/quarry-stage3-first-ui` from the
 [Stage 3 plan](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md) and waits
-for its pull request to merge; Stage 2 (sunpar/quarry#2) must merge first.
+for its pull request to merge; Stage 2 (sunpar/quarry#2) must merge first. The
+[Stage 4 plan](superpowers/plans/2026-10-08-quarry-stage4-projects.md) is
+written and waits for Stage 3.
 
 ## Status by stage
 
@@ -20,7 +22,7 @@ for its pull request to merge; Stage 2 (sunpar/quarry#2) must merge first.
 | 1. Core             | Merged in sunpar/quarry#1 as `d00b5fa`               | [Stage 1](superpowers/plans/2026-10-08-quarry-stage1-core.md)         |
 | 2. Server and agent | Implemented, sunpar/quarry#2 open                    | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
 | 3. First UI         | Implemented, pull request open on the Stage 2 branch | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
-| 4. Projects         | Not planned yet                                      | Spec §15                                                              |
+| 4. Projects         | Planned, not started                                 | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
 | 5. Breadth          | Not planned yet                                      | Spec §15                                                              |
 
 ### Stage 1: core
@@ -52,8 +54,8 @@ green. It is blocked on sunpar/quarry#2 merging.
 
 ## Latest verification
 
-`claude/quarry-stage3-first-ui` at `3994f03` (Stage 2 branch merged in, Codex
-review addressed) on 2026-10-08: 902 tests passed and 3 skipped (the live provider tests), including
+`claude/quarry-stage3-first-ui` with the Stage 2 branch merged in again (Codex
+review addressed) on 2026-10-08: 912 tests passed and 3 skipped (the live provider tests), including
 the two browser tests under `tests/e2e`; `ruff check`, `ruff format --check`,
 `mypy src` and `uv lock --check` were clean; in `web/`, `npm run check` (tsc and
 prettier), `npm test` (56 tests) and `npm run build` passed; the wheel from

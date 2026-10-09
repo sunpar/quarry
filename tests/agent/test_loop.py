@@ -1,4 +1,5 @@
 import json
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -38,13 +39,20 @@ def end(text: str = "done") -> AssistantTurn:
     return AssistantTurn(text=text, tool_calls=[], stop="end")
 
 
-def run(provider: FakeProvider, kernel: KernelClient, tmp_path: Path, **kw: int) -> StepOutcome:
+def run(
+    provider: FakeProvider,
+    kernel: KernelClient,
+    tmp_path: Path,
+    cancel: threading.Event | None = None,
+    **kw: int,
+) -> StepOutcome:
     return run_agent_step(
         prompt="load",
         system="sys",
         summary="# Session so far",
         provider=provider,
         tools=tools(kernel, tmp_path),
+        cancel=cancel or threading.Event(),
         **kw,
     )
 
@@ -125,7 +133,12 @@ def test_provider_error_fails_step(kernel: KernelClient, tmp_path: Path) -> None
             raise ProviderError("rate limited", retryable=True)
 
     out = run_agent_step(
-        prompt="p", system="s", summary="", provider=Boom(), tools=tools(kernel, tmp_path)
+        prompt="p",
+        system="s",
+        summary="",
+        provider=Boom(),
+        tools=tools(kernel, tmp_path),
+        cancel=threading.Event(),
     )
     assert out.status == "error" and out.error_message == "rate limited"
 
@@ -133,6 +146,35 @@ def test_provider_error_fails_step(kernel: KernelClient, tmp_path: Path) -> None
 def test_interrupted_python_marks_step_interrupted(kernel: KernelClient, tmp_path: Path) -> None:
     provider = FakeProvider([py("c1", "raise KeyboardInterrupt"), end()])
     assert run(provider, kernel, tmp_path).status == "interrupted"
+
+
+def test_cancel_before_a_provider_call_skips_it(kernel: KernelClient, tmp_path: Path) -> None:
+    cancel = threading.Event()
+    cancel.set()
+    provider = FakeProvider([end()])
+    out = run(provider, kernel, tmp_path, cancel)
+    assert out.status == "interrupted" and out.error_message == "interrupted by researcher"
+    assert provider.calls == [] and out.iterations == 0
+
+
+def test_cancel_during_a_provider_call_skips_its_tools(
+    kernel: KernelClient, tmp_path: Path
+) -> None:
+    cancel = threading.Event()
+
+    class CancelsOnSecondCall(FakeProvider):
+        def complete(
+            self, *, system: str, messages: list[Message], tools: list[ToolDef]
+        ) -> AssistantTurn:
+            turn = super().complete(system=system, messages=messages, tools=tools)
+            if len(self.calls) == 2:
+                cancel.set()
+            return turn
+
+    provider = CancelsOnSecondCall([py("c1", "x = 1"), py("c2", "y = 2"), end()])
+    out = run(provider, kernel, tmp_path, cancel)
+    assert out.status == "interrupted" and out.error_message == "interrupted by researcher"
+    assert [r.code for r in out.runs] == ["x = 1"] and len(provider.calls) == 2
 
 
 def test_step_lineage_self_rebinding_keeps_read_edge() -> None:

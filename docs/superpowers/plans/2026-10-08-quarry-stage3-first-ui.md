@@ -530,7 +530,7 @@ export interface QueryResult {
 
 export interface DatasetMeta {
   name: string;
-  backing: "polars" | "duckdb";
+  backing: "polars" | "polars_lazy" | "duckdb";
   schema: Column[];
   rows: number | null;
   preview: Row[];
@@ -560,12 +560,18 @@ export interface View {
 
 export type StepStatus = "running" | "ok" | "error" | "interrupted";
 
+export interface CodeRun {
+  code: string;
+  status: "ok" | "error" | "interrupted";
+}
+
 export interface Step {
   id: string;
   index: number;
   kind: "prompt" | "manual" | "load" | "recall";
   prompt: string | null;
   code: string;
+  runs: CodeRun[];
   status: StepStatus;
   error: ExecError | null;
   note: string;
@@ -621,7 +627,7 @@ export interface ReplayReport {
 }
 ```
 
-These mirror `FilterOp` and `AggFn` in `src/quarry/query/spec.py`, `DatasetMeta` in `kernel/datasets.py` and `ReplayReport` in `server/kernels.py` as of Stage 2 branch head `08efb23`; re-check them if that branch moves before Stage 3 starts.
+These mirror `FilterOp` and `AggFn` in `src/quarry/query/spec.py`, `DatasetMeta` in `kernel/datasets.py` and `ReplayReport` in `server/kernels.py` as of Stage 2 branch head `08efb23` (`Step.runs` and the `polars_lazy` backing included); re-check them if that branch moves before Stage 3 starts.
 
 - [ ] **Step 2: Failing tests**
 
