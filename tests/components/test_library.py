@@ -6,6 +6,7 @@ import pytest
 
 from quarry.components.library import ComponentLibrary, dtype_class
 from quarry.kernel.datasets import Column, DatasetMeta
+from tests.fixtures import chmodded, root_ignores_modes
 
 
 def write_component(
@@ -100,3 +101,13 @@ def test_broken_manifests_are_skipped_with_a_warning(
     assert table is not None
     assert lib.get("badschema") is None
     assert [m.id for m in lib.search(dataset=meta([("a", "Int64")]), tags=[])] == ["table"]
+
+
+@root_ignores_modes
+def test_unreadable_manifest_is_skipped(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    write_component(tmp_path, "good", ["a"], [])
+    write_component(tmp_path, "locked", ["a"], [])
+    with chmodded(tmp_path / "locked" / "manifest.json", 0o000), caplog.at_level(logging.WARNING):
+        entries = ComponentLibrary([tmp_path]).entries()
+    assert [e.manifest.id for e in entries] == ["good"]
+    assert "locked" in caplog.text

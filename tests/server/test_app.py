@@ -734,3 +734,34 @@ def test_static_assets_allow_opaque_origin_but_api_does_not(tmp_path: Path) -> N
     api = client.get("/sessions", headers={"Origin": "null", "Authorization": f"Bearer {TOKEN}"})
     assert api.status_code == 200
     assert "access-control-allow-origin" not in api.headers
+
+
+class Unprintable(Exception):
+    def __str__(self) -> str:
+        raise RuntimeError("no text")
+
+
+def test_unprintable_exception_still_fails_the_step(tmp_path: Path) -> None:
+    def factory(_cfg: QuarryConfig) -> Provider:
+        raise Unprintable()
+
+    with make_client(tmp_path, [], provider_factory=factory) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps", json={"prompt": "go"})
+        assert wait_idle(client, sid)["last_error"] == "<unprintable Unprintable>"
+        step = client.get(f"/sessions/{sid}").json()["steps"][0]
+        assert step["status"] == "error" and step["error"]["type"] == "Unprintable"
+        assert client.post(f"/sessions/{sid}/steps", json={"prompt": "again"}).status_code == 202
+        wait_idle(client, sid)
+
+
+def test_shutdown_saves_the_step_it_stops(tmp_path: Path) -> None:
+    started = tmp_path / "started"
+    with make_client(tmp_path, []) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps/manual", json={"code": hang(started)})
+        wait_for_file(started)
+        began = time.monotonic()
+    assert time.monotonic() - began < 30  # the step sleeps for 60 seconds
+    [step] = SessionStore(tmp_path).get(sid).steps
+    assert step.status == "interrupted"

@@ -24,13 +24,16 @@ class SessionStore:
         path.mkdir(mode=_PRIVATE_DIR)
         (path / "steps").mkdir(mode=_PRIVATE_DIR)
         _write_atomic(path / "session.json", meta.model_dump_json(indent=2))
+        # The session directory and `sessions/` are durable once their own entries are.
+        _sync_dir(self._dir)
+        _sync_dir(self._dir.parent)
         return meta
 
     def list(self) -> list[SessionMeta]:
         if not self._dir.is_dir():
             return []
         metas = [
-            SessionMeta.model_validate_json((p / "session.json").read_text())
+            SessionMeta.model_validate_json((p / "session.json").read_bytes())
             for p in self._dir.iterdir()
             if (p / "session.json").exists()
         ]
@@ -38,9 +41,12 @@ class SessionStore:
 
     def get(self, session_id: str) -> Session:
         path = self._session_dir(session_id)
-        meta = SessionMeta.model_validate_json((path / "session.json").read_text())
-        step_files = sorted((path / "steps").glob("*.json"))
-        steps = [Step.model_validate_json(p.read_text()) for p in step_files]
+        meta = SessionMeta.model_validate_json((path / "session.json").read_bytes())
+        # By index, not file name: `10000.json` sorts before `1001.json`.
+        steps = sorted(
+            (Step.model_validate_json(p.read_bytes()) for p in (path / "steps").glob("*.json")),
+            key=lambda s: s.index,
+        )
         return Session(meta=meta, steps=steps)
 
     def append_step(self, session_id: str, step: Step) -> None:
@@ -71,13 +77,18 @@ def _write_atomic(path: Path, text: str) -> None:
     # A crash leaves at most a stray temp file, which the steps/*.json glob never matches.
     temp = path.with_name(f".{path.name}.tmp")
     # Created private, never chmodded after, so it is not readable by others even briefly.
-    with os.fdopen(os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, _PRIVATE_FILE), "w") as f:
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, _PRIVATE_FILE)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(text)
         f.flush()
         os.fsync(f.fileno())
     temp.replace(path)
     # The rename is durable only once the directory entry is.
-    directory = os.open(path.parent, os.O_RDONLY)
+    _sync_dir(path.parent)
+
+
+def _sync_dir(path: Path) -> None:
+    directory = os.open(path, os.O_RDONLY)
     try:
         os.fsync(directory)
     finally:

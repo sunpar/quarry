@@ -25,6 +25,7 @@ class KernelManager:
         self._running: set[str] = set()
         # Sessions whose kernel was respawned under existing steps and has not replayed them.
         self._replay_needed: set[str] = set()
+        self._closed = False
         self._lock = threading.Lock()
 
     def get(self, session_id: str, *, has_steps: bool = False) -> KernelClient:
@@ -33,6 +34,9 @@ class KernelManager:
         A kernel started for a session that already has steps is flagged `replay_needed`.
         """
         with self._lock:
+            # A step thread can reach here after shutdown closed every kernel.
+            if self._closed:
+                raise KernelDead("the server is shutting down")
             client = self._clients.get(session_id)
             if client is None:
                 client = KernelClient.spawn(self._root, threads=self._threads)
@@ -71,7 +75,8 @@ class KernelManager:
                 client.close()
 
     def restart(self, session_id: str, steps: list[Step]) -> ReplayReport:
-        """Replace the kernel and re-run each step's runs in index order.
+        """Replace the kernel and re-run each step's runs, in the order given (the store's,
+        by index).
 
         A run that failed the first time may fail again, so its partial effects come back; an
         interrupted run is skipped. Replay stops at the first run that was ok and now is not,
@@ -83,7 +88,7 @@ class KernelManager:
             if old is not None:
                 old.close()
         client = self.get(session_id, has_steps=bool(steps))
-        for replayed, step in enumerate(sorted(steps, key=lambda s: s.index)):
+        for replayed, step in enumerate(steps):
             for run in step.runs:
                 if run.status == "interrupted":
                     continue
@@ -101,6 +106,7 @@ class KernelManager:
 
     def close_all(self) -> None:
         with self._lock:
+            self._closed = True
             for client in self._clients.values():
                 client.close()
             self._clients.clear()

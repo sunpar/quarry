@@ -438,6 +438,11 @@ them.
   credits the step.
 - **One step or restart at a time**: a step posted while another step or a
   restart runs gets 409, and so does a second restart.
+- **Shutdown stops and saves running steps**: it cancels every running step,
+  closes the kernels, refuses to start new ones, and waits up to 10 s for the
+  steps to save as `interrupted`. A step running at shutdown was never saved
+  before. Cost: a step still waiting on the model after 10 s is lost, as in a
+  crash.
 - **Restart stops a running step**: `/restart` while a step runs cancels it,
   kills the kernel's process group, waits for the step to save itself, then
   replays. The step ends `interrupted` with the error "stopped by a restart" and
@@ -478,11 +483,14 @@ them.
   had listed every route without a token. Tokens are compared as bytes, because
   `compare_digest` raises on a non-ASCII `str`.
 - **Session files**: a step is saved once, when it finishes, as 0-based
-  `steps/NNNN.json`. Transcripts hold provider-neutral `Message`s.
+  `steps/NNNN.json`, and read back in index order, since `10000.json` sorts
+  before `1001.json` by name. Files are UTF-8 whatever the locale. Transcripts
+  hold provider-neutral `Message`s.
 - **Session files are private and durable**: `quarry serve` creates a missing
   root 0700, and the store creates `sessions/`, each session and its
   `steps/` 0700. The store writes every file 0600 to a temp file, fsyncs it,
-  moves it into place with `Path.replace`, and fsyncs its directory. Other
+  moves it into place with `Path.replace`, and fsyncs its directory. Creating a
+  session also fsyncs `sessions/` and the root, which gained its entries. Other
   researchers on the machine could read prompts and code, and a crash could lose
   a finished step. Cost: an existing root keeps its mode, macOS `fsync` does not
   flush the drive cache, and a filesystem that refuses a directory fsync fails
@@ -490,8 +498,9 @@ them.
 - **The summary budget is a code default**: `build_summary` collapses steps
   older than the last eight once the summary passes 24,000 estimated tokens,
   with no config key. Spec §8 is amended.
-- **A broken component manifest is skipped**: the library logs a warning and
-  loads the rest. One bad manifest had made every component search fail.
+- **A broken component manifest is skipped**: an unreadable, malformed or
+  invalid manifest gets a logged warning, and the library loads the rest. One
+  bad manifest had made every component search fail.
 
 ## First UI
 
