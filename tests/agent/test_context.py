@@ -92,3 +92,20 @@ def test_build_summary_collapses_old_steps_over_budget() -> None:
     text = build_summary(steps, [], budget_tokens=5000, keep_full=8)
     assert "prompt 0" in text and "d0" in text
     assert text.count("x" * 4000) == 8
+
+
+def wide(name: str, columns: int) -> DatasetMeta:
+    schema = [Column(name=f"c{i}", dtype="Int64") for i in range(columns)]
+    return DatasetMeta(name=name, backing="polars", schema=schema, rows=1, preview=[])
+
+
+def test_build_summary_counts_datasets_in_the_budget() -> None:
+    steps = [step(i, f"prompt {i}", "x" * 400, [f"d{i}"]) for i in range(12)]
+    # The steps alone fit in 2000 tokens; with the dataset's schema they do not.
+    text = build_summary(steps, [wide("w", 400)], budget_tokens=2000, keep_full=8)
+    assert text.count("x" * 400) == 8 and "c399: Int64" in text
+
+
+def test_build_summary_drops_columns_when_datasets_alone_overflow() -> None:
+    text = build_summary([], [wide("w", 400)], budget_tokens=500)
+    assert "- w (polars, 1 rows): 400 columns" in text and "c399" not in text

@@ -1,3 +1,6 @@
+import sys
+import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -6,7 +9,7 @@ import pytest
 from quarry.agent.tools import CodeRun
 from quarry.kernel.client import KernelDead
 from quarry.kernel.executor import Status
-from quarry.server.kernels import KernelManager
+from quarry.server.kernels import KernelManager, SessionBusy
 from quarry.server.models import Step, now_iso
 
 
@@ -141,3 +144,34 @@ def test_replay_stops_at_an_interrupt_even_in_a_run_that_failed(manager: KernelM
     steps = [step(0, "", ("raise KeyboardInterrupt", "error")), step(1, "x = 1")]
     report = manager.restart("s", steps)
     assert report.failed_step == 0 and report.replayed == 0
+
+
+def test_failed_restart_leaves_the_session_dead(
+    manager: KernelManager, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager.get("s").execute("x = 1")
+    with monkeypatch.context() as patch:
+        patch.setattr(sys, "executable", str(tmp_path / "no-such-python"))
+        with pytest.raises(KernelDead, match="cannot start"):
+            manager.restart("s", [])
+    # Not a fresh, empty kernel: the session still needs a restart to replay its steps.
+    with pytest.raises(KernelDead, match="restart"):
+        manager.get("s")
+
+
+def test_get_is_busy_while_a_restart_replays(manager: KernelManager, tmp_path: Path) -> None:
+    flag = tmp_path / "go"
+    wait = f"import time, pathlib\nwhile not pathlib.Path({str(flag)!r}).exists(): time.sleep(0.01)"
+    restart = threading.Thread(target=manager.restart, args=("s", [step(0, wait)]))
+    restart.start()
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            manager.get("s")
+        except SessionBusy:
+            break
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    flag.touch()
+    restart.join(timeout=30)
+    assert manager.get("s").execute("y = 1").status == "ok"

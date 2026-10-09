@@ -89,13 +89,18 @@ def build_summary(
     budget_tokens: int = 24000,
     keep_full: int = 8,
 ) -> str:
+    # Datasets come first in the budget: the agent needs them to write code. Past it alone,
+    # each keeps its column count, and describe_dataset lists the columns.
+    ds_lines = [_dataset_line(d) for d in datasets]
+    if estimate_tokens("\n".join(ds_lines)) > budget_tokens:
+        ds_lines = [_dataset_line(d, columns=False) for d in datasets]
+    room = budget_tokens - estimate_tokens("\n".join(ds_lines))
     blocks = [_full_block(s) for s in steps]
-    if estimate_tokens("\n".join(blocks)) > budget_tokens:
+    if estimate_tokens("\n".join(blocks)) > room:
         cutoff = max(len(steps) - keep_full, 0)
         blocks = [_short_block(s) for s in steps[:cutoff]] + [
             _full_block(s) for s in steps[cutoff:]
         ]
-    ds_lines = [_dataset_line(d) for d in datasets]
     return "\n".join(["# Session so far", *blocks, "", "# Datasets in the kernel", *ds_lines])
 
 
@@ -103,10 +108,13 @@ def _partitioning(entry: PartitionLayout) -> str:
     return f"partitioned by {', '.join(entry.keys)}" if entry.keys else "not partitioned"
 
 
-def _dataset_line(d: DatasetMeta) -> str:
+def _dataset_line(d: DatasetMeta, *, columns: bool = True) -> str:
     rows = d.rows if d.rows is not None else "?"
-    columns = ", ".join(f"{c.name}: {c.dtype}" for c in d.schema_)
-    return f"- {d.name} ({d.backing}, {rows} rows): {columns}"
+    if columns:
+        detail = ", ".join(f"{c.name}: {c.dtype}" for c in d.schema_)
+    else:
+        detail = f"{len(d.schema_)} columns"
+    return f"- {d.name} ({d.backing}, {rows} rows): {detail}"
 
 
 def _full_block(s: Step) -> str:

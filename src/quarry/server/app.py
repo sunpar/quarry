@@ -20,13 +20,12 @@ from quarry.kernel.client import KernelDead, RpcFailure
 from quarry.kernel.datasets import DatasetMeta
 from quarry.kernel.executor import QueryResult
 from quarry.query.spec import Json, QueryError, QuerySpec
-from quarry.server.kernels import KernelManager, ReplayReport
+from quarry.server.kernels import KernelManager, ReplayReport, SessionBusy
 from quarry.server.models import Session, SessionMeta, Step
 from quarry.server.service import (
     CreateSessionRequest,
     ManualStepRequest,
     ProviderFactory,
-    SessionBusy,
     SessionService,
     SessionStatus,
     StepRequest,

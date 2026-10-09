@@ -33,7 +33,8 @@ class ComponentManifest(BaseModel):
     name: str
     description: str
     tags: list[str] = Field(default_factory=list)
-    contract_version: int = 1
+    # The only contract the runtime mounts; a manifest for another one is skipped.
+    contract_version: Literal[1] = 1
     schema_: ComponentSchema = Field(alias="schema", default_factory=ComponentSchema)
     origin: Literal["builtin", "generated", "imported"]
     created_at: str

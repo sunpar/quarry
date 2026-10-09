@@ -435,10 +435,11 @@ layout, the names of the data layer helpers, and the rule that computation
 belongs in Python and in query specs, not in component JavaScript.
 
 Session summary, rebuilt per step: for each prior step, its prompt and the
-code that ran, plus the current dataset list with schemas. Once the summary
-exceeds a token budget of 24,000 estimated tokens, steps older than the last
-eight collapse to prompt and datasets written only. Full transcripts are never
-replayed.
+code that ran, plus the current dataset list with schemas. The dataset list
+counts against a token budget of 24,000 estimated tokens first; if it alone
+exceeds the budget, each dataset keeps only its column count. Once the steps
+exceed what is left, steps older than the last eight collapse to prompt and
+datasets written only. Full transcripts are never replayed.
 
 ### Library guide, as given to the model
 

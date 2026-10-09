@@ -26,7 +26,7 @@ from quarry.kernel.client import KernelClient, KernelDead
 from quarry.kernel.datasets import DatasetMeta
 from quarry.kernel.executor import TAIL_BYTES, ExecError, ExecResult, QueryResult
 from quarry.query.spec import QuerySpec
-from quarry.server.kernels import KernelManager, ReplayReport
+from quarry.server.kernels import KernelManager, ReplayReport, SessionBusy
 from quarry.server.models import (
     KernelStatus,
     ProviderInfo,
@@ -51,10 +51,6 @@ def provider_from_config(config: QuarryConfig) -> Provider:
     if config.provider.name == "openai":
         return OpenAIProvider.from_config(config)
     return AnthropicProvider.from_config(config)
-
-
-class SessionBusy(Exception):
-    pass
 
 
 class StepRequest(BaseModel):
@@ -102,7 +98,6 @@ class SessionService:
         self._lock = threading.Lock()
         # Notified each time a step frees its session, which a restart waits for.
         self._released = threading.Condition(self._lock)
-        self._system = build_system(self._system_context())
 
     def create(self, title: str) -> SessionMeta:
         return self._store.create(title=title, provider=self._provider_info())
@@ -181,10 +176,10 @@ class SessionService:
                 self._restarts.discard(session_id)
 
     def _kernel(self, session_id: str) -> KernelClient:
-        """The kernel a request reaches; SessionBusy mid-restart, since a half-replayed
-        namespace is not the session's. Read without the lock, as `status` reads."""
-        if session_id in self._restarts:
-            raise SessionBusy(session_id)
+        """The kernel a request reaches; SessionBusy mid-restart, as `get` is during the replay."""
+        with self._lock:
+            if session_id in self._restarts:
+                raise SessionBusy(session_id)
         return self._kernels.get(session_id)
 
     def shutdown(self) -> None:
@@ -245,7 +240,7 @@ class SessionService:
             summary = build_summary(self._store.get(session_id).steps, _safe_datasets(kernel))
             outcome = run_agent_step(
                 prompt=prompt,
-                system=self._system,
+                system=build_system(self._system_context()),
                 summary=summary,
                 provider=provider,
                 tools=tools,
