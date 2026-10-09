@@ -901,6 +901,39 @@ def test_to_code_reads_a_relation_through_its_importable_projection() -> None:
     assert namespace["rel_1"].rows() == [(1, "9 days")]
 
 
+def test_to_code_result_names_skip_bound_read_and_chosen_names() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1, 2, 3]})")
+    ex.execute("df_1 = pl.DataFrame({'a': [10, 20]})")
+    specs = [
+        QuerySpec(dataset="df", filters=[Filter(col="a", op="eq", value=1)]),
+        QuerySpec(dataset="df_1"),
+        QuerySpec(dataset="df"),
+    ]
+    code = ex.to_code(specs).code
+    # df_1 is bound and read by the second spec; df_2 was chosen for the first.
+    assert "df_2 = (" in code and "df_1_2 = (" in code and "df_3 = (" in code
+    namespace = dict(ex._ns)
+    exec(code, namespace)  # the test executes generated code on purpose
+    assert namespace["df_2"]["a"].to_list() == [1]
+    assert namespace["df_1_2"]["a"].to_list() == [10, 20]
+    assert namespace["df_1"]["a"].to_list() == [10, 20]
+    assert namespace["df_3"].height == 3
+
+
+def test_to_code_rejects_an_import_that_would_rebind_a_dataset() -> None:
+    ex = make()
+    ex.execute("import datetime as dt\nt = pl.DataFrame({'d': [dt.date(2024, 1, 2)]})")
+    ex.execute("date = pl.DataFrame({'a': [1]})")
+    imports_date = QuerySpec(dataset="t", filters=[Filter(col="d", op="ge", value="2024-01-01")])
+    # Another block's `from datetime import date` would rebind the dataset a later block reads,
+    for specs in ([imports_date, QuerySpec(dataset="date")], [imports_date]):
+        # and rebinds the researcher's `date` even when no spec reads it.
+        with pytest.raises(QueryError, match="shadowed by a generated import") as info:
+            ex.to_code(specs)
+        assert info.value.dataset == "date"
+
+
 def test_to_code_rejects_unknown_dataset_and_bad_column() -> None:
     ex = make()
     ex.execute("df = pl.DataFrame({'a': [1]})")

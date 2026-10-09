@@ -149,6 +149,12 @@ def _render(
     return f"try:\n{_indent(assign)}\nfinally:\n{_indent(drop)}\n"
 
 
+def imported_names(spec: QuerySpec, backing: Backing, *, schema: Schema | None = None) -> list[str]:
+    """The names `to_source(spec, backing, schema=schema)` binds with its import lines."""
+    # Relation source imports nothing: its filters, the only literals, run in the SQL.
+    return [] if backing == "duckdb" else _imported_names(spec, schema)
+
+
 def filter_source(f: Filter, dtype: pl.DataType | None = None) -> str:
     """Render one filter as a polars expression, mirroring `polars_target.filter_expr`."""
     col = f"pl.col({py_literal(f.col)})"

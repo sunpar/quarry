@@ -37,8 +37,8 @@ from quarry.kernel.datasets import (
 from quarry.kernel.datasets import describe as describe_dataset
 from quarry.kernel.lineage import CodeNames, analyze, dataset_reads, dataset_writes
 from quarry.query.polars_target import to_polars
-from quarry.query.source_target import to_source
-from quarry.query.spec import Json, QuerySpec
+from quarry.query.source_target import imported_names, to_source
+from quarry.query.spec import Json, QueryError, QuerySpec
 from quarry.query.sql_target import quote_ident, relation_view, split_for_relation, to_sql
 
 TAIL_BYTES: Final = 4096
@@ -228,9 +228,11 @@ class Executor:
         )
 
     def to_code(self, specs: list[QuerySpec]) -> ToCodeResult:
-        """Each spec as Python assigning `<dataset>_<n>`, rendered with the live schema."""
+        """Each spec as Python assigning `<dataset>_<n>` (`_result_names`), rendered with the
+        live schema; QueryError when a generated import would rebind a dataset."""
         blocks: list[str] = []
-        for n, spec in enumerate(specs, start=1):
+        imported: set[str] = set()
+        for spec, result_name in zip(specs, _result_names(specs, self._ns), strict=True):
             obj = self._dataset(spec.dataset)
             projection = None
             if isinstance(obj, duckdb.DuckDBPyRelation):
@@ -240,15 +242,23 @@ class Executor:
                 schema = obj.collect_schema()
             else:
                 schema = obj.schema
+            backing = backing_of(obj)
             blocks.append(
                 to_source(
                     spec,
-                    backing_of(obj),
-                    result_name=f"{spec.dataset}_{n}",
+                    backing,
+                    result_name=result_name,
                     schema=schema,
                     relation_projection=projection,
                 )
             )
+            imported.update(imported_names(spec, backing, schema=schema))
+        # An import binds its name for every later block and in the namespace the code runs in.
+        # Every spec's dataset is among these: `_dataset` found each one.
+        shadowed = sorted(imported & dataset_names(self._ns))
+        if shadowed:
+            message = f"dataset {shadowed[0]!r} would be shadowed by a generated import; rename it"
+            raise QueryError(message, dataset=shadowed[0])
         return ToCodeResult(code="\n".join(blocks))
 
     def snapshot(self, name: str, path: Path) -> DatasetMeta:
@@ -395,6 +405,20 @@ def _identity_check(obj: object) -> _IsSame:
         ident = id(obj)
         return lambda current: id(current) == ident
     return lambda current: ref() is current
+
+
+def _result_names(specs: list[QuerySpec], namespace: Mapping[str, object]) -> list[str]:
+    """`<dataset>_<n>` for the nth spec, its suffix raised past every name the namespace binds,
+    any spec reads, or an earlier spec was given, so no block overwrites what another reads."""
+    taken = {spec.dataset for spec in specs}
+    names: list[str] = []
+    for n, spec in enumerate(specs, start=1):
+        suffix = n
+        while (name := f"{spec.dataset}_{suffix}") in taken or name in namespace:
+            suffix += 1
+        taken.add(name)
+        names.append(name)
+    return names
 
 
 def _run_query(spec: QuerySpec, obj: Dataset, conn: duckdb.DuckDBPyConnection) -> pl.DataFrame:
