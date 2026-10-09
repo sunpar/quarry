@@ -8,22 +8,22 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Finish Stage 4, projects and the canvas: the final whole-branch review of
-`claude/quarry-stage4-projects` is done and its fixes are in, so open its pull
-request. The
+Land Stage 4, projects and the canvas: `claude/quarry-stage4-projects` has
+passed its final review and a `/simplify` pass, and its pull request is open
+against `main`. The
 [Stage 5 plan](superpowers/plans/2026-10-09-quarry-stage5-breadth.md) and
 [Stage 5 handoff](superpowers/handoffs/2026-10-09-quarry-stage5-handoff.md) are
 written; Stage 5 starts once Stage 4 merges.
 
 ## Status by stage
 
-| Stage               | Status                                                                     | Plan                                                                  |
-| ------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| 1. Core             | Merged in sunpar/quarry#1 as `d00b5fa`                                     | [Stage 1](superpowers/plans/2026-10-08-quarry-stage1-core.md)         |
-| 2. Server and agent | Merged in sunpar/quarry#2 as `7779c05`                                     | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
-| 3. First UI         | Merged in sunpar/quarry#4 as `faf913f`                                     | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
-| 4. Projects         | Implemented on `claude/quarry-stage4-projects`; pull request about to open | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
-| 5. Breadth          | Planned, handoff ready, not started                                        | [Stage 5](superpowers/plans/2026-10-09-quarry-stage5-breadth.md)      |
+| Stage               | Status                                                            | Plan                                                                  |
+| ------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------- |
+| 1. Core             | Merged in sunpar/quarry#1 as `d00b5fa`                            | [Stage 1](superpowers/plans/2026-10-08-quarry-stage1-core.md)         |
+| 2. Server and agent | Merged in sunpar/quarry#2 as `7779c05`                            | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
+| 3. First UI         | Merged in sunpar/quarry#4 as `faf913f`                            | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
+| 4. Projects         | Implemented on `claude/quarry-stage4-projects`; pull request open | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
+| 5. Breadth          | Planned, handoff ready, not started                               | [Stage 5](superpowers/plans/2026-10-09-quarry-stage5-breadth.md)      |
 
 ### Stage 1: core
 
@@ -66,25 +66,26 @@ against the built UI. Its calls are under
 [code map](context/code-map.md#quarryprojects), and what it left is filed under
 [Stage 5](open-items.md#stage-5). The final review's four Important findings and
 eight of its ten Minor ones are fixed; the other two, with the task reviews'
-deferred findings a researcher could hit, are filed there too.
+deferred findings a researcher could hit, are filed there too. A `/simplify`
+pass then reused existing helpers and dropped the rail's per-project fetches.
+The pull request merges once CI is green and both the Claude and the Codex
+reviews come back clean.
 
 ## Latest verification
 
-`claude/quarry-stage4-projects` on 2026-10-09, after the final review's fixes:
-993 tests passed and 3 skipped (the live provider tests and the memory-cap
-test), including the three browser tests under `tests/e2e`; `ruff check`,
+`claude/quarry-stage4-projects` on 2026-10-09, after the `/simplify` pass: 994
+tests passed and 3 skipped (the live provider tests and the memory-cap test),
+including the three browser tests under `tests/e2e`; `ruff check`,
 `ruff format --check`, `mypy src` and `uv lock --check` were clean; in `web/`,
-`npm run check` (tsc and prettier), `npm test` (91 tests) and `npm run build`
+`npm run check` (tsc and prettier), `npm test` (92 tests) and `npm run build`
 passed.
 
 ## Next actions
 
-1. Run `/simplify` once on the branch diff of `claude/quarry-stage4-projects`
-   against `main`.
-2. Open the pull request to `main`.
-3. Get the Claude and Codex reviews and address them.
-4. Merge.
-5. Stage 5: on `main`, start from the
+1. Address the Claude and Codex reviews on the Stage 4 pull request, asking each
+   for another review after every pushed fix until it comes back clean.
+2. Merge once CI is green and both reviews are clean.
+3. Stage 5: on `main`, start from the
    [Stage 5 handoff](superpowers/handoffs/2026-10-09-quarry-stage5-handoff.md),
    which points at the plan that closes the
    [Stage 5 items](open-items.md#stage-5).
