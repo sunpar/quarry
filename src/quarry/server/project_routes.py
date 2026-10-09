@@ -17,8 +17,10 @@ from quarry.projects.models import (
     SavedViewMeta,
 )
 from quarry.server.kernels import SessionBusy
+from quarry.server.models import Step
 from quarry.server.projects import (
     ProjectService,
+    RecallRequest,
     SaveDatasetRequest,
     SavedView,
     SaveViewRequest,
@@ -63,6 +65,11 @@ def register_project_routes(
     def save_view(slug: str, body: SaveViewRequest) -> SavedViewMeta:
         return _saving(lambda: projects.save_view(slug, body))
 
+    @api.post("/sessions/{session_id}/recall", status_code=202)
+    def recall(session_id: str, body: RecallRequest) -> Step:
+        _found(lambda: sessions.get(session_id))  # the session store raises KeyError
+        return _saving(lambda: projects.recall(session_id, body))
+
     @api.put("/projects/{slug}/canvas")
     def set_canvas(slug: str, body: list[CanvasCard]) -> ProjectMeta:
         return _found(lambda: projects.set_canvas(slug, body))
@@ -82,7 +89,7 @@ def _saving(call: Callable[[], T]) -> T:
         raise HTTPException(status_code=404, detail=f"not found: {exc}") from exc
     except SessionBusy as exc:
         raise HTTPException(
-            status_code=409, detail="a step is running; save when it finishes"
+            status_code=409, detail="the session is busy; try again when it finishes"
         ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -179,6 +179,11 @@ class SessionService:
         self._start(session_id, self._run_manual, (session_id, step, cancel))
         return step
 
+    def start_recall(self, session_id: str, *, prompt: str, code: str, view: View | None) -> Step:
+        step, cancel = self._begin(session_id, kind="recall", prompt=prompt, code=code, view=view)
+        self._start(session_id, self._run_manual, (session_id, step, cancel))
+        return step
+
     def status(self, session_id: str) -> SessionStatus:
         running = self._running.get(session_id)
         return SessionStatus(
@@ -270,7 +275,13 @@ class SessionService:
             self._released.wait_for(lambda: not self._running, SHUTDOWN_WAIT_SECONDS)
 
     def _begin(
-        self, session_id: str, *, kind: StepKind, prompt: str | None, code: str
+        self,
+        session_id: str,
+        *,
+        kind: StepKind,
+        prompt: str | None,
+        code: str,
+        view: View | None = None,
     ) -> tuple[Step, threading.Event]:
         with self._lock:
             if (
@@ -286,6 +297,7 @@ class SessionService:
                 prompt=prompt,
                 provider=self._provider_info() if kind == "prompt" else None,
                 code=code,
+                view=view,
                 status="running",
                 error=None,
                 created_at=now_iso(),

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import builtins
+from typing import Literal
 
 from pydantic import BaseModel
 
+from quarry.agent.tools import PendingView
 from quarry.config import ConfigError, QuarryConfig
 from quarry.kernel.client import RpcFailure
 from quarry.projects.models import (
@@ -21,7 +23,7 @@ from quarry.projects.recipe import raw_recipe, recipe_steps
 from quarry.projects.store import NAME_RE, ProjectStore
 from quarry.projects.tidy import tidy_recipe
 from quarry.projects.validate import validate_recipe
-from quarry.server.models import Step, now_iso
+from quarry.server.models import Step, View, now_iso
 from quarry.server.service import ProviderFactory, SessionService, StepNotFound
 
 
@@ -38,6 +40,12 @@ class SaveViewRequest(BaseModel):
     name: str
     description: str = ""
     mode: SaveMode
+
+
+class RecallRequest(BaseModel):
+    project: str
+    kind: Literal["dataset", "view"]
+    name: str
 
 
 class UnknownDataset(Exception):
@@ -145,6 +153,51 @@ class ProjectService:
         )
         self._store.write_view(slug, meta, source=step.view.source, state=state, queries=queries)
         return meta
+
+    def recall(self, session_id: str, req: RecallRequest) -> Step:
+        project = self._store.get(req.project)
+        if req.kind == "dataset":
+            code = self._dataset_code(project, req.name)
+            return self._sessions.start_recall(
+                session_id,
+                prompt=f"Recall {req.name} from {project.meta.name}",
+                code=code,
+                view=None,
+            )
+        saved = self._store.read_view(req.project, req.name)
+        meta, source, state = saved.meta, saved.source, saved.state
+        # hold raises SessionBusy at once while a step runs; the kernel answers only between steps.
+        with self._sessions.hold(session_id) as kernel:
+            present = {d.name for d in kernel.list_datasets()}
+        blocks = [
+            f"# dataset {name}\n{self._dataset_code(project, name)}"
+            for name in meta.datasets
+            if name not in present
+        ]
+        code = (
+            "\n".join(blocks) if blocks else "# every dataset this view needs is already loaded\n"
+        )
+        pending = PendingView(
+            component_id=meta.component_id,
+            source=source,
+            initial_state=state,
+            datasets=meta.datasets,
+        )
+        return self._sessions.start_recall(
+            session_id,
+            prompt=f"Recall view {req.name} from {project.meta.name}",
+            code=code,
+            view=View.from_pending(pending),
+        )
+
+    def _dataset_code(self, project: Project, name: str) -> str:
+        saved = next((d for d in project.datasets if d.name == name), None)
+        if saved is None:
+            raise KeyError(name)
+        if saved.mode == "pinned":
+            path = self._store.parquet_path(project.meta.slug, name)
+            return f"import polars as pl\n{name} = pl.read_parquet({str(path)!r})\n"
+        return self._store.read_recipe(project.meta.slug, name)
 
     def _tidy(self, raw: str, dataset: str) -> str | None:
         """The tidied recipe, or None when no provider is configured: a save never needs one."""
