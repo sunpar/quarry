@@ -4,12 +4,12 @@ import { Button } from "@/components/ui/button";
 import type { Step } from "@/shared/api-types";
 import { useApi } from "../api/context";
 import {
+  projectQuery,
   useProjects,
   useSaveDataset,
   useSaveView,
   useSetCanvas,
 } from "../api/hooks";
-import { keys } from "../api/keys";
 import { SaveDialog, type SaveChoice } from "../components/SaveDialog";
 
 interface StepActionsProps {
@@ -41,10 +41,7 @@ export function StepActions({
 
   // The project itself, not the list, holds the canvas this pin extends.
   const pinCard = async (slug: string, view: string) => {
-    const project = await qc.fetchQuery({
-      queryKey: keys.project(slug),
-      queryFn: () => api.getProject(slug),
-    });
+    const project = await qc.fetchQuery(projectQuery(api, slug));
     const current = project.meta.canvas;
     // The save already refreshed an existing card through its saved_at.
     if (current.some((c) => c.view === view)) return;
@@ -57,18 +54,15 @@ export function StepActions({
 
   const onSave = (choice: SaveChoice) => {
     const { slug } = choice;
+    const common = {
+      session_id: sessionId,
+      mode: choice.mode,
+      description: choice.description,
+    };
     if (pending?.kind === "dataset") {
       onDone(`Saving ${pending.name}…`);
       saveDataset.mutate(
-        {
-          slug,
-          body: {
-            session_id: sessionId,
-            dataset: pending.name,
-            mode: choice.mode,
-            description: choice.description,
-          },
-        },
+        { slug, body: { ...common, dataset: pending.name } },
         {
           onSuccess: (meta) =>
             onDone(
@@ -83,16 +77,7 @@ export function StepActions({
       const pin = pending.pin;
       onDone(`Saving view ${choice.name}…`);
       saveView.mutate(
-        {
-          slug,
-          body: {
-            session_id: sessionId,
-            step_id: step.id,
-            name: choice.name,
-            mode: choice.mode,
-            description: choice.description,
-          },
-        },
+        { slug, body: { ...common, step_id: step.id, name: choice.name } },
         {
           onSuccess: (meta) => {
             onDone(`Saved view ${meta.name}`);

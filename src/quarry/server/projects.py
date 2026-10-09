@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from quarry.agent.tools import PendingView
 from quarry.config import ConfigError, QuarryConfig
 from quarry.kernel.client import RpcFailure
+from quarry.projects.files import PRIVATE_FILE
 from quarry.projects.models import (
     CanvasCard,
     Project,
@@ -20,7 +21,7 @@ from quarry.projects.models import (
     SaveMode,
 )
 from quarry.projects.recipe import raw_recipe, recipe_steps
-from quarry.projects.store import NAME_RE, ProjectStore
+from quarry.projects.store import ProjectStore, check_view_name
 from quarry.projects.tidy import tidy_recipe
 from quarry.projects.validate import validate_recipe
 from quarry.server.models import Step, View, now_iso
@@ -104,16 +105,17 @@ class ProjectService:
             if req.mode == "pinned":
                 path = self._store.pinned_path(slug, req.dataset)
                 kernel.snapshot(req.dataset, path)
-                path.chmod(0o600)  # the kernel writes it at its own umask
+                path.chmod(PRIVATE_FILE)  # the kernel writes it at its own umask
         threads = self._config.data.kernel_threads
         tidied = self._tidy(raw, req.dataset)
-        candidate = tidied if tidied is not None else raw
-        result = validate_recipe(
-            self._config.root, candidate, req.dataset, expected, threads=threads
-        )
-        if not result.ok and tidied is not None:
-            result = validate_recipe(self._config.root, raw, req.dataset, expected, threads=threads)
-            candidate = raw
+        # The tidied recipe is saved only if it reproduces the dataset; the raw one is the fallback,
+        # kept with its problem when it fails too.
+        for recipe in (c for c in (tidied, raw) if c is not None):
+            problem = validate_recipe(
+                self._config.root, recipe, req.dataset, expected, threads=threads
+            )
+            if problem is None:
+                break
         meta = SavedDatasetMeta(
             name=req.dataset,
             description=req.description,
@@ -124,18 +126,15 @@ class ProjectService:
             saved_at=now_iso(),
             source_session=req.session_id,
             source_step=lineage[-1].id,
-            validated=result.ok,
-            validation_error=result.error,
+            validated=problem is None,
+            validation_error=problem,
         )
-        self._store.write_dataset(slug, meta, recipe=candidate, raw=raw)
+        self._store.write_dataset(slug, meta, recipe=recipe, raw=raw)
         return meta
 
     def save_view(self, slug: str, req: SaveViewRequest) -> SavedViewMeta:
-        if NAME_RE.fullmatch(req.name) is None:  # before any dataset save spends a kernel
-            raise ValueError(
-                "view names are lowercase letters, digits, '-' and '_', up to 64 chars"
-            )
-        step = self._find_step(req.session_id, req.step_id)
+        check_view_name(req.name)  # before any dataset save spends a kernel
+        step = self._sessions.step(req.session_id, req.step_id)
         if step.view is None:
             raise StepNotFound(req.step_id)
         saved = {d.name for d in self._store.get(slug).datasets}
@@ -160,6 +159,7 @@ class ProjectService:
         return meta
 
     def recall(self, session_id: str, req: RecallRequest) -> Step:
+        self._sessions.get(session_id)  # KeyError for an unknown session, before the project
         project = self._store.get(req.project)
         if req.kind == "dataset":
             code = self._dataset_code(project, req.name)
@@ -211,9 +211,3 @@ class ProjectService:
         except ConfigError:
             return None
         return tidy_recipe(provider, raw, dataset)
-
-    def _find_step(self, session_id: str, step_id: str) -> Step:
-        for step in self._sessions.get(session_id).steps:
-            if step.id == step_id:
-                return step
-        raise StepNotFound(step_id)

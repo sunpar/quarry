@@ -10,7 +10,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { ProjectMeta, SaveMode } from "@/shared/api-types";
+import type { ProjectMeta, RecallRequest, SaveMode } from "@/shared/api-types";
 
 export interface SaveChoice {
   slug: string;
@@ -21,7 +21,7 @@ export interface SaveChoice {
 
 interface SaveDialogProps {
   open: boolean;
-  kind: "dataset" | "view";
+  kind: RecallRequest["kind"];
   projects: ProjectMeta[];
   defaultName: string;
   onClose: () => void;

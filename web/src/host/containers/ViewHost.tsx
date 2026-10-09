@@ -16,8 +16,8 @@ interface ViewHostProps {
   source: string;
   initialState: JsonObject;
   datasets: string[];
-  /** Restored into the mounted view each time it changes; null restores nothing. */
-  restoreState: JsonObject | null;
+  /** Restored into the mounted view each time it changes; null or absent restores nothing. */
+  restoreState?: JsonObject | null;
   /** Changes whenever kernel data may have: a step finished or a new kernel started. */
   dataVersion: string;
   title: string;
@@ -25,7 +25,6 @@ interface ViewHostProps {
   disabled?: boolean;
   fill?: boolean;
   onStateChanged?: (state: JsonObject, queries: QuerySpec[]) => void;
-  onError?: (message: string) => void;
   /** Repairs the error the overlay shows; without it the overlay has no Fix button. */
   onFix?: (error: string) => void;
 }
@@ -84,10 +83,7 @@ export function ViewHost(props: ViewHostProps) {
         hub?.report(viewId, state);
         latest.current.onStateChanged?.(state, queries);
       },
-      onError: (message) => {
-        setError(message);
-        latest.current.onError?.(message);
-      },
+      onError: setError,
     });
     const stop = bridge.listen(window);
     bridgeRef.current = bridge;
@@ -115,7 +111,7 @@ export function ViewHost(props: ViewHostProps) {
   }, [dataVersion]);
 
   useEffect(() => {
-    if (restoreState !== null) bridgeRef.current?.restore(restoreState);
+    if (restoreState) bridgeRef.current?.restore(restoreState);
   }, [restoreState]);
 
   return (

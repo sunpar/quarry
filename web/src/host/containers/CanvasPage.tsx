@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import GridLayout, { useContainerWidth, type Layout } from "react-grid-layout";
 import type { CanvasCard, Project } from "@/shared/api-types";
 import {
+  dataVersion,
+  sessionRunning,
   useRecall,
   useSavedView,
   useSession,
+  useSessionStatus,
   useSetCanvas,
 } from "../api/hooks";
 import { SharedStateHub } from "../bridge/SharedStateHub";
@@ -42,7 +45,7 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
     measureBeforeMount: true,
   });
   const session = useSession(sessionId);
-  const recall = useRecall(sessionId);
+  const recall = useRecall();
   const setCanvas = useSetCanvas();
   const [hub] = useState(() => new SharedStateHub());
   const [layout, setLayout] = useState<Layout>(() =>
@@ -65,10 +68,9 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
   useEffect(() => flush, []);
 
   const steps = session.data?.steps ?? [];
-  const running = steps.at(-1)?.status === "running";
-  const dataVersion = String(
-    steps.filter((s) => s.status !== "running").length,
-  );
+  const running = sessionRunning(session.data);
+  const status = useSessionStatus(sessionId, running || recall.isPending);
+  const version = dataVersion(steps, status.data?.kernel.pid);
   const present = new Set(steps.flatMap((s) => s.writes));
   const error = recall.error ?? setCanvas.error;
 
@@ -123,6 +125,7 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
                     loading={recall.isPending || running}
                     onLoad={() =>
                       recall.mutate({
+                        sessionId,
                         project: slug,
                         kind: "view",
                         name: view.name,
@@ -134,7 +137,7 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
                       slug={slug}
                       view={view.name}
                       sessionId={sessionId}
-                      dataVersion={dataVersion}
+                      dataVersion={version}
                       hub={hub}
                     />
                   </CanvasCardFrame>
@@ -173,7 +176,6 @@ function CanvasCardView({
       source={saved.data.source}
       initialState={saved.data.state}
       datasets={saved.data.meta.datasets}
-      restoreState={null}
       dataVersion={dataVersion}
       title={`Canvas card ${view}`}
       hub={hub}

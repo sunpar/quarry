@@ -24,7 +24,7 @@ from quarry.server.projects import (
     SaveViewRequest,
     UnknownDataset,
 )
-from quarry.server.service import SessionService, StepNotFound
+from quarry.server.service import StepNotFound
 
 T = TypeVar("T")
 
@@ -34,9 +34,7 @@ class CreateProjectRequest(BaseModel):
     description: str = ""
 
 
-def register_project_routes(
-    api: APIRouter, projects: ProjectService, sessions: SessionService
-) -> None:
+def register_project_routes(api: APIRouter, projects: ProjectService) -> None:
     @api.post("/projects", status_code=201)
     def create_project(body: CreateProjectRequest) -> ProjectMeta:
         if body.name.strip() == "":
@@ -65,7 +63,6 @@ def register_project_routes(
 
     @api.post("/sessions/{session_id}/recall", status_code=202)
     def recall(session_id: str, body: RecallRequest) -> Step:
-        _found(lambda: sessions.get(session_id))  # the session store raises KeyError
         return _saving(lambda: projects.recall(session_id, body))
 
     @api.put("/projects/{slug}/canvas")

@@ -4,36 +4,31 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from quarry.agent.fake import FakeProvider
-from quarry.agent.types import AssistantTurn, ToolCall
+from quarry.agent.types import AssistantTurn
 from tests.server.test_app import (
+    PRICES,
+    TIDY,
     dataset_names,
     end,
     hang,
     make_client,
     py,
+    view_turn,
     wait_for_file,
     wait_idle,
 )
 
-PRICES = "prices = pl.DataFrame({'ts': ['2024-01-02'], 'px': [1.0]})"
-TIDY = "import polars as pl\n" + PRICES + "\n"
-
-
-def render(call_id: str) -> AssistantTurn:
-    call = ToolCall(
-        id=call_id,
-        name="render_view",
-        input={
-            "component_id": "data-table",
-            "datasets": ["prices"],
-            "initial_state": '{"limit": 7}',
-        },
-    )
-    return AssistantTurn(text="", tool_calls=[call], stop="tool_use")
-
 
 def saved_project(tmp_path: Path, mode: str, *later: AssistantTurn) -> tuple[TestClient, str]:
-    provider = FakeProvider([py("c1", PRICES), render("c2"), end(), end(TIDY), *later])
+    provider = FakeProvider(
+        [
+            py("c1", PRICES),
+            view_turn("c2", datasets=["prices"], initial_state='{"limit": 7}'),
+            end(),
+            end(TIDY),
+            *later,
+        ]
+    )
     client = make_client(tmp_path, [], provider_factory=lambda _cfg: provider)
     client.post("/projects", json={"name": "p"})
     sid = client.post("/sessions", json={}).json()["id"]
@@ -121,3 +116,6 @@ def test_recall_into_unknown_session_is_404(tmp_path: Path) -> None:
     client, _ = saved_project(tmp_path, "live")
     body = {"project": "p", "kind": "dataset", "name": "prices"}
     assert client.post("/sessions/nosuchsession/recall", json=body).status_code == 404
+    # The session is checked before the project, so the 404 names the session.
+    both_unknown = client.post("/sessions/nosuchsession/recall", json={**body, "project": "zzz"})
+    assert both_unknown.status_code == 404 and "nosuchsession" in both_unknown.json()["detail"]

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { Step } from "@/shared/api-types";
+import type { Session, Step } from "@/shared/api-types";
 import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
 import { keys } from "../api/keys";
@@ -122,9 +122,18 @@ describe("ViewFrameContainer", () => {
     );
   });
 
-  it("refetches the session, and only the session, once a snapshot is saved", async () => {
+  it("appends a saved snapshot to the cached session without refetching", async () => {
     const { send, qc } = mount();
-    qc.setQueryData(keys.session("sess"), {});
+    const session: Session = {
+      meta: {
+        id: "sess",
+        title: "t",
+        created_at: "",
+        provider: { name: "f", model: "m" },
+      },
+      steps: [step],
+    };
+    qc.setQueryData(keys.session("sess"), session);
     qc.setQueryData(keys.status("sess"), {});
     await act(async () => {
       send({
@@ -135,9 +144,35 @@ describe("ViewFrameContainer", () => {
       });
     });
     await vi.waitFor(() =>
-      expect(qc.getQueryState(keys.session("sess"))?.isInvalidated).toBe(true),
+      expect(
+        qc.getQueryData<Session>(keys.session("sess"))?.steps[0]?.view
+          ?.snapshots,
+      ).toEqual([{ ts: expect.any(String), state: { k: 1 }, queries: [] }]),
     );
+    expect(qc.getQueryState(keys.session("sess"))?.isInvalidated).toBe(false);
     expect(qc.getQueryState(keys.status("sess"))?.isInvalidated).toBe(false);
+  });
+
+  it("leaves an uncached session uncached after a snapshot", async () => {
+    const { fetchImpl, send, qc } = mount();
+    await act(async () => {
+      send({
+        type: "stateChanged",
+        viewId: "s1",
+        state: { k: 1 },
+        queries: [],
+      });
+    });
+    await vi.waitFor(() =>
+      expect(fetchImpl.mock.calls.some(([u]) => u.endsWith("/snapshots"))).toBe(
+        true,
+      ),
+    );
+    // Past the response and its `.then`, where a wrong write would happen.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(qc.getQueryData(keys.session("sess"))).toBeUndefined();
   });
 
   it("shows the error overlay and starts a repair", async () => {

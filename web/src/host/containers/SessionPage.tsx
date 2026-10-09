@@ -6,6 +6,8 @@ import { KernelBanner } from "../components/KernelBanner";
 import { PromptBox } from "../components/PromptBox";
 import { SessionRail } from "../components/SessionRail";
 import {
+  dataVersion,
+  sessionRunning,
   useCreateSession,
   useInterrupt,
   useRestart,
@@ -92,10 +94,9 @@ function SessionColumn({ id }: { id: string }) {
   const interrupt = useInterrupt(id);
   const restart = useRestart(id);
   const steps = session.data?.steps ?? [];
-  const running = steps.at(-1)?.status === "running" || submit.isPending;
+  const running = sessionRunning(session.data) || submit.isPending;
   const status = useSessionStatus(id, running);
-  const finished = steps.filter((s) => s.status !== "running").length;
-  const dataVersion = `${finished}:${status.data?.kernel.pid ?? ""}`;
+  const version = dataVersion(steps, status.data?.kernel.pid);
   const [notice, setNotice] = useState<string | null>(null);
 
   return (
@@ -133,7 +134,7 @@ function SessionColumn({ id }: { id: string }) {
                 sessionId={id}
                 step={step}
                 running={running}
-                dataVersion={dataVersion}
+                dataVersion={version}
                 onRepair={(repair) =>
                   submit.mutate({
                     prompt: "Fix the view so it mounts.",

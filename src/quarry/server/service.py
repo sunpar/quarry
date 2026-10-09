@@ -141,7 +141,7 @@ class SessionService:
         return step
 
     def _repair_prompt(self, session_id: str, repair: RepairRequest, prompt: str) -> str:
-        step = self._find_step(session_id, repair.step_id)
+        step = self.step(session_id, repair.step_id)
         if step.view is None:
             raise StepNotFound(repair.step_id)
         return (
@@ -157,10 +157,7 @@ class SessionService:
         queries: builtins.list[dict[str, Json]],
     ) -> int:
         with self._lock:
-            running = self._running.get(session_id)
-            if running is not None and running.id == step_id:
-                raise SessionBusy(session_id)
-            step = self._find_step(session_id, step_id)
+            step = self._finished_step(session_id, step_id)
             if step.view is None:
                 raise StepNotFound(step_id)
             snapshots = [*step.view.snapshots, Snapshot(ts=now_iso(), state=state, queries=queries)]
@@ -168,7 +165,16 @@ class SessionService:
             self._store.update_step(session_id, step.model_copy(update={"view": view}))
             return len(view.snapshots)
 
-    def _find_step(self, session_id: str, step_id: str) -> Step:
+    def step(self, session_id: str, step_id: str) -> Step:
+        """A finished step; SessionBusy while it still runs, StepNotFound when there is none."""
+        with self._lock:
+            return self._finished_step(session_id, step_id)
+
+    def _finished_step(self, session_id: str, step_id: str) -> Step:
+        """`step` for a caller that already holds the lock."""
+        running = self._running.get(session_id)
+        if running is not None and running.id == step_id:
+            raise SessionBusy(session_id)
         for step in self._store.get(session_id).steps:
             if step.id == step_id:
                 return step
@@ -218,7 +224,8 @@ class SessionService:
         no interrupt reaches, and a running step is cancelled too; it saves itself as interrupted
         before the replay. A step waiting on the model stops once the model answers."""
         with self._lock:
-            if session_id in self._restarts or session_id in self._holds:
+            # A running step is not busy here: the restart cancels it and waits for it below.
+            if self._busy(session_id, except_running=True):
                 raise SessionBusy(session_id)
             self._restarts.add(session_id)
             cancel = self._cancels.get(session_id)
@@ -240,11 +247,7 @@ class SessionService:
         """Lend the idle session kernel to the caller; steps, restarts and other holds get
         SessionBusy meanwhile."""
         with self._lock:
-            if (
-                session_id in self._running
-                or session_id in self._restarts
-                or session_id in self._holds
-            ):
+            if self._busy(session_id):
                 raise SessionBusy(session_id)
             self._holds.add(session_id)
             self._kernels.mark_running(session_id, True)
@@ -254,6 +257,14 @@ class SessionService:
             with self._lock:
                 self._kernels.mark_running(session_id, False)
                 self._holds.discard(session_id)
+
+    def _busy(self, session_id: str, *, except_running: bool = False) -> bool:
+        """Whether a step, a restart or a hold has the session; the caller holds the lock."""
+        return (
+            (session_id in self._running and not except_running)
+            or session_id in self._restarts
+            or session_id in self._holds
+        )
 
     def _kernel(self, session_id: str) -> KernelClient:
         """The kernel a request reaches; SessionBusy mid-restart, as `get` is during the replay."""
@@ -284,11 +295,7 @@ class SessionService:
         view: View | None = None,
     ) -> tuple[Step, threading.Event]:
         with self._lock:
-            if (
-                session_id in self._running
-                or session_id in self._restarts
-                or session_id in self._holds
-            ):
+            if self._busy(session_id):
                 raise SessionBusy(session_id)
             step = Step(
                 id=new_id(),

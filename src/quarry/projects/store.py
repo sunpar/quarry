@@ -6,8 +6,11 @@ import builtins
 import json
 import re
 from pathlib import Path
+from typing import TypeVar
 
-from quarry.projects.files import write_atomic
+from pydantic import BaseModel
+
+from quarry.projects.files import PRIVATE_DIR, write_atomic
 from quarry.projects.models import (
     CanvasCard,
     Project,
@@ -19,14 +22,28 @@ from quarry.projects.models import (
 from quarry.query.spec import Json
 from quarry.server.models import now_iso
 
-_PRIVATE_DIR = 0o700
+_NAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 
-NAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")  # use with fullmatch
+M = TypeVar("M", bound=BaseModel)
 
 
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     return slug or "project"
+
+
+def check_view_name(name: str) -> None:
+    if _NAME_RE.fullmatch(name) is None:
+        raise ValueError("view names are lowercase letters, digits, '-' and '_', up to 64 chars")
+
+
+def _read_all(directory: Path, model: type[M]) -> list[M]:
+    """Every `<directory>/<name>/meta.json` that exists, in name order."""
+    return [
+        model.model_validate_json((p / "meta.json").read_text())
+        for p in sorted(directory.glob("*/"))
+        if (p / "meta.json").exists()
+    ]
 
 
 class ProjectStore:
@@ -59,18 +76,12 @@ class ProjectStore:
         return self._read_meta(slug)
 
     def get(self, slug: str) -> Project:
-        meta = self._read_meta(slug)
-        datasets = [
-            SavedDatasetMeta.model_validate_json((p / "meta.json").read_text())
-            for p in sorted((self._project_dir(slug) / "datasets").glob("*/"))
-            if (p / "meta.json").exists()
-        ]
-        views = [
-            SavedViewMeta.model_validate_json((p / "meta.json").read_text())
-            for p in sorted((self._project_dir(slug) / "views").glob("*/"))
-            if (p / "meta.json").exists()
-        ]
-        return Project(meta=meta, datasets=datasets, views=views)
+        base = self._project_dir(slug)
+        return Project(
+            meta=self._read_meta(slug),
+            datasets=_read_all(base / "datasets", SavedDatasetMeta),
+            views=_read_all(base / "views", SavedViewMeta),
+        )
 
     def set_canvas(self, slug: str, cards: builtins.list[CanvasCard]) -> ProjectMeta:
         views = [c.view for c in cards]
@@ -82,7 +93,7 @@ class ProjectStore:
 
     def write_dataset(self, slug: str, meta: SavedDatasetMeta, *, recipe: str, raw: str) -> None:
         base = self._dataset_dir(slug, meta.name)
-        base.mkdir(mode=_PRIVATE_DIR, parents=True, exist_ok=True)
+        base.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
         write_atomic(base / "recipe.raw.py", raw)
         write_atomic(base / "recipe.py", recipe)
         write_atomic(base / "meta.json", meta.model_dump_json(by_alias=True, indent=2))
@@ -103,7 +114,7 @@ class ProjectStore:
         """Where a pinned save snapshots, in a dataset directory made private first: the
         kernel's own mkdir would make it at the kernel's umask."""
         base = self._dataset_dir(slug, name)
-        base.mkdir(mode=_PRIVATE_DIR, parents=True, exist_ok=True)
+        base.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
         return base / "data.parquet"
 
     def write_view(
@@ -115,12 +126,9 @@ class ProjectStore:
         state: dict[str, Json],
         queries: builtins.list[dict[str, Json]],
     ) -> None:
-        if NAME_RE.fullmatch(meta.name) is None:
-            raise ValueError(
-                "view names are lowercase letters, digits, '-' and '_', up to 64 chars"
-            )
+        check_view_name(meta.name)
         base = self._project_dir(slug) / "views" / meta.name
-        base.mkdir(mode=_PRIVATE_DIR, parents=True, exist_ok=True)
+        base.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
         write_atomic(base / "view.tsx", source)
         write_atomic(base / "state.json", json.dumps(state, indent=2))
         # The query specs behind the saved state; Stage 5's export renders them with to_source.
@@ -158,7 +166,7 @@ class ProjectStore:
     def _write_meta(self, meta: ProjectMeta) -> None:
         # Builds the path directly: a new project has no project.json for _project_dir to find.
         path = self._dir / meta.slug
-        path.mkdir(mode=_PRIVATE_DIR, parents=True, exist_ok=True)
+        path.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
         write_atomic(path / "project.json", meta.model_dump_json(indent=2))
 
     def _touch(self, slug: str) -> None:

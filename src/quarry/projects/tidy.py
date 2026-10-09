@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import ast
 import re
 from typing import Final
 
 from quarry.agent.types import Message, Provider, ProviderError
+from quarry.kernel.lineage import analyze
 
 TIDY_SYSTEM: Final = """\
 You tidy Python recipes for a quant researcher. You receive a script that concatenates the
@@ -39,17 +39,13 @@ def tidy_recipe(provider: Provider, raw: str, dataset: str) -> str | None:
     if turn.stop != "end":  # a reply cut at max_tokens can still parse and bind the name
         return None
     code = strip_fences(turn.text)
-    if code.strip() == "" or not _binds(code, dataset):
+    if not _binds(code, dataset):
         return None
     return code
 
 
 def _binds(code: str, name: str) -> bool:
     try:
-        tree = ast.parse(code)
+        return name in analyze(code).stores
     except SyntaxError:
         return False
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and node.id == name:
-            return True
-    return False

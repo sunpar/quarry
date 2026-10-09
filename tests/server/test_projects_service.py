@@ -1,5 +1,3 @@
-import os
-import stat
 import time
 from pathlib import Path
 
@@ -7,7 +5,7 @@ import pytest
 
 from quarry.agent.fake import FakeProvider
 from quarry.agent.transpile import NoopTranspiler
-from quarry.agent.types import AssistantTurn, Provider, ToolCall
+from quarry.agent.types import Provider
 from quarry.components.library import ComponentLibrary, builtin_root
 from quarry.config import ConfigError, QuarryConfig
 from quarry.projects.store import ProjectStore
@@ -16,35 +14,14 @@ from quarry.server.kernels import KernelManager, SessionBusy
 from quarry.server.projects import ProjectService, SaveDatasetRequest, SaveViewRequest
 from quarry.server.service import SessionService
 from quarry.server.store import SessionStore
+from tests.fixtures import umask
+from tests.server.test_app import end, py, view_turn
+from tests.server.test_store import mode
 
 PRICES = "prices = pl.DataFrame({'ts': ['2024-01-02', '2024-01-03'], 'px': [1.0, 2.0]})"
 TIDY_OK = "import polars as pl\n" + PRICES + "\n"
 TIDY_BAD = "import polars as pl\nprices = pl.DataFrame({'ts': ['2024-01-02'], 'px': [1.0]})\n"
-
-
-def py(call_id: str, code: str) -> AssistantTurn:
-    return AssistantTurn(
-        text="",
-        tool_calls=[ToolCall(id=call_id, name="run_python", input={"code": code})],
-        stop="tool_use",
-    )
-
-
-def render(call_id: str) -> AssistantTurn:
-    call = ToolCall(
-        id=call_id,
-        name="render_view",
-        input={
-            "component_id": "data-table",
-            "datasets": ["prices"],
-            "initial_state": '{"limit": 5}',
-        },
-    )
-    return AssistantTurn(text="", tool_calls=[call], stop="tool_use")
-
-
-def end(text: str = "done") -> AssistantTurn:
-    return AssistantTurn(text=text, tool_calls=[], stop="end")
+TABLE = view_turn("c2", datasets=["prices"], initial_state='{"limit": 5}')
 
 
 def build(tmp_path: Path, provider: FakeProvider) -> tuple[SessionService, ProjectService]:
@@ -113,8 +90,7 @@ def test_bad_tidy_falls_back_to_validated_raw(tmp_path: Path) -> None:
 
 def test_pinned_save_is_private(tmp_path: Path) -> None:
     # The kernel inherits the umask when it spawns, so it is set before the first step.
-    previous = os.umask(0o022)
-    try:
+    with umask(0o022):
         provider = FakeProvider([py("c1", PRICES), end(), end(TIDY_OK)])
         sessions, projects = build(tmp_path, provider)
         sid, _ = run_prices(sessions)
@@ -123,11 +99,9 @@ def test_pinned_save_is_private(tmp_path: Path) -> None:
             slug, SaveDatasetRequest(session_id=sid, dataset="prices", mode="pinned")
         )
         sessions.shutdown()
-    finally:
-        os.umask(previous)
     base = tmp_path / "projects" / slug / "datasets" / "prices"
-    assert stat.S_IMODE(base.stat().st_mode) == 0o700
-    assert stat.S_IMODE((base / "data.parquet").stat().st_mode) == 0o600
+    assert mode(base) == 0o700
+    assert mode(base / "data.parquet") == 0o600
 
 
 def test_unreproducible_recipe_saved_unvalidated(tmp_path: Path) -> None:
@@ -193,7 +167,13 @@ def test_save_rejected_while_step_runs(tmp_path: Path) -> None:
 
 
 def test_save_refused_until_a_reopened_session_replays(tmp_path: Path) -> None:
-    provider = FakeProvider([py("c1", PRICES), render("c2"), end()])
+    provider = FakeProvider(
+        [
+            py("c1", PRICES),
+            TABLE,
+            end(),
+        ]
+    )
     sessions, _ = build(tmp_path, provider)
     sid, step_id = run_prices(sessions)
     sessions.shutdown()
@@ -218,7 +198,14 @@ def test_save_refused_until_a_reopened_session_replays(tmp_path: Path) -> None:
 
 
 def test_save_view_saves_missing_datasets_first(tmp_path: Path) -> None:
-    provider = FakeProvider([py("c1", PRICES), render("c2"), end(), end(TIDY_OK)])
+    provider = FakeProvider(
+        [
+            py("c1", PRICES),
+            TABLE,
+            end(),
+            end(TIDY_OK),
+        ]
+    )
     sessions, projects = build(tmp_path, provider)
     sid, step_id = run_prices(sessions)
     slug = projects.create("p", "").slug
@@ -235,7 +222,14 @@ def test_save_view_saves_missing_datasets_first(tmp_path: Path) -> None:
 
 
 def test_save_view_keeps_the_latest_snapshot(tmp_path: Path) -> None:
-    provider = FakeProvider([py("c1", PRICES), render("c2"), end(), end(TIDY_OK)])
+    provider = FakeProvider(
+        [
+            py("c1", PRICES),
+            TABLE,
+            end(),
+            end(TIDY_OK),
+        ]
+    )
     sessions, projects = build(tmp_path, provider)
     sid, step_id = run_prices(sessions)
     queries: list[dict[str, Json]] = [{"dataset": "prices", "limit": 9}]

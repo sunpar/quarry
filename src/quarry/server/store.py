@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from quarry.projects.files import sync_dir, write_atomic
+from quarry.projects.files import PRIVATE_DIR, sync_dir, write_atomic
 from quarry.server.models import ProviderInfo, Session, SessionMeta, Step, new_id, now_iso
-
-_PRIVATE_DIR = 0o700
 
 
 class SessionStore:
@@ -19,9 +17,9 @@ class SessionStore:
         path = self._dir / meta.id
         # Several researchers share a machine: only the owner reads prompts and code. The root
         # is `quarry serve`'s to create private; each level below it gets 0o700.
-        self._dir.mkdir(mode=_PRIVATE_DIR, exist_ok=True)
-        path.mkdir(mode=_PRIVATE_DIR)
-        (path / "steps").mkdir(mode=_PRIVATE_DIR)
+        self._dir.mkdir(mode=PRIVATE_DIR, exist_ok=True)
+        path.mkdir(mode=PRIVATE_DIR)
+        (path / "steps").mkdir(mode=PRIVATE_DIR)
         write_atomic(path / "session.json", meta.model_dump_json(indent=2))
         # The session directory and `sessions/` are durable once their own entries are.
         sync_dir(self._dir)

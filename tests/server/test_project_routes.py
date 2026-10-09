@@ -1,24 +1,13 @@
 from pathlib import Path
 
 from quarry.agent.fake import FakeProvider
-from quarry.agent.types import AssistantTurn, ToolCall
-from tests.server.test_app import end, make_client, py, wait_idle
-
-PRICES = "prices = pl.DataFrame({'ts': ['2024-01-02'], 'px': [1.0]})"
-TIDY = "import polars as pl\n" + PRICES + "\n"
-
-
-def render(call_id: str) -> AssistantTurn:
-    call = ToolCall(
-        id=call_id,
-        name="render_view",
-        input={"component_id": "data-table", "datasets": ["prices"], "initial_state": "{}"},
-    )
-    return AssistantTurn(text="", tool_calls=[call], stop="tool_use")
+from tests.server.test_app import PRICES, TIDY, end, make_client, py, view_turn, wait_idle
 
 
 def test_project_crud_and_save_flow(tmp_path: Path) -> None:
-    provider = FakeProvider([py("c1", PRICES), render("c2"), end(), end(TIDY)])
+    provider = FakeProvider(
+        [py("c1", PRICES), view_turn("c2", datasets=["prices"]), end(), end(TIDY)]
+    )
     client = make_client(tmp_path, [], provider_factory=lambda _cfg: provider)
     created = client.post("/projects", json={"name": "Momentum", "description": "d"})
     assert created.status_code == 201 and created.json()["slug"] == "momentum"

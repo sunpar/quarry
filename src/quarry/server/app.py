@@ -182,7 +182,7 @@ def create_app(
     async def kernel_dead(_request: Request, exc: KernelDead) -> JSONResponse:
         return JSONResponse(status_code=503, content={"detail": f"kernel is not running: {exc}"})
 
-    register_project_routes(api, projects, service)
+    register_project_routes(api, projects)
     app.include_router(api)
     if (static / "index.html").exists():
         # The sandboxed view frame has an opaque origin, so its module scripts, CSS and fonts

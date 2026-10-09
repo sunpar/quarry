@@ -1,9 +1,13 @@
 import { useState } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import type { Project } from "@/shared/api-types";
 import { useApi } from "../api/context";
-import { useCreateProject, useProjects, useRecall } from "../api/hooks";
-import { keys } from "../api/keys";
+import {
+  projectQuery,
+  useCreateProject,
+  useProjects,
+  useRecall,
+} from "../api/hooks";
 import { ProjectBrowser } from "../components/ProjectBrowser";
 
 interface ProjectRailProps {
@@ -15,15 +19,18 @@ export function ProjectRail({ sessionId, onOpen }: ProjectRailProps) {
   const api = useApi();
   const metas = useProjects();
   const create = useCreateProject();
-  const recall = useRecall(sessionId ?? "");
+  const recall = useRecall();
   const [expanded, setExpanded] = useState<string | null>(null);
-  const details = useQueries({
-    queries: (metas.data ?? []).map((m) => ({
-      queryKey: keys.project(m.slug),
-      queryFn: () => api.getProject(m.slug),
-    })),
+  // Only the open project needs its datasets and views; the rest list by name.
+  const detail = useQuery({
+    ...projectQuery(api, expanded ?? ""),
+    enabled: expanded !== null,
   });
-  const projects: Project[] = details.flatMap((q) => (q.data ? [q.data] : []));
+  const projects: Project[] = (metas.data ?? []).map((meta) =>
+    meta.slug === expanded && detail.data !== undefined
+      ? detail.data
+      : { meta, datasets: [], views: [] },
+  );
   return (
     <div className="flex flex-col gap-2">
       <ProjectBrowser
@@ -38,7 +45,7 @@ export function ProjectRail({ sessionId, onOpen }: ProjectRailProps) {
               ? "An existing dataset with that name is replaced."
               : "This loads the view and any of its datasets the session lacks.";
           if (window.confirm(`Recall ${name} into this session? ${effect}`)) {
-            recall.mutate({ project, kind, name });
+            recall.mutate({ sessionId, project, kind, name });
           }
         }}
         onCreate={() => {

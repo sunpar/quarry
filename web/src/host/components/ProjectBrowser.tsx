@@ -1,12 +1,13 @@
 import { Button } from "@/components/ui/button";
-import type { Project } from "@/shared/api-types";
+import type { Project, RecallRequest } from "@/shared/api-types";
+import { ValidationBadge } from "./ValidationBadge";
 
 interface ProjectBrowserProps {
   projects: Project[];
   expanded: string | null;
   onToggle: (slug: string) => void;
   onOpen: (slug: string) => void;
-  onRecall: (slug: string, kind: "dataset" | "view", name: string) => void;
+  onRecall: (slug: string, kind: RecallRequest["kind"], name: string) => void;
   onCreate: () => void;
 }
 
@@ -71,12 +72,7 @@ export function ProjectBrowser({
                       {d.mode}
                     </span>
                     {!d.validated && (
-                      <span
-                        title={`Not validated: ${d.validation_error ?? "unknown reason"}`}
-                        className="text-xs text-[var(--status-interrupted)]"
-                      >
-                        unvalidated
-                      </span>
+                      <ValidationBadge error={d.validation_error} />
                     )}
                   </li>
                 ))}

@@ -1,10 +1,7 @@
 from quarry.agent.fake import FakeProvider
 from quarry.agent.types import AssistantTurn, Message, ProviderError, ToolDef
 from quarry.projects.tidy import TIDY_SYSTEM, strip_fences, tidy_recipe
-
-
-def end(text: str) -> AssistantTurn:
-    return AssistantTurn(text=text, tool_calls=[], stop="end")
+from tests.server.test_app import end
 
 
 def test_strip_fences() -> None:
@@ -33,6 +30,11 @@ def test_tidy_returns_none_on_failure_or_garbage() -> None:
     assert tidy_recipe(FakeProvider([end("")]), "x = 1", "x") is None
     assert tidy_recipe(FakeProvider([end("def (")]), "x = 1", "x") is None
     assert tidy_recipe(FakeProvider([end("y = 2")]), "x = 1", "x") is None
+
+
+def test_tidy_rejects_a_name_bound_only_inside_a_function() -> None:
+    local = end("def f():\n    prices = 1\n")
+    assert tidy_recipe(FakeProvider([local]), "prices = 1", "prices") is None
 
 
 def test_tidy_rejects_a_reply_that_did_not_end() -> None:

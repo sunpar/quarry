@@ -92,7 +92,7 @@ export interface ExecError {
 export interface Snapshot {
   ts: string;
   state: JsonObject;
-  queries: JsonObject[];
+  queries: QuerySpec[];
 }
 
 export interface View {
@@ -189,7 +189,7 @@ export interface ProjectMeta {
 export interface SavedDatasetMeta {
   name: string;
   description: string;
-  backing: "polars" | "polars_lazy" | "duckdb";
+  backing: DatasetMeta["backing"];
   schema: Column[];
   rows: number | null;
   mode: SaveMode;

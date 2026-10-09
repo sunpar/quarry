@@ -1,6 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
-import type { RepairRequest, Step } from "@/shared/api-types";
+import type {
+  RepairRequest,
+  Session,
+  Snapshot,
+  Step,
+} from "@/shared/api-types";
 import type { JsonObject } from "@/shared/json";
 import { useApi } from "../api/context";
 import { keys } from "../api/keys";
@@ -16,6 +21,21 @@ interface ViewFrameContainerProps {
   onRepair: (repair: RepairRequest) => void;
   actions?: ReactNode;
 }
+
+// An updater that leaves an uncached session (undefined) as it is.
+const withSnapshot =
+  (stepId: string, snapshot: Snapshot) => (session: Session | undefined) =>
+    session && {
+      ...session,
+      steps: session.steps.map((s) =>
+        s.id === stepId && s.view
+          ? {
+              ...s,
+              view: { ...s.view, snapshots: [...s.view.snapshots, snapshot] },
+            }
+          : s,
+      ),
+    };
 
 export function ViewFrameContainer({
   sessionId,
@@ -46,13 +66,18 @@ export function ViewFrameContainer({
         onStateChanged={(state, queries) => {
           void api
             .postSnapshot(sessionId, step.id, { state, queries })
-            // The scrubber reads snapshots from the session; status and datasets are unchanged.
-            .then(() => {
-              void queryClient.invalidateQueries({
-                queryKey: keys.session(sessionId),
-                exact: true,
-              });
-            })
+            // The scrubber reads snapshots from the session; append this one to it instead of
+            // refetching the whole session. An uncached session stays uncached.
+            .then(() =>
+              queryClient.setQueryData(
+                keys.session(sessionId),
+                withSnapshot(step.id, {
+                  ts: new Date().toISOString(),
+                  state,
+                  queries,
+                }),
+              ),
+            )
             .catch((e: unknown) => console.error("snapshot not saved", e));
         }}
         onFix={(error) => onRepair({ step_id: step.id, error })}

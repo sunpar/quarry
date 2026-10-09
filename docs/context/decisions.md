@@ -460,10 +460,11 @@ them.
 - **A save holds the idle kernel**: `SessionService.hold` lends a session's
   kernel to a project save or a view recall's dataset check. It raises
   `SessionBusy` at once while a step, a restart or another hold runs, and
-  reports the kernel `running` until it ends. The plan rewrote `restart` around
-  a shared `_busy` marker, which would have undone Stage 2's restart that stops
-  a running step. Cost if wrong: a restart clicked during the seconds a save
-  holds the kernel answers 409 and must be retried.
+  reports the kernel `running` until it ends. `hold`, `_begin` and `restart`
+  share one `_busy` check, but `restart` lets a running step through to cancel
+  it. The plan's version refused a running step, which would have undone Stage
+  2's restart that stops one. Cost if wrong: a restart clicked during the
+  seconds a save holds the kernel answers 409 and must be retried.
 - **Recall is a manual step**: `start_recall` creates a `recall` step, carrying
   the saved view for a view recall, and runs it on the manual-step path, so
   `runs` is filled, lineage records the writes and restart replays it. `_begin`
@@ -673,10 +674,11 @@ them.
   back. Cost if wrong: one extra datasets fetch per schema request.
 - **The snapshot scrubber follows the latest**: `SnapshotScrubber` keeps the
   researcher's pick only while the snapshot count it was made at holds, then
-  moves to the latest, and each posted snapshot refetches the session so new
-  snapshots reach it during a visit. The plan's scrubber read the count once, so
-  a view that gained snapshots while mounted showed "1 of N". Cost if wrong: one
-  session refetch per state change.
+  moves to the latest. Each posted snapshot is appended to the cached session,
+  so new snapshots reach it during a visit without a refetch. The plan's
+  scrubber read the count once, so a view that gained snapshots while mounted
+  showed "1 of N". Cost if wrong: the cached list can pass the server's cap of
+  500 until the next refetch.
 - **The dev proxy forwards `/projects`**: `web/vite.config.ts` proxies it beside
   `/sessions` and `/healthz`. The plan added project routes without it, so
   `npm run dev` answered 404.

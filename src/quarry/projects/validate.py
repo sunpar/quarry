@@ -4,41 +4,33 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel
-
 from quarry.kernel.client import KernelClient, KernelDead, RpcFailure
 from quarry.kernel.datasets import DatasetMeta
 
 
-class Validation(BaseModel):
-    ok: bool
-    error: str | None
-    meta: DatasetMeta | None
-
-
 def validate_recipe(
     root: Path, recipe: str, name: str, expected: DatasetMeta, *, threads: int = 0
-) -> Validation:
+) -> str | None:
+    """None when the recipe reproduces `expected`, otherwise why it does not."""
     try:
         kernel = KernelClient.spawn(root, threads=threads)
     except KernelDead as exc:
-        return Validation(ok=False, error=f"scratch kernel failed to start: {exc}", meta=None)
+        return f"scratch kernel failed to start: {exc}"
     try:
         result = kernel.execute(recipe)
         if result.status != "ok":
             detail = result.error.traceback if result.error else result.status
-            return Validation(ok=False, error=f"recipe failed: {detail}", meta=None)
+            return f"recipe failed: {detail}"
         try:
             actual = kernel.describe(name)
         except RpcFailure as exc:
-            return Validation(ok=False, error=f"recipe did not produce {name}: {exc}", meta=None)
+            return f"recipe did not produce {name}: {exc}"
     except KernelDead as exc:
-        return Validation(ok=False, error=f"scratch kernel died: {exc}", meta=None)
+        return f"scratch kernel died: {exc}"
     finally:
         kernel.shutdown()
         kernel.close()
-    problem = _compare(expected, actual)
-    return Validation(ok=problem is None, error=problem, meta=actual)
+    return _compare(expected, actual)
 
 
 def _compare(expected: DatasetMeta, actual: DatasetMeta) -> str | None:

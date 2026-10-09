@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import type { Project } from "@/shared/api-types";
+import { ValidationBadge } from "./ValidationBadge";
 
 interface SavedItemsProps {
   project: Project;
@@ -30,12 +31,7 @@ export function SavedItems({ project }: SavedItemsProps) {
                   {d.validated ? (
                     <Badge variant="secondary">validated</Badge>
                   ) : (
-                    <Badge
-                      variant="outline"
-                      className="text-[var(--status-interrupted)]"
-                    >
-                      unvalidated
-                    </Badge>
+                    <ValidationBadge error={d.validation_error} />
                   )}
                 </div>
                 {!d.validated && (
