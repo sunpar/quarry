@@ -8,23 +8,22 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Land Stage 3, the first UI, in sunpar/quarry#4. Stage 3 is implemented on
-`claude/quarry-stage3-first-ui` from the
-[Stage 3 plan](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md), and its
-pull request now targets `main`, since Stage 2 has merged. The
-[Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md) and
-[Stage 5](superpowers/plans/2026-10-09-quarry-stage5-breadth.md) plans are
-written; each waits for the stage before it.
+Build Stage 4, projects and the canvas, from the
+[Stage 4 handoff](superpowers/handoffs/2026-10-08-quarry-stage4-handoff.md) now
+that Stages 1 to 3 are on `main`. The
+[Stage 5 plan](superpowers/plans/2026-10-09-quarry-stage5-breadth.md) and
+[Stage 5 handoff](superpowers/handoffs/2026-10-09-quarry-stage5-handoff.md) are
+written; Stage 5 waits for Stage 4.
 
 ## Status by stage
 
-| Stage               | Status                                           | Plan                                                                  |
-| ------------------- | ------------------------------------------------ | --------------------------------------------------------------------- |
-| 1. Core             | Merged in sunpar/quarry#1 as `d00b5fa`           | [Stage 1](superpowers/plans/2026-10-08-quarry-stage1-core.md)         |
-| 2. Server and agent | Merged in sunpar/quarry#2 as `7779c05`           | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
-| 3. First UI         | Implemented, sunpar/quarry#4 open against `main` | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
-| 4. Projects         | Planned, handoff ready, not started              | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
-| 5. Breadth          | Planned, not started                             | [Stage 5](superpowers/plans/2026-10-09-quarry-stage5-breadth.md)      |
+| Stage               | Status                                 | Plan                                                                  |
+| ------------------- | -------------------------------------- | --------------------------------------------------------------------- |
+| 1. Core             | Merged in sunpar/quarry#1 as `d00b5fa` | [Stage 1](superpowers/plans/2026-10-08-quarry-stage1-core.md)         |
+| 2. Server and agent | Merged in sunpar/quarry#2 as `7779c05` | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
+| 3. First UI         | Merged in sunpar/quarry#4 as `faf913f` | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
+| 4. Projects         | Planned, handoff ready, not started    | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
+| 5. Breadth          | Planned, handoff ready, not started    | [Stage 5](superpowers/plans/2026-10-09-quarry-stage5-breadth.md)      |
 
 ### Stage 1: core
 
@@ -45,15 +44,15 @@ that stops a running step, and private session files with `origin_step`.
 ### Stage 3: first UI
 
 Built on `claude/quarry-stage3-first-ui`, branched from the Stage 2 branch and
-brought up to date with `main` after Stage 2 merged. All
-12 plan tasks passed their task reviews, the whole-branch review's fixes are in,
-and the Playwright tests pass against the built UI. Its calls are under
+brought up to date with `main` after Stage 2 merged. All 12 plan tasks passed
+their task reviews, the whole-branch review's fixes are in, and the Playwright
+tests pass against the built UI. Its calls are under
 [first UI](context/decisions.md#first-ui), the modules are in the
 [code map](context/code-map.md#web), and what it left is filed under
 [Stage 4](open-items.md#stage-4). The maintainer approved the one security
-change, the `Access-Control-Allow-Origin` header on the static mount. The pull
-request is sunpar/quarry#4. Five Codex reviews are addressed, and each fix
-round asks for another; it merges once one comes back clean.
+change, the `Access-Control-Allow-Origin` header on the static mount. Merged to
+`main` in sunpar/quarry#4 as `faf913f` on 2026-10-09 after a clean Codex review
+of its fifth fix round.
 
 ## Latest verification
 
@@ -66,18 +65,18 @@ passed; the wheel from `uv build` contains `quarry/static/index.html`.
 
 ## Next actions
 
-1. Merge sunpar/quarry#4 once CI is green and a Codex review comes back clean.
-2. Run the live provider tests with a key:
+1. Run the live provider tests with a key:
    `QUARRY_ANTHROPIC_API_KEY=... uv run pytest tests/agent/test_live_providers.py -v`,
    then open the UI with a real key and try a prompt.
-3. Stage 4: once sunpar/quarry#4 is merged, start from the
+2. Stage 4: start from the
    [Stage 4 handoff](superpowers/handoffs/2026-10-08-quarry-stage4-handoff.md).
    Its plan was written against the Stage 3 plan, so re-check it against the
    real `HostBridge`, hooks and snapshot route; `HostBridge.restore` and
    `ViewStateStore.replace` are ready for the scrubber.
-4. Stage 5: once Stage 4 is merged, execute the
-   [Stage 5 plan](superpowers/plans/2026-10-09-quarry-stage5-breadth.md), which
-   closes the Stage 5 and Stage 4 items in [open-items.md](open-items.md).
+3. Stage 5: once Stage 4 is merged, start from the
+   [Stage 5 handoff](superpowers/handoffs/2026-10-09-quarry-stage5-handoff.md),
+   which points at the plan that closes the Stage 5 and Stage 4 items in
+   [open-items.md](open-items.md).
 
 ## Resuming
 
