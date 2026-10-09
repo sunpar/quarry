@@ -194,18 +194,18 @@ def test_kernel_applies_the_configured_memory_cap(tmp_path: Path) -> None:
     assert out.strip() == str((limit, limit))
 
 
-THREADS_STEP = (
-    "print(pl.thread_pool_size(), duckdb.sql(\"SELECT current_setting('threads')\").fetchone()[0])"
-)
+DUCKDB_THREADS = "duckdb.sql(\"SELECT current_setting('threads')\").fetchone()[0]"
 
 
-def test_kernel_threads_caps_polars_and_duckdb(tmp_path: Path) -> None:
-    out = run_in_kernel(tmp_path, "[data]\nkernel_threads = 2\n", THREADS_STEP)
-    assert out.split() == ["2", "2"]
+def test_kernel_threads_caps_duckdb(tmp_path: Path) -> None:
+    # polars is capped by the client that spawns the kernel (test_kernels.py), not by its config.
+    out = run_in_kernel(tmp_path, "[data]\nkernel_threads = 2\n", f"print({DUCKDB_THREADS})")
+    assert out.strip() == "2"
 
 
 def test_kernel_threads_of_zero_leaves_the_defaults(tmp_path: Path) -> None:
-    out = run_in_kernel(tmp_path, "[data]\nkernel_threads = 0\n", THREADS_STEP)
+    step = f"print(pl.thread_pool_size(), {DUCKDB_THREADS})"
+    out = run_in_kernel(tmp_path, "[data]\nkernel_threads = 0\n", step)
     row = duckdb.connect().sql("SELECT current_setting('threads')").fetchone()
     assert row is not None
     assert out.split() == [str(pl.thread_pool_size()), str(row[0])]

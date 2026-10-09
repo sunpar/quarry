@@ -44,6 +44,16 @@ def test_get_spawns_once_and_status(manager: KernelManager) -> None:
     manager.mark_running("s", False)
 
 
+def test_threads_cap_polars_in_every_kernel(tmp_path: Path) -> None:
+    capped = KernelManager(tmp_path, threads=2)
+    try:
+        for session_id in ("a", "b"):
+            result = capped.get(session_id).execute("print(pl.thread_pool_size())")
+            assert result.stdout_tail.strip() == "2"
+    finally:
+        capped.close_all()
+
+
 def test_dead_kernel_stays_dead_until_restart(manager: KernelManager) -> None:
     a = manager.get("s")
     with pytest.raises(KernelDead):

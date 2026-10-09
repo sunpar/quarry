@@ -18,8 +18,9 @@ class ReplayReport(BaseModel):
 
 
 class KernelManager:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, threads: int = 0) -> None:
         self._root = root
+        self._threads = threads
         self._clients: dict[str, KernelClient] = {}
         self._running: set[str] = set()
         self._lock = threading.Lock()
@@ -29,7 +30,7 @@ class KernelManager:
         with self._lock:
             client = self._clients.get(session_id)
             if client is None:
-                client = KernelClient.spawn(self._root)
+                client = KernelClient.spawn(self._root, threads=self._threads)
                 self._clients[session_id] = client
             elif not client.is_alive():
                 raise KernelDead("kernel died; restart the session to replay its steps")

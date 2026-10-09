@@ -13,7 +13,7 @@ from starlette.routing import BaseRoute
 
 from quarry.agent.fake import FakeProvider
 from quarry.agent.types import AssistantTurn, Provider, ToolCall
-from quarry.config import ConfigError, QuarryConfig
+from quarry.config import ConfigError, DataConfig, QuarryConfig
 from quarry.server import service as service_module
 from quarry.server.app import create_app
 from quarry.server.models import Step
@@ -39,8 +39,9 @@ def make_client(
     turns: list[AssistantTurn],
     *,
     provider_factory: ProviderFactory | None = None,
+    config: QuarryConfig | None = None,
 ) -> TestClient:
-    config = QuarryConfig(root=tmp_path)
+    config = config or QuarryConfig(root=tmp_path)
     factory = provider_factory or (lambda _cfg: FakeProvider(turns))
     app = create_app(config=config, token=TOKEN, provider_factory=factory)
     client = TestClient(app)
@@ -141,6 +142,17 @@ def test_manual_step_and_bad_query(tmp_path: Path) -> None:
         bad_column = {"dataset": "df", "filters": [{"col": "zz", "op": "eq", "value": 1}]}
         assert client.post(f"/sessions/{sid}/query", json=bad_column).status_code == 400
         assert client.post(f"/sessions/{sid}/query", json={"dataset": "nope"}).status_code == 400
+
+
+def test_kernel_threads_config_caps_polars_in_session_kernels(tmp_path: Path) -> None:
+    config = QuarryConfig(root=tmp_path, data=DataConfig(kernel_threads=2))
+    with make_client(tmp_path, [], config=config) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        manual = {"code": "print(pl.thread_pool_size())"}
+        assert client.post(f"/sessions/{sid}/steps/manual", json=manual).status_code == 202
+        wait_idle(client, sid)
+        step = client.get(f"/sessions/{sid}").json()["steps"][0]
+        assert step["stdout_tail"].strip() == "2"
 
 
 def test_query_spec_validation_is_400(tmp_path: Path) -> None:
