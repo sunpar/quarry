@@ -21,9 +21,12 @@ from quarry.config import QuarryConfig
 from quarry.kernel.client import KernelDead, RpcFailure
 from quarry.kernel.datasets import DatasetMeta
 from quarry.kernel.executor import QueryResult
+from quarry.projects.store import ProjectStore
 from quarry.query.spec import Json, QueryError, QuerySpec
 from quarry.server.kernels import KernelManager, ReplayReport, SessionBusy
 from quarry.server.models import Session, SessionMeta, Step
+from quarry.server.project_routes import register_project_routes
+from quarry.server.projects import ProjectService
 from quarry.server.service import (
     CreateSessionRequest,
     ManualStepRequest,
@@ -61,6 +64,12 @@ def create_app(
         library=ComponentLibrary(roots),
         transpiler=default_transpiler(static),
         libraries=enabled_libraries(config, runtime_libraries(static)),
+    )
+    projects = ProjectService(
+        config=config,
+        store=ProjectStore(config.root),
+        sessions=service,
+        provider_factory=provider_factory,
     )
 
     @asynccontextmanager
@@ -161,16 +170,19 @@ def create_app(
         session_or_404(session_id)
         return service.restart(session_id)
 
-    # A step or a restart holds the session: new steps, restarts and data reads wait.
+    # A step, a restart or a save holds the session: new steps, restarts and data reads wait.
     @app.exception_handler(SessionBusy)
     async def session_busy(_request: Request, _exc: SessionBusy) -> JSONResponse:
-        return JSONResponse(status_code=409, content={"detail": "a step or restart is running"})
+        return JSONResponse(
+            status_code=409, content={"detail": "the session is busy; try again when it finishes"}
+        )
 
     # A dead kernel, or one that cannot start, on any route that touches it.
     @app.exception_handler(KernelDead)
     async def kernel_dead(_request: Request, exc: KernelDead) -> JSONResponse:
         return JSONResponse(status_code=503, content={"detail": f"kernel is not running: {exc}"})
 
+    register_project_routes(api, projects)
     app.include_router(api)
     if (static / "index.html").exists():
         # The sandboxed view frame has an opaque origin, so its module scripts, CSS and fonts

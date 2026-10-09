@@ -121,6 +121,40 @@ def test_complete_passes_required_parameters() -> None:
     assert "tool_choice" not in captured
 
 
+def test_complete_sends_tools_when_present() -> None:
+    captured: dict[str, object] = {}
+
+    def create(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return SimpleNamespace(
+            stop_reason="end_turn",
+            stop_details=None,
+            content=[SimpleNamespace(type="text", text="ok")],
+        )
+
+    tool = ToolDef(name="t", description="d", input_schema={"type": "object", "properties": {}})
+    provider = AnthropicProvider(model="m", create=create)
+    provider.complete(system="s", messages=[Message(role="user", text="hi")], tools=[tool])
+    assert captured["tools"] == to_api_tools([tool])
+
+
+def test_empty_tools_are_omitted() -> None:
+    captured: dict[str, object] = {}
+
+    def create(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return SimpleNamespace(
+            stop_reason="end_turn",
+            stop_details=None,
+            content=[SimpleNamespace(type="text", text="ok")],
+        )
+
+    provider = AnthropicProvider(model="m", create=create)
+    provider.complete(system="s", messages=[Message(role="user", text="hi")], tools=[])
+    assert captured["model"] == "m"
+    assert "tools" not in captured
+
+
 def test_complete_maps_sdk_errors() -> None:
     def rate_limited(**kwargs: object) -> object:
         raise anthropic.RateLimitError("slow down", response=_response(429), body=None)

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import type { SessionMeta } from "@/shared/api-types";
 
@@ -6,6 +7,7 @@ interface SessionRailProps {
   activeId: string | null;
   onSelect: (id: string) => void;
   onCreate: () => void;
+  children?: ReactNode;
 }
 
 export function SessionRail({
@@ -13,6 +15,7 @@ export function SessionRail({
   activeId,
   onSelect,
   onCreate,
+  children,
 }: SessionRailProps) {
   return (
     <nav className="flex h-full w-[232px] flex-col gap-4 border-r border-border bg-card px-4 py-5">
@@ -39,6 +42,7 @@ export function SessionRail({
           Start a session to explore data.
         </p>
       )}
+      {children}
     </nav>
   );
 }

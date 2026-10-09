@@ -3,7 +3,7 @@ import re
 import signal
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -27,6 +27,8 @@ from quarry.server.store import SessionStore
 
 TOKEN = "t0k3n"
 RESTARTED = "stopped by a restart"
+PRICES = "prices = pl.DataFrame({'ts': ['2024-01-02'], 'px': [1.0]})"
+TIDY = "import polars as pl\n" + PRICES + "\n"
 
 
 def py(call_id: str, code: str) -> AssistantTurn:
@@ -680,18 +682,19 @@ def test_thread_start_failure_frees_the_session(
         wait_idle(client, sid)
 
 
-def view_turn(call_id: str) -> AssistantTurn:
-    return AssistantTurn(
-        text="",
-        tool_calls=[
-            ToolCall(
-                id=call_id,
-                name="render_view",
-                input={"component_id": "data-table", "datasets": ["df"], "initial_state": "{}"},
-            )
-        ],
-        stop="tool_use",
+def view_turn(
+    call_id: str, *, datasets: Sequence[str] = ("df",), initial_state: str = "{}"
+) -> AssistantTurn:
+    call = ToolCall(
+        id=call_id,
+        name="render_view",
+        input={
+            "component_id": "data-table",
+            "datasets": list(datasets),
+            "initial_state": initial_state,
+        },
     )
+    return AssistantTurn(text="", tool_calls=[call], stop="tool_use")
 
 
 def test_snapshot_appends_to_persisted_step(tmp_path: Path) -> None:

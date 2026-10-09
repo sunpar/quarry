@@ -37,6 +37,8 @@ def test_create_list_get(tmp_path: Path) -> None:
     assert store.get(a.id).steps == []
     with pytest.raises(KeyError):
         store.get("missing")
+    with pytest.raises(KeyError):  # a request's session id is one path segment
+        store.get(f"../sessions/{a.id}")
 
 
 def test_append_and_reload_steps(tmp_path: Path) -> None:

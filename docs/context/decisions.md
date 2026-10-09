@@ -358,9 +358,9 @@ them.
 - **Threads per kernel are opt-in**: `data.kernel_threads`, 0 by default for
   every core, caps polars and DuckDB. `KernelClient.spawn` sets
   `POLARS_MAX_THREADS`, because polars reads it at import, before the kernel
-  reads its config, and the kernel runs `SET threads` from its own config. Cost:
-  two processes read the one value, and a kernel started outside the client caps
-  DuckDB only.
+  reads its config, and the kernel runs `SET threads` from its own config. The
+  scratch kernel that validates a recipe takes the same cap. Cost: two processes
+  read the one value, and a kernel started outside the client caps DuckDB only.
 - **The kernel dies with its server**: on socket EOF the kernel flushes and
   calls `os._exit(0)`, even mid-step. An orphaned kernel can hold tens of GB,
   and nobody is left to receive the step's result.
@@ -387,9 +387,10 @@ them.
 - **Anthropic request shape**: the adapter calls `client.beta.messages.create`
   with model `claude-opus-5-5`, `max_tokens=16000`,
   `output_config={"effort": "high"}`, the `server-side-fallback-2026-07-01` beta
-  and `fallbacks="default"`. It sends no `thinking` parameter and leaves
-  `tool_choice` at auto. These come from the Stage 2 plan's global constraints
-  and have not yet run against the live API; see
+  and `fallbacks="default"`. It sends no `thinking` parameter, leaves
+  `tool_choice` at auto, and omits `tools` when the list is empty, as the recipe
+  tidy call's is. These come from the Stage 2 plan's global constraints and have
+  not yet run against the live API; see
   [open questions](../open-items.md#open-questions).
 - **Strict tool schemas**: every tool is `strict` with
   `additionalProperties: false`. Strict mode needs every property required and
@@ -448,13 +449,26 @@ them.
   session's files lack, so it stays dead until a restart rebuilds it from them.
   Later steps had built on state that no restart could bring back. Cost: the
   unsaved step's work is lost.
-- **One step or restart at a time**: a step posted while another step or a
-  restart runs gets 409, and so does a second restart. `/query`, `/datasets` and
-  `/interrupt` get 409 during a restart too, since a half-replayed namespace is
-  not the session's. The kernel manager also refuses the kernel while the replay
-  runs, so a read that passed the check just before the restart never gets a
-  half-replayed kernel. Holding the service lock across the lookup would have
-  done the same, but a lookup can start a kernel, which stalls every session.
+- **One step, restart or save at a time**: a step posted while another step, a
+  restart or a save runs gets 409, and so does a restart during a save or
+  another restart. `/query`, `/datasets` and `/interrupt` get 409 during a
+  restart too, since a half-replayed namespace is not the session's. The kernel
+  manager also refuses the kernel while the replay runs, so a read that passed
+  the check just before the restart never gets a half-replayed kernel. Holding
+  the service lock across the lookup would have done the same, but a lookup can
+  start a kernel, which stalls every session.
+- **A save holds the idle kernel**: `SessionService.hold` lends a session's
+  kernel to a project save or a view recall's dataset check. It raises
+  `SessionBusy` at once while a step, a restart or another hold runs, and
+  reports the kernel `running` until it ends. `hold`, `_begin` and `restart`
+  share one `_busy` check, but `restart` lets a running step through to cancel
+  it. The plan's version refused a running step, which would have undone Stage
+  2's restart that stops one. Cost if wrong: a restart clicked during the
+  seconds a save holds the kernel answers 409 and must be retried.
+- **Recall is a manual step**: `start_recall` creates a `recall` step, carrying
+  the saved view for a view recall, and runs it on the manual-step path, so
+  `runs` is filled, lineage records the writes and restart replays it. `_begin`
+  takes the view; the plan's calls used signatures the Stage 2 service lacks.
 - **Shutdown stops and saves running steps**: it cancels every running step,
   closes the kernels, refuses to start new ones, and waits up to 10 s for the
   steps to save as `interrupted`. A step running at shutdown was never saved
@@ -559,7 +573,7 @@ them.
   forms, popups and top navigation, but `location.href = ...` inside the frame
   is not covered by `connect-src`, so "the bridge is the only path out" (spec
   §12) is defence in depth, not a guarantee. The kernel already has the network.
-  Detecting a navigation is an [open item](../open-items.md#stage-4).
+  Detecting a navigation is an [open item](../open-items.md#stage-5).
 - **The token stays in the URL fragment and in memory**: the host reads
   `#token=` once into state, never stores it, and writes the active session id
   back as `#token=...&session=...` with `replaceState` so a reload keeps both. A
@@ -569,22 +583,22 @@ them.
   whose kernel it spawned while the session already had steps, and `restart`
   clears it only once a replay runs through; `status` reports it from the
   persisted steps before the kernel starts, and `restart` sets it for any
-  session with steps. A session reopened after a server
-  restart gets an empty kernel on its first read and never offered "Restart
-  kernel". The banner shows on `dead` or `replay_needed` and reports a replay
-  that stopped early; the prompt stays enabled, since a fresh kernel is
-  sometimes what the researcher wants.
+  session with steps. A session reopened after a server restart gets an empty
+  kernel on its first read and never offered "Restart kernel". The banner shows
+  on `dead` or `replay_needed` and reports a replay that stopped early; the
+  prompt stays enabled, since a fresh kernel is sometimes what the researcher
+  wants.
 - **The host checks every field of a frame message**: generated code can call
   `parent.postMessage` itself, so `isRuntimeMessage` validates each message's
   fields and types, not only `type`. A malformed `error` can no longer put an
   object into host React state and take down the UI.
 - **Node is a soft prerequisite**: the server checks generated TSX with `node`.
-  Without it, startup logs a warning and the check is skipped; the browser
-  still reports a broken view and "Fix this view" repairs it. Shipping a Node
-  runtime in the wheel was judged too heavy for that fallback.
+  Without it, startup logs a warning and the check is skipped; the browser still
+  reports a broken view and "Fix this view" repairs it. Shipping a Node runtime
+  in the wheel was judged too heavy for that fallback.
 - **The server owns row order**: the data table pushes its sort into the query
-  spec and gives every grid column a comparator that returns 0, so AG Grid
-  keeps the server's order instead of comparing Decimal strings as text.
+  spec and gives every grid column a comparator that returns 0, so AG Grid keeps
+  the server's order instead of comparing Decimal strings as text.
 - **A dead kernel locks the prompt**: the server keeps a dead kernel dead until
   restart, so a prompt would only add a failed step. `replay_needed` alone
   leaves the prompt open.
@@ -596,19 +610,20 @@ them.
 - **Mounted views refetch when kernel data may change**: the host sends
   `refresh` when a step finishes or the kernel's pid changes. The view's cache
   marks every answer stale and keeps showing it until the refetch lands, so a
-  long-lived view follows a rebound dataset without flashing to "Loading".
-  Each request carries a ticket, and only the newest per key may write, so an
-  answer from before the refresh cannot overwrite one from after. A saved
-  sort on a column the live schema lacks is dropped from the query.
+  long-lived view follows a rebound dataset without flashing to "Loading". Each
+  request carries a ticket, and only the newest per key may write, so an answer
+  from before the refresh cannot overwrite one from after. A saved sort on a
+  column the live schema lacks is dropped from the query.
 - **Views get JSON rows only**: `useQuery` reports an Arrow result as an error
   and the contract no longer lists `format`. The runtime has no Arrow decoder,
   so a view asking for it rendered an empty table.
 - **The frame's `load` event is the mount fallback**: the runtime posts `ready`
-  once while loading, which can beat the host's listener; `HostBridge.frameLoaded`
-  sends the queued mount if `ready` was missed. The `onLoad` handler is wired
-  on the iframe element itself and remembered, so a frame that loaded before the
-  bridge existed mounts as soon as the effect runs. A `ready` that arrives after
-  `load` mounts a second time, which the runtime tolerates.
+  once while loading, which can beat the host's listener;
+  `HostBridge.frameLoaded` sends the queued mount if `ready` was missed. The
+  `onLoad` handler is wired on the iframe element itself and remembered, so a
+  frame that loaded before the bridge existed mounts as soon as the effect runs.
+  A `ready` that arrives after `load` mounts a second time, which the runtime
+  tolerates.
 - **A repair step keeps the researcher's prompt**: the view source and browser
   error go only to the agent; the persisted step shows "Fix the view so it
   mounts." The plan stored the composed text as the step prompt, which put a
@@ -647,6 +662,148 @@ them.
   factory or the repair step would replay the first turns.
 - **Snapshots**: the server keeps the last 500 per view, appends under the
   service lock, and answers 409 while that step is still running.
+- **One `ViewHost` for step views and canvas cards**: `ViewHost` owns the
+  bridge, the mount, refreshes and hub registration for both. It keys its mount
+  on `viewId`, `sessionId` and `contentKey`, a step view's `content_hash` or a
+  saved view's `saved_at`, and reads the source, state and datasets through a
+  ref. Schemas always come from a fresh `/datasets` fetch. `fill` makes a card's
+  frame fill its cell instead of the fixed 420 px, and without `onFix` the error
+  overlay has no "Fix this view" button. The plan memoised on `content_hash`,
+  which relied on every caller memoising too, and took schemas from an
+  `ownDatasets` prop of step metadata, which would have brought stale schemas
+  back. Cost if wrong: one extra datasets fetch per schema request.
+- **The snapshot scrubber follows the latest**: `SnapshotScrubber` keeps the
+  researcher's pick only while the snapshot count it was made at holds, then
+  moves to the latest. Each posted snapshot is appended to the cached session,
+  so new snapshots reach it during a visit without a refetch. The plan's
+  scrubber read the count once, so a view that gained snapshots while mounted
+  showed "1 of N". Cost if wrong: the cached list can pass the server's cap of
+  500 until the next refetch.
+- **The dev proxy forwards `/projects`**: `web/vite.config.ts` proxies it beside
+  `/sessions` and `/healthz`. The plan added project routes without it, so
+  `npm run dev` answered 404.
+
+## Projects
+
+- **The tidied recipe is validated first, the raw one in its place**: a save
+  validates the tidied script, and when the tidy fails, is unavailable or does
+  not reproduce the dataset, validates `recipe.raw.py` instead. `recipe.py` is
+  whichever validated, and the save is unvalidated only when neither reproduces
+  the dataset. A bad tidy must not mark a correct raw recipe unvalidated. The
+  plan's test expected a rejected tidy to leave the save unvalidated, and spec
+  §10 and §13 are amended. Cost if wrong: a researcher never learns a tidy was
+  rejected when the raw recipe validated, since no `validation_error` is kept.
+- **A save never needs a provider**: building the provider is part of the tidy
+  attempt, so a `ConfigError` such as a missing API key means no tidy, and the
+  raw recipe is validated. In the plan that error failed the whole save, after a
+  pinned parquet was already written.
+- **Validation compares two describes**: the scratch kernel's `describe(name)`
+  must match the session kernel's, taken at save time, in column names and
+  dtypes, in order, and in row count. `step.datasets` is never used, since its
+  `rows` can be null. Cost: `describe` counts rows, so a save runs a lazy plan
+  or scans a relation once in each kernel.
+- **Recipes take only `ok` runs**: `raw_recipe` joins each lineage step's runs
+  that finished `ok`, so a failed run's in-place mutation never enters a recipe,
+  while an earlier successful run's does. A recipe must be code that worked.
+  Cost if wrong: a dataset that depends on a failed run's side effect gets a
+  recipe that does not reproduce it, which validation then reports.
+- **Project files are private and durable**: `quarry.projects.files` holds the
+  session store's atomic writer, which both stores now import, so project files
+  are written 0600, fsynced and renamed into place. `ProjectStore` creates each
+  project directory and each dataset and view directory 0700; the intermediate
+  `projects/`, `datasets/` and `views/` follow the umask, which the 0700 root
+  and project directory cover. A pinned save creates its dataset directory
+  before the kernel's snapshot, whose own `mkdir` would follow the kernel's
+  umask, and makes `data.parquet` 0600 once the snapshot returns. The plan's
+  helper made directories and wrote text in place, while recipes hold the same
+  code that made session files private. One lock in `ProjectStore` covers every
+  read-modify-write of `project.json` and the slug choice in `create`, so a
+  save's `updated_at` touch cannot drop a canvas write made at the same moment.
+  A slug, view name or session id from a request joins its directory through
+  `child`, which accepts one path segment only, so a body field cannot reach
+  another directory's files.
+  Cost if wrong: a researcher must `chmod` a project to share it in place, and
+  the fsyncs add a little save latency.
+- **Projects list by name, then slug**: `ProjectStore.list` sorts by lowercased
+  name with the slug breaking ties, since "Momentum" and "momentum" share a
+  lowercased name and `iterdir` order is arbitrary. The plan sorted by name
+  alone and defined a second `now_iso`; the store imports the server's.
+- **A save looks the session up first**: `save_dataset` reads the session before
+  it holds the kernel, so an unknown session is 404 and never starts a kernel,
+  since `KernelManager.get` spawns one for any id.
+- **A save waits for the replay**: `save_dataset` answers 400 with "restart the
+  session so its steps replay before saving" while the session's kernel status
+  is `replay_needed`, before it holds the kernel. A session reopened after a
+  server restart otherwise got an empty kernel and a 404 for the dataset its
+  step card shows. `save_view` reaches the check through each dataset it saves,
+  and needs no kernel when all are saved. Cost if wrong: a dataset loaded on the
+  fresh kernel cannot be saved until a restart replays every step.
+- **Pinned data is read by absolute path**: a pinned save snapshots to the
+  absolute `data.parquet` path, and recall generates `pl.read_parquet` of that
+  path at recall time rather than storing it in the project. That settles the
+  kernel's working directory and relative snapshot paths for projects. Cost if
+  wrong: a session that recalled pinned data replays only while the project
+  stays where it was.
+- **Recall asks before it runs**: a recall from the rail always asks first, and
+  the prompt says what it changes: a dataset recall replaces an existing dataset
+  of that name, and a view recall loads the view and any of its datasets the
+  session lacks. A confirmed dataset recall rebinds the name, and since the
+  recall is a real step, the overwrite is on the record. The canvas "Load" does
+  not ask, because a view recall loads only the datasets the session lacks. Cost
+  if wrong: the session's own binding is gone until the step that made it runs
+  again.
+- **View recall checks the kernel inside a hold**: a view recall lists the
+  session's datasets inside `hold`, so it answers 409 at once while a step,
+  restart or save runs, and its step loads only the datasets the session lacks.
+  The plan listed them before taking the session, which waited on the kernel
+  behind a running step. Cost if wrong: a recall during a save also answers 409.
+- **Save buttons use the existing slots**: "Save view" and "Pin to canvas" sit
+  in `ViewFrameContainer`'s `actions` row and a dataset chip's "Save" comes
+  through `renderAction`, all rendered by `StepActions`, which owns the dialog.
+  Save and recall errors, a 409 included, show in the notice line or under the
+  rail. The plan split this between an `onSave` prop and
+  `renderActions(step, dataset?)`, with no single owner of the dialog.
+- **A save shows that it runs**: `StepActions` posts "Saving <name>…" in the
+  notice line before the request and disables its buttons until the save and any
+  pin finish; the result then replaces the notice. A save is a provider call and
+  one or two scratch kernels per dataset, which can take a minute, and a second
+  click started a second save of the same files.
+- **A view is on a canvas once**: cards are keyed by view name, so `set_canvas`
+  answers 400 for a canvas that repeats a view, and "Pin to canvas" adds a card
+  only for a view the project's canvas lacks, read from the project rather than
+  the list. Pinning a saved view again refreshes its card through `saved_at`. A
+  second pin had added a duplicate card, and Remove then dropped both.
+- **The canvas binds to the active session**: cards query through its kernel,
+  and a card whose datasets the session lacks shows "Load", which recalls the
+  view as a step. Only the layout lives in `project.json`; a card's state lasts
+  for the visit, and "Save view" again freezes a new one. There is no hidden
+  project kernel. Cost if wrong: a canvas needs an open session.
+- **The canvas shows its own busy state and errors**: a card's "Load" is
+  disabled while a recall is pending or the session's last step runs, and recall
+  and layout-save errors show above the cards. A recall then would only answer
+  409, and the project page has no notice line of its own.
+- **`shared:` keys link only on the canvas**: `SharedStateHub` sends each other
+  card `restore` with its last known state merged with the changed card's
+  `shared:` keys. Nothing is seeded on load, so the first change wins. Inside a
+  session a view's `shared:` keys stay private, by design, since the step column
+  is the record. Cost if wrong: cards saved with different values disagree until
+  one changes.
+- **The project page replaces the session column**: `SessionPage` renders
+  `ProjectPage`, keyed by slug, in the session column's place, so the rails stay
+  and choosing or creating a session goes back; each project gets its own hub.
+  The plan lifted `activeId` and the hash sync into `App`, but the page needs
+  `SessionPage`'s current session. Cost if wrong: `App` has no page state for
+  Stage 5 to extend.
+- **Canvas layout writes are debounced**: a drag or resize writes `project.json`
+  500 ms after the last change, a pending write is flushed when the page
+  unmounts, and Remove writes at once. The grid measures its width before it
+  mounts, so cards open at their saved size, and drags never start on a button.
+  Cost if wrong: closing the tab within 500 ms of a drag loses it.
+- **`react-grid-layout` 2 with its own types**: the canvas uses
+  `react-grid-layout` 2.3, which ships its types, so `@types/react-grid-layout`,
+  written for v1, is not installed. `react-resizable` is pinned to `^3.2.0`, the
+  range the grid depends on, since a bare install added 4.0.2 as a second copy.
+  Cost if wrong: moving to `react-resizable` 4 waits on the grid.
 
 ## Packaging and CI
 

@@ -92,7 +92,7 @@ export interface ExecError {
 export interface Snapshot {
   ts: string;
   state: JsonObject;
-  queries: JsonObject[];
+  queries: QuerySpec[];
 }
 
 export interface View {
@@ -165,4 +165,81 @@ export interface ReplayReport {
   replayed: number;
   failed_step: number | null;
   error: string | null;
+}
+
+export type SaveMode = "live" | "pinned";
+
+export interface CanvasCard {
+  view: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface ProjectMeta {
+  slug: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  canvas: CanvasCard[];
+}
+
+export interface SavedDatasetMeta {
+  name: string;
+  description: string;
+  backing: DatasetMeta["backing"];
+  schema: Column[];
+  rows: number | null;
+  mode: SaveMode;
+  saved_at: string;
+  source_session: string;
+  source_step: string;
+  validated: boolean;
+  validation_error: string | null;
+}
+
+export interface SavedViewMeta {
+  name: string;
+  description: string;
+  datasets: string[];
+  component_id: string;
+  saved_at: string;
+  source_session: string;
+  source_step: string;
+}
+
+export interface Project {
+  meta: ProjectMeta;
+  datasets: SavedDatasetMeta[];
+  views: SavedViewMeta[];
+}
+
+export interface SaveDatasetRequest {
+  session_id: string;
+  dataset: string;
+  mode: SaveMode;
+  description?: string;
+}
+
+export interface SaveViewRequest {
+  session_id: string;
+  step_id: string;
+  name: string;
+  description?: string;
+  mode: SaveMode;
+}
+
+export interface RecallRequest {
+  project: string;
+  kind: "dataset" | "view";
+  name: string;
+}
+
+export interface SavedView {
+  meta: SavedViewMeta;
+  source: string;
+  state: JsonObject;
+  queries: QuerySpec[];
 }

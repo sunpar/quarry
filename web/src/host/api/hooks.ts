@@ -1,12 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Session, SessionStatus, StepRequest } from "@/shared/api-types";
+import type {
+  CanvasCard,
+  Project,
+  RecallRequest,
+  SaveDatasetRequest,
+  SaveViewRequest,
+  Session,
+  SessionStatus,
+  Step,
+  StepRequest,
+} from "@/shared/api-types";
+import type { ApiClient } from "./client";
 import { useApi } from "./context";
 import { keys } from "./keys";
 
 const POLL_MS = 750;
 
-const sessionRunning = (session: Session | undefined): boolean =>
+export const sessionRunning = (session: Session | undefined): boolean =>
   session?.steps.at(-1)?.status === "running";
+
+/** Changes whenever kernel data may have: a step finished or a new kernel started. */
+export const dataVersion = (steps: Step[], pid: number | null | undefined) =>
+  `${steps.filter((s) => s.status !== "running").length}:${pid ?? ""}`;
 
 export function useSessions() {
   const api = useApi();
@@ -68,5 +83,94 @@ export function useRestart(id: string) {
         qc.invalidateQueries({ queryKey: keys.session(id) }),
         qc.invalidateQueries({ queryKey: keys.status(id) }),
       ]),
+  });
+}
+
+export function useProjects() {
+  const api = useApi();
+  return useQuery({
+    queryKey: keys.projects(),
+    queryFn: () => api.listProjects(),
+  });
+}
+
+export const projectQuery = (api: ApiClient, slug: string) => ({
+  queryKey: keys.project(slug),
+  queryFn: () => api.getProject(slug),
+});
+
+export function useProject(slug: string) {
+  const api = useApi();
+  return useQuery(projectQuery(api, slug));
+}
+
+export function useCreateProject() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.createProject(name),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: keys.projects(), exact: true }),
+  });
+}
+
+export function useSavedView(slug: string, name: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: keys.savedView(slug, name),
+    queryFn: () => api.getSavedView(slug, name),
+  });
+}
+
+// The project is chosen inside the save dialog, so the slug travels with the mutation.
+export function useSaveDataset() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ slug, body }: { slug: string; body: SaveDatasetRequest }) =>
+      api.saveDataset(slug, body),
+    onSuccess: (_meta, { slug }) =>
+      qc.invalidateQueries({ queryKey: keys.project(slug) }),
+  });
+}
+
+export function useSaveView() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ slug, body }: { slug: string; body: SaveViewRequest }) =>
+      api.saveView(slug, body),
+    onSuccess: (_meta, { slug }) =>
+      qc.invalidateQueries({ queryKey: keys.project(slug) }),
+  });
+}
+
+export function useSetCanvas() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ slug, cards }: { slug: string; cards: CanvasCard[] }) =>
+      api.setCanvas(slug, cards),
+    onSuccess: (meta, { slug }) =>
+      qc.setQueryData(keys.project(slug), (old: Project | undefined) =>
+        old ? { ...old, meta } : old,
+      ),
+  });
+}
+
+interface RecallVariables extends RecallRequest {
+  sessionId: string;
+}
+
+// The session travels with the mutation, as the slug does for saves: the rail has none until
+// one is chosen.
+export function useRecall() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId, ...body }: RecallVariables) =>
+      api.recall(sessionId, body),
+    onSuccess: (_step, { sessionId }) =>
+      qc.invalidateQueries({ queryKey: keys.session(sessionId) }),
   });
 }

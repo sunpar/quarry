@@ -33,8 +33,8 @@ Terms as Quarry's code and docs use them. Section numbers point into the
 - **Preview**: a dataset's first 20 rows as JSON, computed when a step writes it
   and kept until the next step.
 - **Dataset snapshot**: a dataset written to a parquet file by the kernel's
-  `snapshot` method. Stage 4 uses it for pinned project datasets. Not to be
-  confused with a view's state snapshot.
+  `snapshot` method, as a pinned save does. Not to be confused with a view's
+  state snapshot.
 - **Guarded region**: the parts of a step where SIGINT raises
   `KeyboardInterrupt`: the step's `exec` and the describe of its writes.
   Elsewhere the signal is dropped.
@@ -49,8 +49,6 @@ Terms as Quarry's code and docs use them. Section numbers point into the
 - **Tail**: the last 4096 characters of a step's stdout or stderr.
 - **Lineage**: a step's `reads`, `writes` and `defines`, found by parsing the
   code before it runs and comparing object identities after (§6).
-- **Recipe**: the self-contained Python a project saves to rebuild a dataset,
-  assembled from lineage (§5, Stage 4).
 
 ## Queries and views
 
@@ -68,8 +66,6 @@ Terms as Quarry's code and docs use them. Section numbers point into the
   issued in that state. It makes to-code deterministic (§5).
 - **Component**: a reusable TSX template with a manifest and no data attached
   (§5).
-- **Project**: a directory of saved datasets and views that a researcher can
-  copy, share or commit (§5, Stage 4).
 
 ## Server and agent
 
@@ -91,8 +87,10 @@ Terms as Quarry's code and docs use them. Section numbers point into the
 - **Summary**: the text that opens each prompt step's request: earlier steps'
   prompts and code, then the datasets in the kernel (§8). Built by
   `build_summary`.
-- **Pending view**: the view a `render_view` or `write_view` call records on its
-  step. Stage 2 validates and saves it, and nothing renders it until Stage 3.
+- **Pending view**: the component id, source, initial state and datasets a
+  `render_view` or `write_view` call records while a prompt step runs, and that
+  a view recall builds from a saved view. `View.from_pending` turns it into the
+  step's `View`, adding the source's content hash.
 - **Transpile check**: the server-side syntax check `render_view` and
   `write_view` run on generated TSX, through `transpile-check.mjs` under node
   when that file exists, for up to 30 s (§8).
@@ -104,3 +102,27 @@ Terms as Quarry's code and docs use them. Section numbers point into the
   code.
 - **Replay**: rerunning a session's runs in order on a new kernel, which
   `POST /sessions/{id}/restart` does after stopping any running step (§6).
+
+## Projects
+
+- **Project**: a directory, `<root>/projects/<slug>/`, of saved datasets and
+  views plus the canvas layout in `project.json`, which a researcher can copy,
+  share or commit (§5, §10).
+- **Recipe**: the self-contained Python a project saves to rebuild a dataset.
+  `recipe.raw.py` joins the `ok` runs of the steps its lineage reaches;
+  `recipe.py` is the model's tidied version, or the raw one when there is no
+  tidy or it does not validate. `validated` says whether a scratch kernel
+  reproduced the dataset from it (§10).
+- **Pinned**: the save mode that also writes the dataset's rows to
+  `data.parquet`, which recall then reads instead of running the recipe. The
+  other mode, `live`, reruns the recipe (§10).
+- **Recall step**: a step of kind `recall` that brings a saved dataset or view
+  into a session. Its code is the recipe or a `pl.read_parquet` of the pinned
+  file, a view recall also mounts the saved view with its saved state, and
+  replay reruns it like any other step (§10).
+- **Canvas card**: one saved view on a project's canvas, at a grid position and
+  size kept in `project.json`. It renders in its own iframe and queries through
+  the active session (§10).
+- **Linked key**: a view-state key beginning with `shared:`. On the canvas the
+  host copies a changed value into every other card; inside a session it stays
+  private to its view (§9).

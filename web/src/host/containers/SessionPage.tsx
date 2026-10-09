@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { readSession, sessionHash } from "../api/auth";
 import { ApiError } from "../api/client";
 import { KernelBanner } from "../components/KernelBanner";
 import { PromptBox } from "../components/PromptBox";
 import { SessionRail } from "../components/SessionRail";
 import {
+  dataVersion,
+  sessionRunning,
   useCreateSession,
   useInterrupt,
   useRestart,
@@ -13,12 +16,17 @@ import {
   useSessionStatus,
   useSubmitPrompt,
 } from "../api/hooks";
+import { ProjectPage } from "./ProjectPage";
+import { ProjectRail } from "./ProjectRail";
+import { StepActions } from "./StepActions";
 import { StepList } from "./StepList";
 import { ViewFrameContainer } from "./ViewFrameContainer";
 
 interface SessionPageProps {
   token: string;
 }
+
+type Page = { kind: "session" } | { kind: "project"; slug: string };
 
 export function SessionPage({ token }: SessionPageProps) {
   const sessions = useSessions();
@@ -33,8 +41,10 @@ export function SessionPage({ token }: SessionPageProps) {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
   const current = activeId ?? sessions.data?.[0]?.id ?? null;
+  const [page, setPage] = useState<Page>({ kind: "session" });
   const select = (id: string) => {
     setActiveId(id);
+    setPage({ kind: "session" });
     history.replaceState(null, "", sessionHash(token, id));
   };
 
@@ -56,8 +66,20 @@ export function SessionPage({ token }: SessionPageProps) {
             onSuccess: (meta) => select(meta.id),
           })
         }
-      />
-      {current === null ? (
+      >
+        <ProjectRail
+          sessionId={current}
+          onOpen={(slug) => setPage({ kind: "project", slug })}
+        />
+      </SessionRail>
+      {page.kind === "project" ? (
+        <ProjectPage
+          key={page.slug}
+          slug={page.slug}
+          sessionId={current}
+          onBack={() => setPage({ kind: "session" })}
+        />
+      ) : current === null ? (
         <main className="flex-1" />
       ) : (
         <SessionColumn key={current} id={current} />
@@ -72,10 +94,10 @@ function SessionColumn({ id }: { id: string }) {
   const interrupt = useInterrupt(id);
   const restart = useRestart(id);
   const steps = session.data?.steps ?? [];
-  const running = steps.at(-1)?.status === "running" || submit.isPending;
+  const running = sessionRunning(session.data) || submit.isPending;
   const status = useSessionStatus(id, running);
-  const finished = steps.filter((s) => s.status !== "running").length;
-  const dataVersion = `${finished}:${status.data?.kernel.pid ?? ""}`;
+  const version = dataVersion(steps, status.data?.kernel.pid);
+  const [notice, setNotice] = useState<string | null>(null);
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
@@ -87,6 +109,17 @@ function SessionColumn({ id }: { id: string }) {
         replay={restart.data ?? null}
         onRestart={() => restart.mutate()}
       />
+      {notice !== null && (
+        <div
+          role="status"
+          className="flex items-center gap-4 border-b border-border bg-card px-8 py-2 text-sm"
+        >
+          <span>{notice}</span>
+          <Button variant="ghost" size="xs" onClick={() => setNotice(null)}>
+            Dismiss
+          </Button>
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="max-w-[944px]">
           {submit.isError && (
@@ -101,13 +134,24 @@ function SessionColumn({ id }: { id: string }) {
                 sessionId={id}
                 step={step}
                 running={running}
-                dataVersion={dataVersion}
+                dataVersion={version}
                 onRepair={(repair) =>
                   submit.mutate({
                     prompt: "Fix the view so it mounts.",
                     repair,
                   })
                 }
+                actions={
+                  <StepActions sessionId={id} step={step} onDone={setNotice} />
+                }
+              />
+            )}
+            renderDatasetAction={(step, name) => (
+              <StepActions
+                sessionId={id}
+                step={step}
+                dataset={name}
+                onDone={setNotice}
               />
             )}
           />

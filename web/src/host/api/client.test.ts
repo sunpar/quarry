@@ -42,4 +42,23 @@ describe("ApiClient", () => {
     expect(url).toBe("/sessions/s1/query");
     expect(init.body).toBe(JSON.stringify({ dataset: "df", limit: 5 }));
   });
+
+  it("puts canvas cards as a bare array", async () => {
+    const fetch = fakeFetch(200, {
+      slug: "p",
+      name: "p",
+      description: "",
+      created_at: "",
+      updated_at: "",
+      canvas: [],
+    });
+    const client = new ApiClient("tok", fetch);
+    await client.setCanvas("p", [{ view: "v", x: 0, y: 0, w: 6, h: 8 }]);
+    const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/projects/p/canvas");
+    expect(init.method).toBe("PUT");
+    expect(init.body).toBe(
+      JSON.stringify([{ view: "v", x: 0, y: 0, w: 6, h: 8 }]),
+    );
+  });
 });

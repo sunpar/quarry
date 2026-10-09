@@ -46,6 +46,7 @@ export default defineConfig({
     fs: { allow: [path.resolve(root, "..")] },
     proxy: {
       "/sessions": `http://127.0.0.1:${apiPort}`,
+      "/projects": `http://127.0.0.1:${apiPort}`,
       "/healthz": `http://127.0.0.1:${apiPort}`,
     },
   },

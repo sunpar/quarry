@@ -243,8 +243,10 @@ Durable checkpoints. A directory the researcher can copy, share, or commit.
   datasets/<name>/
     recipe.py             self-contained Python producing the dataset
     recipe.raw.py         the untidied concatenation, kept as fallback
-    meta.json             { name, description, schema, rows, mode: "live" | "pinned",
-                            saved_at, source_session, source_step, validated: bool }
+    meta.json             { name, description, backing, schema, rows,
+                            mode: "live" | "pinned", saved_at, source_session,
+                            source_step, validated: bool,
+                            validation_error: the reason when not validated }
     data.parquet          present when mode is "pinned"
   views/<name>/
     view.tsx
@@ -562,9 +564,12 @@ its outputs join the lineage graph.
    filter, join, or aggregation.
 3. Validation: a scratch kernel runs the tidied script. The output schema must
    equal the live dataset's schema exactly and the row count must match. On
-   success it is written as `recipe.py` and `validated` is true. On failure
-   `recipe.py` is a copy of the raw concatenation, `validated` is false, and
-   the UI says so.
+   success it is written as `recipe.py` and `validated` is true. When the
+   tidied script fails or no tidy is available, the raw concatenation is
+   validated in its place, and on success it is `recipe.py` with `validated`
+   true. Only when neither reproduces the dataset is the save unvalidated:
+   `recipe.py` is the raw concatenation, `validated` is false,
+   `validation_error` gives the reason, and the UI says so.
 4. If the researcher chose pinned, the kernel snapshots the dataset to
    `data.parquet`.
 
@@ -673,7 +678,7 @@ scichart_path = ""            # path to a locally installed scichart npm package
 | Transpile error in generated TSX | Caught server-side, returned to the agent as the tool result.                                                                                 |
 | Mount error in the browser       | Error boundary shows the message in place of the view. "Fix this" starts a repair step with the error as context.                             |
 | Query spec rejected              | 400 with the validation message; the view shows the error state.                                                                              |
-| Save validation failure          | Raw concatenation saved, `validated: false`, UI badge explains.                                                                               |
+| Save validation failure          | Raw concatenation validated if the tidy fails or is absent; if neither reproduces the data, raw saved, `validated: false`, UI badge explains. |
 | Loader import failure            | Reported once at session start, loader omitted from context.                                                                                  |
 
 ## 14. Testing

@@ -93,8 +93,37 @@ uv run quarry serve --port 8765          # terminal 1
 cd web && QUARRY_PORT=8765 npm run dev    # terminal 2, open http://localhost:5173/#token=<token>
 ```
 
-Vite proxies `/sessions` and `/healthz` to the Python server. `npm run check`,
-`npm test`, and `npm run build` must pass before a commit; the Playwright tests
-under `tests/e2e` run only when `src/quarry/static/index.html` exists. They need
-a browser, installed once with `uv run playwright install chromium`; without it
-they error whenever a build exists.
+Vite proxies `/sessions`, `/projects` and `/healthz` to the Python server.
+`npm run check`, `npm test`, and `npm run build` must pass before a commit; the
+Playwright tests under `tests/e2e` run only when `src/quarry/static/index.html`
+exists. They need a browser, installed once with
+`uv run playwright install chromium`; without it they error whenever a build
+exists.
+
+## Projects (Stage 4)
+
+A project keeps what a session produced. Create one with "New project" in the
+rail, then:
+
+- **Save** a dataset with "Save" beside its chip, or a view with "Save view"
+  under its frame. A dataset is saved as a recipe, the code that made it, tidied
+  by the model and checked in a fresh kernel. A view is saved with its TSX, its
+  latest state and the datasets it reads, which are saved first. "Pinned copy"
+  also keeps today's rows as parquet. A recipe that does not reproduce the data
+  is still saved, marked unvalidated with the reason.
+- **Recall** by clicking a project in the rail to list what it holds, then a
+  dataset or view. The recall runs as a step in the open session, replacing a
+  dataset of the same name after you confirm, and a restart replays it like any
+  other step.
+- **Canvas**: "Pin to canvas" saves a view and adds it as a card. "Open" on a
+  project shows its Saved and Canvas tabs. Cards drag by their title bar, resize
+  from the corner, and query through the open session; a card whose datasets the
+  session lacks offers "Load". Cards that share a `shared:` state key stay in
+  step.
+
+Each project is a directory under the Quarry root, `~/.quarry/projects/<slug>/`,
+with `project.json` (name and canvas layout), `datasets/<name>/` and
+`views/<name>/`; the
+[design spec](docs/superpowers/specs/2026-10-08-quarry-design.md#project) lists
+every file. Everything is plain text except pinned parquet. Files are
+owner-only, so `chmod` a project before sharing it in place.
