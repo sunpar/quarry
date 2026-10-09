@@ -20,7 +20,7 @@ written; Stage 3 waits for Stage 2, Stage 4 for Stage 3.
 | 1. Core             | Merged in sunpar/quarry#1 as `d00b5fa` | [Stage 1](superpowers/plans/2026-10-08-quarry-stage1-core.md)         |
 | 2. Server and agent | Built, sunpar/quarry#2 open            | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
 | 3. First UI         | Planned, handoff ready, not started    | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
-| 4. Projects         | Planned, not started                   | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
+| 4. Projects         | Planned, handoff ready, not started    | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
 | 5. Breadth          | Not planned yet                        | Spec §15                                                              |
 
 ### Stage 1: core
@@ -64,6 +64,8 @@ clean.
    which points at the plan and its [deferred items](open-items.md#stage-3). The
    plan's API types match Stage 2 as of `08efb23`; since then a step gained
    `runs`, so re-check them against the merged branch.
+4. Stage 4: once sunpar/quarry#2 and sunpar/quarry#4 are merged, start from the
+   [Stage 4 handoff](superpowers/handoffs/2026-10-08-quarry-stage4-handoff.md).
 
 ## Resuming
 
