@@ -1,1 +1,12 @@
 @import "../styles/tokens.css";
+@import "react-grid-layout/css/styles.css";
+@import "react-resizable/css/styles.css";
+
+/* The iframe would swallow the pointer mid-drag; the handle lives in the card header. */
+.react-grid-item.react-draggable-dragging iframe,
+.react-grid-item.resizing iframe {
+  pointer-events: none;
+}
+.react-grid-item > .react-resizable-handle {
+  z-index: 2;
+}

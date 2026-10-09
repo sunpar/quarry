@@ -14,6 +14,7 @@ import {
   useSessionStatus,
   useSubmitPrompt,
 } from "../api/hooks";
+import { ProjectPage } from "./ProjectPage";
 import { ProjectRail } from "./ProjectRail";
 import { StepActions } from "./StepActions";
 import { StepList } from "./StepList";
@@ -21,10 +22,11 @@ import { ViewFrameContainer } from "./ViewFrameContainer";
 
 interface SessionPageProps {
   token: string;
-  onOpenProject: (slug: string) => void;
 }
 
-export function SessionPage({ token, onOpenProject }: SessionPageProps) {
+type Page = { kind: "session" } | { kind: "project"; slug: string };
+
+export function SessionPage({ token }: SessionPageProps) {
   const sessions = useSessions();
   const create = useCreateSession();
   const [activeId, setActiveId] = useState(() =>
@@ -37,8 +39,10 @@ export function SessionPage({ token, onOpenProject }: SessionPageProps) {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
   const current = activeId ?? sessions.data?.[0]?.id ?? null;
+  const [page, setPage] = useState<Page>({ kind: "session" });
   const select = (id: string) => {
     setActiveId(id);
+    setPage({ kind: "session" });
     history.replaceState(null, "", sessionHash(token, id));
   };
 
@@ -61,9 +65,19 @@ export function SessionPage({ token, onOpenProject }: SessionPageProps) {
           })
         }
       >
-        <ProjectRail sessionId={current} onOpen={onOpenProject} />
+        <ProjectRail
+          sessionId={current}
+          onOpen={(slug) => setPage({ kind: "project", slug })}
+        />
       </SessionRail>
-      {current === null ? (
+      {page.kind === "project" ? (
+        <ProjectPage
+          key={page.slug}
+          slug={page.slug}
+          sessionId={current}
+          onBack={() => setPage({ kind: "session" })}
+        />
+      ) : current === null ? (
         <main className="flex-1" />
       ) : (
         <SessionColumn key={current} id={current} />

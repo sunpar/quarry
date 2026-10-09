@@ -23,6 +23,7 @@ interface ViewHostProps {
   title: string;
   hub?: SharedStateHub;
   disabled?: boolean;
+  fill?: boolean;
   onStateChanged?: (state: JsonObject, queries: QuerySpec[]) => void;
   onError?: (message: string) => void;
   /** Repairs the error the overlay shows; without it the overlay has no Fix button. */
@@ -39,6 +40,7 @@ export function ViewHost(props: ViewHostProps) {
     title,
     hub,
     disabled,
+    fill,
     onFix,
   } = props;
   const api = useApi();
@@ -122,6 +124,7 @@ export function ViewHost(props: ViewHostProps) {
       title={title}
       error={error}
       disabled={disabled}
+      fill={fill}
       onFix={
         onFix === undefined ? undefined : () => error !== null && onFix(error)
       }

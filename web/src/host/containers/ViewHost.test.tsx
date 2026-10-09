@@ -143,6 +143,13 @@ describe("ViewHost", () => {
     expect(restore).toHaveBeenCalledTimes(1);
   });
 
+  it("fills its container instead of the fixed height with fill", () => {
+    mount({ fill: true });
+    const iframe = screen.getByTitle("card");
+    expect(iframe.className).toContain("h-full");
+    expect(iframe.className).not.toContain("h-[420px]");
+  });
+
   it("offers no repair without onFix", async () => {
     const { send } = mount();
     await act(async () =>
