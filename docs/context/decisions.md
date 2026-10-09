@@ -446,7 +446,10 @@ them.
 - **One step or restart at a time**: a step posted while another step or a
   restart runs gets 409, and so does a second restart. `/query`, `/datasets` and
   `/interrupt` get 409 during a restart too, since a half-replayed namespace is
-  not the session's.
+  not the session's. The kernel manager also refuses the kernel while the replay
+  runs, so a read that passed the check just before the restart never gets a
+  half-replayed kernel. Holding the service lock across the lookup would have
+  done the same, but a lookup can start a kernel, which stalls every session.
 - **Shutdown stops and saves running steps**: it cancels every running step,
   closes the kernels, refuses to start new ones, and waits up to 10 s for the
   steps to save as `interrupted`. A step running at shutdown was never saved
@@ -474,7 +477,9 @@ them.
   restart and replay, as spec §13 says. Starting an empty kernel instead had
   turned the status back to `idle` and made later queries fail on missing
   datasets. A session with no kernel yet, as after a server restart, starts one
-  on first use.
+  on first use. A restart whose new kernel fails to start keeps the old, closed
+  kernel, so the session stays dead rather than getting an empty kernel that
+  skipped the replay.
 - **Component search skips the row count**: `search_components` takes its
   dataset's schema from `list_datasets`, which never counts rows, since matching
   needs only the schema. `describe` counts, which runs a lazy plan or scans a
@@ -482,6 +487,11 @@ them.
 - **Failed loaders are reported**: the server logs each loader that failed to
   load and lists them in the system prompt, so the agent can say why a
   configured loader is missing.
+- **Each prompt step builds the system prompt**: the loaders and the cache can
+  change while the server runs. One prompt built at server start had told later
+  sessions about loaders their kernels did not have, and left out ones they did.
+  Cost: an edit to `loaders.toml` reaches the prompt at once but a running
+  kernel only at its next restart.
 - **Session reads take the service lock**: `get` reads the step files and the
   running step under the lock that saving a step holds. Unlocked reads tore in
   56 of 1000 tries in a probe, and `/status` returned 500 once in 400 polls
@@ -507,9 +517,16 @@ them.
 - **The summary budget is a code default**: `build_summary` collapses steps
   older than the last eight once the summary passes 24,000 estimated tokens,
   with no config key. Spec §8 is amended.
+- **Datasets come first in the summary budget**: the dataset list counts against
+  the 24,000 tokens before any step does, since the agent needs it to write
+  code. If the list alone passes the budget, each dataset keeps only its column
+  count, and `describe_dataset` gives the columns. Wide datasets had pushed the
+  summary far past the budget.
 - **A broken component manifest is skipped**: an unreadable, malformed or
   invalid manifest gets a logged warning, and the library loads the rest. One
-  bad manifest had made every component search fail.
+  bad manifest had made every component search fail. A manifest whose
+  `contract_version` is not 1 is skipped too, since 1 is the only contract the
+  runtime mounts.
 
 ## First UI
 

@@ -36,8 +36,8 @@ Built on `claude/quarry-stage2-server-agent-66853b` and open as sunpar/quarry#2.
 Its calls are under [server and agent](context/decisions.md#server-and-agent),
 and what it left is in [open-items.md](open-items.md#stage-2). Neither provider
 adapter has called its real API yet; see the
-[open questions](open-items.md#open-questions). The fixes for the first Codex
-review are in, CI Auto-fix is on, and the Stage 2 deferred items landed in
+[open questions](open-items.md#open-questions). The fixes for three Codex
+reviews are in, CI Auto-fix is on, and the Stage 2 deferred items landed in
 sunpar/quarry#2 as seven reviewed tasks: config hardening, unreadable data paths,
 the `RLIMIT_DATA` and thread caps, kernel client failures, metadata caching,
 restart that stops a running step, and private session files with
@@ -51,18 +51,19 @@ and the Playwright tests pass against the built UI. Its calls are under
 [first UI](context/decisions.md#first-ui), the modules are in the
 [code map](context/code-map.md#web), and what it left is filed under
 [Stage 4](open-items.md#stage-4). The maintainer approved the one security
-change, the `Access-Control-Allow-Origin` header on the static mount. The
-pull request is sunpar/quarry#4; its first Codex review is addressed and CI is
-green. It is blocked on sunpar/quarry#2 merging.
+change, the `Access-Control-Allow-Origin` header on the static mount. The pull
+request is sunpar/quarry#4. Three Codex reviews are addressed, and each fix
+round asks for another until one comes back clean. It merges after
+sunpar/quarry#2.
 
 ## Latest verification
 
-`claude/quarry-stage3-first-ui` with the Stage 2 branch merged in again (Codex
-review addressed) on 2026-10-09: 935 tests passed and 3 skipped (third Codex review addressed) (the live provider tests), including
-the two browser tests under `tests/e2e`; `ruff check`, `ruff format --check`,
-`mypy src` and `uv lock --check` were clean; in `web/`, `npm run check` (tsc and
-prettier), `npm test` (60 tests) and `npm run build` passed; the wheel from
-`uv build` contains `quarry/static/index.html`.
+`claude/quarry-stage3-first-ui` on 2026-10-09, with the Stage 2 branch merged
+in: 941 tests passed and 3 skipped (the live provider tests and the memory-cap
+test), including the two browser tests under `tests/e2e`; `ruff check`,
+`ruff format --check`, `mypy src` and `uv lock --check` were clean; in `web/`,
+`npm run check` (tsc and prettier), `npm test` (60 tests) and `npm run build`
+passed; the wheel from `uv build` contains `quarry/static/index.html`.
 
 ## Next actions
 

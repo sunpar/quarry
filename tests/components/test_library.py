@@ -111,3 +111,16 @@ def test_unreadable_manifest_is_skipped(tmp_path: Path, caplog: pytest.LogCaptur
         entries = ComponentLibrary([tmp_path]).entries()
     assert [e.manifest.id for e in entries] == ["good"]
     assert "locked" in caplog.text
+
+
+def test_manifest_for_another_contract_version_is_skipped(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    write_component(tmp_path, "good", ["a"], [])
+    write_component(tmp_path, "future", ["a"], [])
+    manifest = tmp_path / "future" / "manifest.json"
+    manifest.write_text(json.dumps({**json.loads(manifest.read_text()), "contract_version": 2}))
+    with caplog.at_level(logging.WARNING):
+        entries = ComponentLibrary([tmp_path]).entries()
+    assert [e.manifest.id for e in entries] == ["good"]
+    assert "future" in caplog.text

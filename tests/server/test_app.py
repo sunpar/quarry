@@ -792,3 +792,21 @@ def test_prompt_steps_record_the_model_they_called(tmp_path: Path) -> None:
     # The session records the model it began with; a config change later shows per step.
     assert prompt["provider"] == {"name": "anthropic", "model": "claude-opus-5-5"}
     assert manual["provider"] is None
+
+
+def test_a_prompt_sees_loaders_added_while_the_server_runs(tmp_path: Path) -> None:
+    provider = FakeProvider([end(), end()])
+    loader = (
+        '[[loader]]\nname = "daily"\ndescription = "d"\n'
+        'import = "tests.data.fake_firmlib:load_daily"\nsignature = "daily(tickers)"\n'
+    )
+    with make_client(tmp_path, [], provider_factory=lambda _cfg: provider) as client:
+        first = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{first}/steps", json={"prompt": "go"})
+        wait_idle(client, first)
+        (tmp_path / "loaders.toml").write_text(loader)  # added while the server runs
+        second = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{second}/steps", json={"prompt": "go"})
+        wait_idle(client, second)
+    assert "daily(tickers)" not in provider.calls[0][0]
+    assert "daily(tickers)" in provider.calls[1][0]
