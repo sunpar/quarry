@@ -51,6 +51,10 @@ def test_create_list_get_dedupes_slug(tmp_path: Path) -> None:
     assert project.datasets == [] and project.views == []
     with pytest.raises(KeyError):
         store.get("missing")
+    (tmp_path / "outside").mkdir()
+    (tmp_path / "outside" / "project.json").write_text(a.model_dump_json())
+    with pytest.raises(KeyError):  # a name is one path segment, never a way out
+        store.get("../outside")
 
 
 def test_write_and_read_dataset(tmp_path: Path) -> None:
@@ -88,6 +92,8 @@ def test_write_and_read_view(tmp_path: Path) -> None:
     assert (tmp_path / "projects" / "p" / "views" / "closes" / "queries.json").exists()
     with pytest.raises(KeyError):
         store.read_view("p", "nope")
+    with pytest.raises(KeyError):  # a name is one path segment, never a way back in
+        store.read_view("p", "../views/closes")
     with pytest.raises(ValueError):
         store.write_view("p", view_meta("Bad Name!"), source="", state={}, queries=[])
     with pytest.raises(ValueError):  # `$` alone matches before a trailing newline

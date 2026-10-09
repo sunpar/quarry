@@ -11,7 +11,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from quarry.projects.files import PRIVATE_DIR, write_atomic
+from quarry.projects.files import PRIVATE_DIR, child, write_atomic
 from quarry.projects.models import (
     CanvasCard,
     Project,
@@ -143,7 +143,7 @@ class ProjectStore:
         self._touch(slug)
 
     def read_view(self, slug: str, name: str) -> SavedViewFiles:
-        base = self._project_dir(slug) / "views" / name
+        base = child(self._project_dir(slug) / "views", name)
         if not (base / "meta.json").exists():
             raise KeyError(name)
         meta = SavedViewMeta.model_validate_json((base / "meta.json").read_text())
@@ -159,7 +159,7 @@ class ProjectStore:
         return self._project_dir(slug) / "datasets" / name
 
     def _project_dir(self, slug: str) -> Path:
-        path = self._dir / slug
+        path = child(self._dir, slug)
         if not (path / "project.json").exists():
             raise KeyError(slug)
         return path

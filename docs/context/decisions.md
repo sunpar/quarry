@@ -719,6 +719,9 @@ them.
   code that made session files private. One lock in `ProjectStore` covers every
   read-modify-write of `project.json` and the slug choice in `create`, so a
   save's `updated_at` touch cannot drop a canvas write made at the same moment.
+  A slug, view name or session id from a request joins its directory through
+  `child`, which accepts one path segment only, so a body field cannot reach
+  another directory's files.
   Cost if wrong: a researcher must `chmod` a project to share it in place, and
   the fsyncs add a little save latency.
 - **Projects list by name, then slug**: `ProjectStore.list` sorts by lowercased

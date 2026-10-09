@@ -1,4 +1,4 @@
-"""Atomic text writes shared by the session and project stores."""
+"""File helpers shared by the session and project stores."""
 
 from __future__ import annotations
 
@@ -7,6 +7,14 @@ from pathlib import Path
 
 PRIVATE_DIR = 0o700
 PRIVATE_FILE = 0o600
+
+
+def child(parent: Path, name: str) -> Path:
+    """`parent / name` for a name from a request: one path segment, so it cannot leave
+    `parent`. Anything else is a KeyError, like a name with nothing behind it."""
+    if name in ("", "..") or Path(name).name != name:
+        raise KeyError(name)
+    return parent / name
 
 
 def write_atomic(path: Path, text: str) -> None:
