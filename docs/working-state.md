@@ -1,6 +1,6 @@
 # Working state
 
-Checkpoint as of 2026-10-09. This page holds temporary context: what is in
+Checkpoint as of 2026-10-08. This page holds temporary context: what is in
 flight, the latest check results and the next actions. Rewrite it at the end of
 each session and when a pull request opens or merges. Anything that will still
 be true next month belongs in [context/](context/) or
@@ -48,7 +48,7 @@ change, the `Access-Control-Allow-Origin` header on the static mount.
 
 ## Latest verification
 
-`claude/quarry-stage3-first-ui` at `1c1c6f1` on 2026-10-09: 810 tests passed and
+`claude/quarry-stage3-first-ui` at `1c1c6f1` on 2026-10-08: 810 tests passed and
 2 skipped (the live provider tests), including the two browser tests under
 `tests/e2e`; `ruff check`, `ruff format --check`, `mypy src` and
 `uv lock --check` were clean; in `web/`, `npm run check` (tsc and prettier),
