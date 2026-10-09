@@ -208,3 +208,18 @@ def test_search_for_an_unknown_dataset_is_an_error(kernel: KernelClient, tmp_pat
         ToolCall(id="1", name="search_components", input={"dataset": "zz", "tags": []})
     )
     assert out.is_error is True and "zz" in out.content
+
+
+def test_unreadable_component_source_is_a_tool_error(kernel: KernelClient, tmp_path: Path) -> None:
+    ex = executor(kernel, tmp_path)
+    (tmp_path / "lib" / "table" / "component.tsx").write_bytes(b"\xff\xfe not utf-8")
+    ex.run(ToolCall(id="1", name="run_python", input=MAKE_DF))
+    out = ex.run(
+        ToolCall(
+            id="2",
+            name="render_view",
+            input={"component_id": "table", "datasets": ["df"], "initial_state": "{}"},
+        )
+    )
+    assert out.is_error is True and "table" in out.content
+    assert ex.view is None

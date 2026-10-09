@@ -221,7 +221,10 @@ class ToolExecutor:
         entry = self._library.get(args.component_id)
         if entry is None:
             return _error(call, f"no component {args.component_id!r}")
-        source = entry.source_path.read_text(encoding="utf-8")
+        try:
+            source = entry.source_path.read_text(encoding="utf-8")
+        except (OSError, ValueError) as exc:
+            return _error(call, f"cannot read component {args.component_id!r}: {exc}")
         return self._mount(call, args.component_id, source, args.datasets, args.initial_state)
 
     def _write(self, call: ToolCall, args: _Write) -> ToolResult:

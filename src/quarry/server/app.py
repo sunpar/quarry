@@ -99,18 +99,12 @@ def create_app(
     @api.post("/sessions/{session_id}/steps", status_code=202)
     def post_step(session_id: str, body: StepRequest) -> Step:
         session_or_404(session_id)
-        try:
-            return service.start_prompt(session_id, body.prompt)
-        except SessionBusy as exc:
-            raise HTTPException(status_code=409, detail="a step or restart is running") from exc
+        return service.start_prompt(session_id, body.prompt)
 
     @api.post("/sessions/{session_id}/steps/manual", status_code=202)
     def post_manual(session_id: str, body: ManualStepRequest) -> Step:
         session_or_404(session_id)
-        try:
-            return service.start_manual(session_id, body.code)
-        except SessionBusy as exc:
-            raise HTTPException(status_code=409, detail="a step or restart is running") from exc
+        return service.start_manual(session_id, body.code)
 
     @api.get("/sessions/{session_id}/status")
     def get_status(session_id: str) -> SessionStatus:
@@ -143,10 +137,12 @@ def create_app(
     @api.post("/sessions/{session_id}/restart")
     def restart(session_id: str) -> ReplayReport:
         session_or_404(session_id)
-        try:
-            return service.restart(session_id)
-        except SessionBusy as exc:
-            raise HTTPException(status_code=409, detail="a restart is already running") from exc
+        return service.restart(session_id)
+
+    # A step or a restart holds the session: new steps, restarts and data reads wait.
+    @app.exception_handler(SessionBusy)
+    async def session_busy(_request: Request, _exc: SessionBusy) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": "a step or restart is running"})
 
     # A dead kernel, or one that cannot start, on any route that touches it.
     @app.exception_handler(KernelDead)

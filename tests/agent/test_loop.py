@@ -46,6 +46,23 @@ def end(text: str = "done") -> AssistantTurn:
     return AssistantTurn(text=text, tool_calls=[], stop="end")
 
 
+class CancelsOnCall(FakeProvider):
+    """Sets `cancel` during its `call`th call, as /interrupt would while the model answers."""
+
+    def __init__(self, turns: list[AssistantTurn], cancel: threading.Event, call: int) -> None:
+        super().__init__(turns)
+        self._cancel = cancel
+        self._call = call
+
+    def complete(
+        self, *, system: str, messages: list[Message], tools: list[ToolDef]
+    ) -> AssistantTurn:
+        turn = super().complete(system=system, messages=messages, tools=tools)
+        if len(self.calls) == self._call:
+            self._cancel.set()
+        return turn
+
+
 def run(
     provider: FakeProvider,
     kernel: KernelClient,
@@ -168,17 +185,7 @@ def test_cancel_during_a_provider_call_skips_its_tools(
     kernel: KernelClient, tmp_path: Path
 ) -> None:
     cancel = threading.Event()
-
-    class CancelsOnSecondCall(FakeProvider):
-        def complete(
-            self, *, system: str, messages: list[Message], tools: list[ToolDef]
-        ) -> AssistantTurn:
-            turn = super().complete(system=system, messages=messages, tools=tools)
-            if len(self.calls) == 2:
-                cancel.set()
-            return turn
-
-    provider = CancelsOnSecondCall([py("c1", "x = 1"), py("c2", "y = 2"), end()])
+    provider = CancelsOnCall([py("c1", "x = 1"), py("c2", "y = 2"), end()], cancel, 2)
     out = run(provider, kernel, tmp_path, cancel)
     assert out.status == "interrupted" and out.error_message == "interrupted by researcher"
     assert [r.code for r in out.runs] == ["x = 1"] and len(provider.calls) == 2
@@ -248,3 +255,9 @@ def test_view_is_captured(kernel: KernelClient, tmp_path: Path) -> None:
     ]
     out = run(FakeProvider(turns), kernel, tmp_path)
     assert out.view is not None and out.view.component_id == "inline"
+
+
+def test_cancel_during_a_final_answer_is_not_ok(kernel: KernelClient, tmp_path: Path) -> None:
+    cancel = threading.Event()
+    out = run(CancelsOnCall([end()], cancel, 1), kernel, tmp_path, cancel)
+    assert out.status == "interrupted" and out.error_message == "interrupted by researcher"

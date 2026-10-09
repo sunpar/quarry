@@ -107,8 +107,6 @@ has made yet. Decisions already made are in
 - **Restart can mislabel a step**: a step that a kernel crash or the
   researcher's cancel ended right before a restart is saved with "stopped by a
   restart". Silent; the status is right.
-- **`/interrupt` during a replay**: it can interrupt a replayed run, which then
-  reads as a replay failure. Silent.
 - **A stuck kernel holds the manager lock**: `KernelManager.kill` and `restart`
   close the old client under the manager's lock, and `close()` waits up to 5 s
   for a killed kernel, so every session's kernel lookup waits too. Silent.

@@ -24,7 +24,7 @@ from quarry.data.loaders import describe_failures, describe_loaders, load_loader
 from quarry.data.parquet import scan_layout
 from quarry.kernel.client import KernelClient, KernelDead
 from quarry.kernel.datasets import DatasetMeta
-from quarry.kernel.executor import ExecError, ExecResult, QueryResult
+from quarry.kernel.executor import TAIL_BYTES, ExecError, ExecResult, QueryResult
 from quarry.query.spec import QuerySpec
 from quarry.server.kernels import KernelManager, ReplayReport
 from quarry.server.models import (
@@ -105,8 +105,7 @@ class SessionService:
         self._system = build_system(self._system_context())
 
     def create(self, title: str) -> SessionMeta:
-        info = ProviderInfo(name=self._config.provider.name, model=self._config.provider.model)
-        return self._store.create(title=title, provider=info)
+        return self._store.create(title=title, provider=self._provider_info())
 
     def list(self) -> list[SessionMeta]:
         return self._store.list()
@@ -148,13 +147,13 @@ class SessionService:
             cancelled = running is not None and running.kind == "prompt"
             if cancelled:
                 self._cancels[session_id].set()
-        return self._kernels.get(session_id).interrupt() or cancelled
+        return self._kernel(session_id).interrupt() or cancelled
 
     def query(self, session_id: str, spec: QuerySpec) -> QueryResult:
-        return self._kernels.get(session_id).query(spec)
+        return self._kernel(session_id).query(spec)
 
     def datasets(self, session_id: str) -> builtins.list[DatasetMeta]:
-        listed = self._kernels.get(session_id).list_datasets()
+        listed = self._kernel(session_id).list_datasets()
         # Later steps overwrite earlier ones, so each name keeps its latest writer.
         origins = {n: step.id for step in self._store.get(session_id).steps for n in step.writes}
         return [d.model_copy(update={"origin_step": origins.get(d.name)}) for d in listed]
@@ -181,6 +180,13 @@ class SessionService:
                 self._kernels.mark_running(session_id, False)
                 self._restarts.discard(session_id)
 
+    def _kernel(self, session_id: str) -> KernelClient:
+        """The kernel a request reaches; SessionBusy mid-restart, since a half-replayed
+        namespace is not the session's. Read without the lock, as `status` reads."""
+        if session_id in self._restarts:
+            raise SessionBusy(session_id)
+        return self._kernels.get(session_id)
+
     def shutdown(self) -> None:
         """Stop every running step and close the kernels, then give the steps time to save."""
         with self._lock:
@@ -201,6 +207,7 @@ class SessionService:
                 index=self._store.next_index(session_id),
                 kind=kind,
                 prompt=prompt,
+                provider=self._provider_info() if kind == "prompt" else None,
                 code=code,
                 status="running",
                 error=None,
@@ -211,6 +218,9 @@ class SessionService:
             self._cancels[session_id] = cancel
             self._kernels.mark_running(session_id, True)
             return step, cancel
+
+    def _provider_info(self) -> ProviderInfo:
+        return ProviderInfo(name=self._config.provider.name, model=self._config.provider.model)
 
     def _start(
         self, session_id: str, target: Callable[..., None], args: tuple[object, ...]
@@ -342,11 +352,14 @@ def _apply_exec(step: Step, result: ExecResult, started: float) -> Step:
 
 
 def _recorded(step: Step, ran: list[tuple[str, ExecResult]]) -> Step:
-    """`step` with the runs a prompt step made, for replay, and the lineage they fold to."""
+    """`step` with the runs a prompt step made, for replay, their output, and the lineage
+    they fold to."""
     lineage = step_lineage([result for _, result in ran])
     return step.model_copy(
         update={
             "runs": [CodeRun(code=code, status=result.status) for code, result in ran],
+            "stdout_tail": "".join(result.stdout_tail for _, result in ran)[-TAIL_BYTES:],
+            "stderr_tail": "".join(result.stderr_tail for _, result in ran)[-TAIL_BYTES:],
             "reads": lineage.reads,
             "writes": lineage.writes,
             "defines": lineage.defines,

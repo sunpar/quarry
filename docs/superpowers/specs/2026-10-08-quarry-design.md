@@ -156,6 +156,7 @@ Step {
   id, index,
   kind: "prompt" | "manual" | "load" | "recall",
   prompt: string | null,     // the researcher's text for prompt steps
+  provider: { name, model } | null,  // the model a prompt step called
   code: string,              // the final Python that ran
   runs: { code, status }[],  // each execution in order, for replay
   status: "running" | "ok" | "error" | "interrupted",
@@ -306,8 +307,8 @@ replay: a new kernel, then every step's runs re-executed in order, one at a
 time. A run that failed the first time may fail again, so its partial effects
 come back; interrupted runs are skipped. Replay runs as a single "restart"
 operation with progress in the UI, and stops at the first run that succeeded
-before and fails now. A restart while a step runs cancels the step and kills
-the kernel first, and saves the step as interrupted.
+before and fails now, or that is interrupted. A restart while a step runs
+cancels the step and kills the kernel first, and saves the step as interrupted.
 
 ### Lineage capture
 

@@ -76,6 +76,10 @@ def run_agent_step(
     iterations = 0
 
     def finish(status: StepStatus, note: str = "", error: str | None = None) -> StepOutcome:
+        # A cancelled step ends interrupted, whatever ended it: the answer it waited on, an
+        # error, or the kernel a restart killed under it.
+        if cancel.is_set():
+            status, error = "interrupted", _INTERRUPTED
         return StepOutcome(
             status=status,
             note=note,
@@ -112,8 +116,6 @@ def run_agent_step(
             try:
                 result = tools.run(call)
             except KernelDead:
-                if cancel.is_set():  # a restart cancels the step, then kills the kernel under it
-                    return finish("interrupted", error=_INTERRUPTED)
                 return finish("error", error="kernel died during execution")
             results.append(result)
             if call.name != "run_python":

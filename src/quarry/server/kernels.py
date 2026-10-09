@@ -86,7 +86,8 @@ class KernelManager:
                     return ReplayReport(
                         replayed=replayed, failed_step=step.index, error=f"kernel died: {exc}"
                     )
-                if run.status == "ok" and result.status != "ok":
+                # An interrupted rerun left the run's effects unbuilt, whatever it saved.
+                if result.status == "interrupted" or (run.status == "ok" and result.status != "ok"):
                     message = result.error.traceback if result.error else result.status
                     return ReplayReport(replayed=replayed, failed_step=step.index, error=message)
         return ReplayReport(replayed=len(steps), failed_step=None, error=None)
