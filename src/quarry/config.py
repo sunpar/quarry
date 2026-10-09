@@ -74,7 +74,7 @@ class QuarryConfig(_Model):
     def _anchor_paths(self) -> Self:
         # The server and each kernel may run from different working directories, so every
         # path field becomes absolute here: `~` expanded, a relative path taken from the root.
-        self.root = self.root.expanduser()
+        self.root = _expand(self.root).absolute()
         self.provider = _anchored(self.provider, self.root)
         self.data = _anchored(self.data, self.root)
         self.libraries = _anchored(self.libraries, self.root)
@@ -82,14 +82,20 @@ class QuarryConfig(_Model):
 
 
 def _anchored(section: _Section, root: Path) -> _Section:
-    paths = {name: root / value.expanduser() for name, value in section if isinstance(value, Path)}
+    paths = {name: root / _expand(value) for name, value in section if isinstance(value, Path)}
     return section.model_copy(update=paths)
+
+
+def _expand(path: Path) -> Path:
+    try:
+        return path.expanduser()
+    except RuntimeError:  # `~user` names no known user
+        raise ConfigError(f"Cannot expand the home directory in {path}") from None
 
 
 def load_config(root: Path, env: Mapping[str, str] | None = None) -> QuarryConfig:
     environment = os.environ if env is None else env
-    root = root.expanduser()
-    path = root / CONFIG_FILENAME
+    path = _expand(root) / CONFIG_FILENAME
     raw: dict[str, object] = {}
     if path.exists():
         with path.open("rb") as handle:

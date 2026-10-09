@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -245,7 +246,7 @@ def test_api_key_directory_raises_config_error(tmp_path: Path) -> None:
     key_dir = tmp_path / "anthropic.key"
     key_dir.mkdir()
     cfg = config_for_key_file(tmp_path, key_dir)
-    with pytest.raises(ConfigError, match=str(key_dir)):
+    with pytest.raises(ConfigError, match=re.escape(str(key_dir))):
         api_key(cfg, env={})
 
 
@@ -253,7 +254,7 @@ def test_api_key_directory_raises_config_error(tmp_path: Path) -> None:
 def test_api_key_unreadable_file_raises_config_error(tmp_path: Path) -> None:
     key_file = write_key_file(tmp_path / "anthropic.key", mode=0o000)
     cfg = config_for_key_file(tmp_path, key_file)
-    with pytest.raises(ConfigError, match=str(key_file)):
+    with pytest.raises(ConfigError, match=re.escape(str(key_file))):
         api_key(cfg, env={})
 
 
@@ -262,7 +263,7 @@ def test_api_key_undecodable_file_raises_config_error(tmp_path: Path) -> None:
     key_file.write_bytes(b"sk-\xff\xfe")
     os.chmod(key_file, 0o600)
     cfg = config_for_key_file(tmp_path, key_file)
-    with pytest.raises(ConfigError, match=str(key_file)) as caught:
+    with pytest.raises(ConfigError, match=re.escape(str(key_file))) as caught:
         api_key(cfg, env={})
     # Not chained: a traceback would print the offending key bytes.
     assert caught.value.__cause__ is None
@@ -374,3 +375,41 @@ def test_api_key_reads_a_key_file_under_the_home_directory(home: Path, tmp_path:
     write_key_file(home / "k", "sk-home\n")
     (tmp_path / "config.toml").write_text('[provider]\napi_key_file = "~/k"\n')
     assert api_key(load_config(tmp_path, env={}), env={}) == "sk-home"
+
+
+def test_relative_root_becomes_absolute_and_revalidation_is_stable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "config.toml").write_text('[data]\nparquet_root = "cache"\n')
+    cfg = load_config(Path("sub"), env={})
+    assert cfg.root == Path.cwd() / "sub"
+    assert cfg.data.parquet_root == Path.cwd() / "sub" / "cache"
+    # A dumped config validated again must not prefix the root a second time.
+    assert QuarryConfig.model_validate(cfg.model_dump()) == cfg
+
+
+NO_SUCH_USER = "~quarry-no-such-user"
+
+
+def test_root_with_an_unknown_user_is_a_config_error() -> None:
+    with pytest.raises(ConfigError, match=NO_SUCH_USER):
+        load_config(Path(f"{NO_SUCH_USER}/x"), env={})
+
+
+@pytest.mark.parametrize(
+    "section_and_key",
+    [
+        "provider.api_key_file",
+        "data.parquet_root",
+        "libraries.team_components",
+        "libraries.highcharts_path",
+        "libraries.scichart_path",
+    ],
+)
+def test_path_with_an_unknown_user_is_a_config_error(section_and_key: str, tmp_path: Path) -> None:
+    section, key = section_and_key.split(".")
+    (tmp_path / "config.toml").write_text(f'[{section}]\n{key} = "{NO_SUCH_USER}/p"\n')
+    with pytest.raises(ConfigError, match=NO_SUCH_USER):
+        load_config(tmp_path, env={})
