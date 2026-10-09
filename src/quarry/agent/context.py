@@ -33,8 +33,12 @@ Name variables well. Do computation in Python, never in view JavaScript.
 
 After producing data, show it: call search_components and render_view for routine tables and
 charts, or write_view with a TSX component when nothing in the library fits. A component's default
-export is the component. It may import react, the design system (@/components/ui/*), the chart
-libraries listed below, and exactly these hooks from "@quarry/hooks":
+export is the component. It may import only these paths, and nothing else:
+  react, @quarry/hooks, @/components/ui/button, @/components/ui/badge, @/components/ui/input,
+  @/components/ui/select, @/components/ui/separator, @/components/ui/tabs,
+  @/components/ui/tooltip, @/components/ui/textarea, @/components/ui/scroll-area,
+  and the chart library packages listed below.
+The hooks are exactly these, from "@quarry/hooks":
 
   Default export: a component receiving one prop, datasets: string[] (the names you passed,
   in order).

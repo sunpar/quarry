@@ -15,6 +15,10 @@ export const MODULES: ModuleTable = {
     import("@/components/ui/separator").then(esm),
   "@/components/ui/tabs": () => import("@/components/ui/tabs").then(esm),
   "@/components/ui/tooltip": () => import("@/components/ui/tooltip").then(esm),
+  "@/components/ui/textarea": () =>
+    import("@/components/ui/textarea").then(esm),
+  "@/components/ui/scroll-area": () =>
+    import("@/components/ui/scroll-area").then(esm),
   "ag-grid-react": () => import("ag-grid-react").then(esm),
   "ag-grid-community": () => import("ag-grid-community").then(esm),
   "lightweight-charts": () => import("lightweight-charts").then(esm),
