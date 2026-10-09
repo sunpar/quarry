@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { readSession, sessionHash } from "../api/auth";
 import { ApiError } from "../api/client";
 import { KernelBanner } from "../components/KernelBanner";
@@ -13,14 +14,17 @@ import {
   useSessionStatus,
   useSubmitPrompt,
 } from "../api/hooks";
+import { ProjectRail } from "./ProjectRail";
+import { StepActions } from "./StepActions";
 import { StepList } from "./StepList";
 import { ViewFrameContainer } from "./ViewFrameContainer";
 
 interface SessionPageProps {
   token: string;
+  onOpenProject: (slug: string) => void;
 }
 
-export function SessionPage({ token }: SessionPageProps) {
+export function SessionPage({ token, onOpenProject }: SessionPageProps) {
   const sessions = useSessions();
   const create = useCreateSession();
   const [activeId, setActiveId] = useState(() =>
@@ -56,7 +60,9 @@ export function SessionPage({ token }: SessionPageProps) {
             onSuccess: (meta) => select(meta.id),
           })
         }
-      />
+      >
+        <ProjectRail sessionId={current} onOpen={onOpenProject} />
+      </SessionRail>
       {current === null ? (
         <main className="flex-1" />
       ) : (
@@ -76,6 +82,7 @@ function SessionColumn({ id }: { id: string }) {
   const status = useSessionStatus(id, running);
   const finished = steps.filter((s) => s.status !== "running").length;
   const dataVersion = `${finished}:${status.data?.kernel.pid ?? ""}`;
+  const [notice, setNotice] = useState<string | null>(null);
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
@@ -87,6 +94,17 @@ function SessionColumn({ id }: { id: string }) {
         replay={restart.data ?? null}
         onRestart={() => restart.mutate()}
       />
+      {notice !== null && (
+        <div
+          role="status"
+          className="flex items-center gap-4 border-b border-border bg-card px-8 py-2 text-sm"
+        >
+          <span>{notice}</span>
+          <Button variant="ghost" size="xs" onClick={() => setNotice(null)}>
+            Dismiss
+          </Button>
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="max-w-[944px]">
           {submit.isError && (
@@ -108,6 +126,17 @@ function SessionColumn({ id }: { id: string }) {
                     repair,
                   })
                 }
+                actions={
+                  <StepActions sessionId={id} step={step} onDone={setNotice} />
+                }
+              />
+            )}
+            renderDatasetAction={(step, name) => (
+              <StepActions
+                sessionId={id}
+                step={step}
+                dataset={name}
+                onDone={setNotice}
               />
             )}
           />

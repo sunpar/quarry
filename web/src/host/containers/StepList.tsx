@@ -5,9 +5,14 @@ import { StepCard } from "../components/StepCard";
 interface StepListProps {
   steps: Step[];
   renderView?: (step: Step) => ReactNode;
+  renderDatasetAction?: (step: Step, name: string) => ReactNode;
 }
 
-export function StepList({ steps, renderView }: StepListProps) {
+export function StepList({
+  steps,
+  renderView,
+  renderDatasetAction,
+}: StepListProps) {
   if (steps.length === 0) {
     return (
       <p className="px-8 py-10 text-sm text-muted-foreground">
@@ -23,6 +28,11 @@ export function StepList({ steps, renderView }: StepListProps) {
           step={step}
           index={step.index + 1}
           view={step.view && renderView ? renderView(step) : undefined}
+          datasetAction={
+            renderDatasetAction
+              ? (name) => renderDatasetAction(step, name)
+              : undefined
+          }
         />
       ))}
     </div>

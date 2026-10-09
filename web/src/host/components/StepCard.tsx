@@ -7,6 +7,7 @@ interface StepCardProps {
   step: Step;
   index: number;
   view?: ReactNode;
+  datasetAction?: (name: string) => ReactNode;
 }
 
 const RULE: Record<Step["status"], string> = {
@@ -23,7 +24,7 @@ const LABEL: Record<Step["status"], string> = {
   interrupted: "Stopped",
 };
 
-export function StepCard({ step, index, view }: StepCardProps) {
+export function StepCard({ step, index, view, datasetAction }: StepCardProps) {
   return (
     <article
       className="grid grid-cols-[2.5rem_3px_1fr] gap-x-4"
@@ -50,7 +51,7 @@ export function StepCard({ step, index, view }: StepCardProps) {
           </pre>
         )}
         {view}
-        <DatasetChips datasets={step.datasets} />
+        <DatasetChips datasets={step.datasets} renderAction={datasetAction} />
         <CodeDrawer code={step.code} />
       </div>
     </article>

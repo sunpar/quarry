@@ -26,7 +26,7 @@ export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ApiProvider client={client}>
-        <SessionPage token={token} />
+        <SessionPage token={token} onOpenProject={() => undefined} />
       </ApiProvider>
     </QueryClientProvider>
   );
