@@ -66,3 +66,23 @@ curl -s -X POST $U/sessions/$SID/query -H "Authorization: $T" -H 'Content-Type: 
 ```
 
 Server-side refusal fallbacks are enabled by default on Anthropic requests.
+
+## Using the browser UI (Stage 3)
+
+Build the UI once, then serve:
+
+```bash
+cd web && npm ci && npm run build && cd ..
+uv run quarry serve
+```
+
+Open the printed link (it carries the token after `#`). From a laptop, forward the port first with the `ssh -L` line the banner prints.
+
+### Developing the UI
+
+```bash
+uv run quarry serve --port 8765          # terminal 1
+cd web && QUARRY_PORT=8765 npm run dev    # terminal 2, open http://localhost:5173/#token=<token>
+```
+
+Vite proxies `/sessions` and `/healthz` to the Python server. `npm run check`, `npm test`, and `npm run build` must pass before a commit; the Playwright tests under `tests/e2e` run only when `src/quarry/static/index.html` exists.

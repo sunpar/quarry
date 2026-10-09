@@ -8,10 +8,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npm run check
+        working-directory: web
+      - run: npm test
+        working-directory: web
+      - run: npm run build
+        working-directory: web
       - uses: astral-sh/setup-uv@v3
       - run: uv python install 3.11
       - run: uv sync --locked
+      - run: uv run playwright install --with-deps chromium
       - run: uv run ruff check src tests
       - run: uv run ruff format --check src tests
       - run: uv run mypy src
       - run: uv run pytest -v
+      - run: uv build
+      - run: unzip -l dist/*.whl | grep quarry/static/index.html
