@@ -112,6 +112,43 @@ describe("hooks", () => {
     expect(changes.at(-1)).toMatchObject({ queries: [spec] });
   });
 
+  it("refresh refetches every cached answer and keeps it shown meanwhile", async () => {
+    const { bridge, cache, sent } = harness();
+    const spec = { dataset: "df" };
+    const answer = (id: string, rowCount: number) =>
+      bridge.handle({
+        type: "queryResult",
+        viewId: "v1",
+        id,
+        ok: true,
+        result: {
+          schema: [],
+          rows: [],
+          arrow_base64: null,
+          row_count: rowCount,
+          truncated: false,
+        },
+      });
+    const lastQueryId = () => {
+      const msg = sent.filter((m) => m.type === "query").at(-1);
+      if (msg?.type !== "query") throw new Error("expected query");
+      return msg.id;
+    };
+    cache.ensureQuery(spec);
+    answer(lastQueryId(), 1);
+    await Promise.resolve();
+    const before = cache.ensureQuery(spec);
+    expect(sent.filter((m) => m.type === "query")).toHaveLength(1);
+    cache.refresh();
+    expect(cache.ensureQuery(spec)).toBe(before);
+    expect(cache.ensureQuery(spec)).toBe(before);
+    expect(sent.filter((m) => m.type === "query")).toHaveLength(2);
+    answer(lastQueryId(), 2);
+    await Promise.resolve();
+    const after = cache.ensureQuery(spec);
+    expect(after.status === "success" && after.result.row_count).toBe(2);
+  });
+
   it("useViewState reads the mounted state and re-queries on change", async () => {
     const { sent, wrap } = harness();
     render(wrap(<Probe />));

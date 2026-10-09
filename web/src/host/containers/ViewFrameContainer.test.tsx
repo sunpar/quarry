@@ -51,27 +51,43 @@ function mount(onRepair = vi.fn()) {
     return new Response("[]", { status: 200 });
   });
   const qc = new QueryClient();
-  render(
+  const api = new ApiClient("t", fetchImpl);
+  const tree = (dataVersion: string) => (
     <QueryClientProvider client={qc}>
-      <ApiProvider client={new ApiClient("t", fetchImpl)}>
+      <ApiProvider client={api}>
         <ViewFrameContainer
           sessionId="sess"
           step={step}
           running={false}
+          dataVersion={dataVersion}
           onRepair={onRepair}
         />
       </ApiProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const { rerender } = render(tree("1:100"));
   const iframe = screen.getByTitle("View for step 1") as HTMLIFrameElement;
   const send = (data: unknown) =>
     window.dispatchEvent(
       new MessageEvent("message", { data, source: iframe.contentWindow }),
     );
-  return { fetchImpl, send, onRepair, iframe };
+  const setVersion = (v: string) => rerender(tree(v));
+  return { fetchImpl, send, onRepair, iframe, setVersion };
 }
 
 describe("ViewFrameContainer", () => {
+  it("tells the view to refetch when kernel data may have changed", async () => {
+    const { iframe, setVersion } = mount();
+    const posted: unknown[] = [];
+    vi.spyOn(iframe.contentWindow as Window, "postMessage").mockImplementation(
+      (m: unknown) => posted.push(m),
+    );
+    setVersion("1:100");
+    expect(posted).toEqual([]);
+    setVersion("2:100");
+    expect(posted).toEqual([{ type: "refresh", viewId: "s1" }]);
+  });
+
   it("mounts on the frame's load when ready never arrives", async () => {
     const { iframe } = mount();
     const posted: unknown[] = [];

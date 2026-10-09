@@ -74,6 +74,8 @@ function SessionColumn({ id }: { id: string }) {
   const steps = session.data?.steps ?? [];
   const running = steps.at(-1)?.status === "running" || submit.isPending;
   const status = useSessionStatus(id, running);
+  const finished = steps.filter((s) => s.status !== "running").length;
+  const dataVersion = `${finished}:${status.data?.kernel.pid ?? ""}`;
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
@@ -99,6 +101,7 @@ function SessionColumn({ id }: { id: string }) {
                 sessionId={id}
                 step={step}
                 running={running}
+                dataVersion={dataVersion}
                 onRepair={(repair) =>
                   submit.mutate({
                     prompt: "Fix the view so it mounts.",

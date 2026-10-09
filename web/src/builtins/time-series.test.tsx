@@ -4,9 +4,13 @@ import type { QueryHookResult } from "@/runtime/hooks";
 
 const setData = vi.hoisted(() => vi.fn());
 const query = vi.fn<(spec: unknown) => QueryHookResult>();
+const saved = vi.hoisted((): Record<string, unknown> => ({}));
 vi.mock("@quarry/hooks", () => ({
   useQuery: (spec: unknown) => query(spec),
-  useViewState: <T,>(_key: string, initial: T) => [initial, () => undefined],
+  useViewState: <T,>(key: string, initial: T) => [
+    key in saved ? (saved[key] as T) : initial,
+    () => undefined,
+  ],
   useDatasetSchema: () => [
     { name: "ts", dtype: "Date" },
     { name: "px", dtype: "Float64" },
@@ -35,6 +39,19 @@ describe("time-series built-in", () => {
       limit: 50000,
     });
     expect(screen.getByText("Loading")).toBeTruthy();
+  });
+
+  it("drops a saved column the live schema no longer has", () => {
+    query.mockReturnValue({ status: "loading" });
+    saved.columns = { time: "gone", value: "px" };
+    try {
+      render(<TimeSeries datasets={["px"]} />);
+    } finally {
+      delete saved.columns;
+    }
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({ select: ["ts", "px"] }),
+    );
   });
 
   it("drops unplottable rows, keeps the last of a second, and reads naive times as UTC", () => {

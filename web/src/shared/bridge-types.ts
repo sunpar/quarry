@@ -10,6 +10,8 @@ export type HostToRuntime =
       datasets: string[];
     }
   | { type: "restore"; viewId: string; state: JsonObject }
+  /** Kernel data may have changed: refetch, keeping what is shown until answers arrive. */
+  | { type: "refresh"; viewId: string }
   | {
       type: "queryResult";
       viewId: string;

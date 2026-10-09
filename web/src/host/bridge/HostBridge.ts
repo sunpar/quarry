@@ -52,6 +52,10 @@ export class HostBridge {
     this.flushMount();
   }
 
+  refresh(): void {
+    this.send({ type: "refresh", viewId: this.options.viewId });
+  }
+
   restore(state: JsonObject): void {
     this.send({ type: "restore", viewId: this.options.viewId, state });
   }

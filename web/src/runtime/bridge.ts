@@ -27,6 +27,11 @@ export class RuntimeBridge {
     this.used.set(JSON.stringify(spec), spec);
   }
 
+  /** Start a fresh usage window: the state changed, so earlier queries no longer show it. */
+  resetUsage(): void {
+    this.used = new Map();
+  }
+
   query(spec: QuerySpec): Promise<QueryResult> {
     const id = this.nextId();
     this.post({ type: "query", viewId: this.viewId, id, spec });

@@ -17,6 +17,7 @@ export interface Runtime {
 interface Mounted {
   bridge: RuntimeBridge;
   store: ViewStateStore;
+  cache: RequestCache;
 }
 
 export function createRuntime(
@@ -52,8 +53,10 @@ export function createRuntime(
       (s) => bridge.stateChanged(s),
       300,
     );
+    // Runs before React re-renders, so the next snapshot carries only the new state's queries.
+    store.subscribe(() => bridge.resetUsage());
     const cache = new RequestCache(bridge);
-    const m: Mounted = { bridge, store };
+    const m: Mounted = { bridge, store, cache };
     mounted = m;
     try {
       const component = await loadComponent(message.source, table);
@@ -82,6 +85,7 @@ export function createRuntime(
       if (mounted === null) return;
       mounted.bridge.handle(message, (control) => {
         if (control.type === "restore") mounted?.store.replace(control.state);
+        if (control.type === "refresh") mounted?.cache.refresh();
       });
     },
     reportError(error) {

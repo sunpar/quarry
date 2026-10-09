@@ -568,8 +568,13 @@ them.
   leaves the prompt open.
 - **Snapshots record the queries a view used**: the cache notes every query a
   render asks for, served from cache or not, so a sort toggled back still
-  appears in the next snapshot. Schemas come from the live kernel, as queries
-  do, not from the step that wrote the dataset.
+  appears in the next snapshot. Each state change starts a fresh window, so a
+  snapshot carries only the queries of the state it records. Schemas come from
+  the live kernel, as queries do, not from the step that wrote the dataset.
+- **Mounted views refetch when kernel data may change**: the host sends
+  `refresh` when a step finishes or the kernel's pid changes. The view's cache
+  marks every answer stale and keeps showing it until the refetch lands, so a
+  long-lived view follows a rebound dataset without flashing to "Loading".
 - **Views get JSON rows only**: `useQuery` reports an Arrow result as an error
   and the contract no longer lists `format`. The runtime has no Arrow decoder,
   so a view asking for it rendered an empty table.

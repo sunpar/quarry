@@ -30,10 +30,13 @@ export default function TimeSeries({ datasets }: Props) {
     time: null,
     value: null,
   });
-  const time =
-    chosen.time ?? schema?.find((c) => isTime(c.dtype))?.name ?? null;
-  const value =
-    chosen.value ?? schema?.find((c) => isNumeric(c.dtype))?.name ?? null;
+  // A saved column counts only while the live schema still has it with a fitting dtype.
+  const pick = (saved: string | null, fits: (dtype: string) => boolean) =>
+    schema?.find((c) => c.name === saved && fits(c.dtype))?.name ??
+    schema?.find((c) => fits(c.dtype))?.name ??
+    null;
+  const time = pick(chosen.time, isTime);
+  const value = pick(chosen.value, isNumeric);
   const ready = time !== null && value !== null;
   const result = useQuery(
     ready

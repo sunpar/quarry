@@ -17,15 +17,26 @@ export class RequestCache {
   private readonly queries = new Map<string, QueryState>();
   private readonly schemas = new Map<string, SchemaState>();
   private readonly listeners = new Set<() => void>();
+  // Keys whose answer predates a refresh: shown until the refetch lands.
+  private stale = new Set<string>();
 
   constructor(private readonly bridge: RuntimeBridge) {}
+
+  /** Refetch everything on next use, keeping current answers on screen meanwhile. */
+  refresh(): void {
+    this.stale = new Set([
+      ...[...this.queries.keys()].map((k) => `q:${k}`),
+      ...[...this.schemas.keys()].map((k) => `s:${k}`),
+    ]);
+    for (const listener of this.listeners) listener();
+  }
 
   ensureQuery(spec: QuerySpec): QueryState {
     this.bridge.useQuery(spec);
     const key = JSON.stringify(spec);
     const known = this.queries.get(key);
-    if (known !== undefined) return known;
-    this.queries.set(key, LOADING);
+    if (known !== undefined && !this.stale.delete(`q:${key}`)) return known;
+    if (known === undefined) this.queries.set(key, LOADING);
     this.bridge.query(spec).then(
       (result) => this.put(this.queries, key, { status: "success", result }),
       (error: unknown) =>
@@ -34,18 +45,18 @@ export class RequestCache {
           message: error instanceof Error ? error.message : String(error),
         }),
     );
-    return LOADING;
+    return known ?? LOADING;
   }
 
   ensureSchema(dataset: string): SchemaState {
     const known = this.schemas.get(dataset);
-    if (known !== undefined) return known;
-    this.schemas.set(dataset, SCHEMA_LOADING);
+    if (known !== undefined && !this.stale.delete(`s:${dataset}`)) return known;
+    if (known === undefined) this.schemas.set(dataset, SCHEMA_LOADING);
     this.bridge.schema(dataset).then(
       (schema) => this.put(this.schemas, dataset, { status: "done", schema }),
       () => this.put(this.schemas, dataset, { status: "done", schema: null }),
     );
-    return SCHEMA_LOADING;
+    return known ?? SCHEMA_LOADING;
   }
 
   subscribe(listener: () => void): () => void {

@@ -10,6 +10,8 @@ interface ViewFrameContainerProps {
   sessionId: string;
   step: Step;
   running: boolean;
+  /** Changes whenever kernel data may have: a step finished or a new kernel started. */
+  dataVersion: string;
   onRepair: (repair: RepairRequest) => void;
 }
 
@@ -17,6 +19,7 @@ export function ViewFrameContainer({
   sessionId,
   step,
   running,
+  dataVersion,
   onRepair,
 }: ViewFrameContainerProps) {
   const api = useApi();
@@ -80,6 +83,14 @@ export function ViewFrameContainer({
       stop();
     };
   }, [api, queryClient, sessionId, step.id, contentHash]);
+
+  // A mounted view caches its answers; later steps and restarts change what the kernel holds.
+  const seenVersion = useRef(dataVersion);
+  useEffect(() => {
+    if (seenVersion.current === dataVersion) return;
+    seenVersion.current = dataVersion;
+    bridgeRef.current?.refresh();
+  }, [dataVersion]);
 
   if (step.view === null) return null;
   return (
