@@ -7,8 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build && npm run build:checker",
     "build:checker": "esbuild tools/transpile-check.ts --bundle --platform=node --format=esm --outfile=../src/quarry/static/transpile-check.mjs",
-    "check": "tsc -b && prettier --check .",
-    "format": "prettier --write .",
+    "check": "tsc -b && prettier --check . ../src/quarry/components/builtin",
+    "format": "prettier --write . ../src/quarry/components/builtin",
     "test": "vitest run",
     "preview": "vite preview"
   },

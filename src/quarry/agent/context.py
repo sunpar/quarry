@@ -36,7 +36,10 @@ charts, or write_view with a TSX component when nothing in the library fits. A c
 export is the component. It may import react, the design system (@/components/ui/*), the chart
 libraries listed below, and exactly these hooks from "@quarry/hooks":
 
-  useQuery(spec): {status:"loading"} | {status:"success", rows, schema} | {status:"error", message}
+  Default export: a component receiving one prop, datasets: string[] (the names you passed,
+  in order).
+  useQuery(spec): {status:"loading"} | {status:"success", rows, schema, rowCount, truncated}
+    | {status:"error", message}
     spec = {dataset, select?, filters?, group_by?, aggs?, pivot?, sort?, limit?, offset?, format?}
   useViewState(key, initial): [value, setValue]  (recorded; keys starting with "shared:" are linked)
   useDatasetSchema(name): Column[] | null

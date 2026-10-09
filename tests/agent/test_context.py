@@ -38,6 +38,7 @@ def test_build_system_is_deterministic_and_filtered() -> None:
     assert "## plotly" in a and "## ag-grid" in a
     assert "## highcharts" not in a and "## recharts" not in a
     assert "loaders.x" in a and "prices" in a and "year" in a
+    assert "datasets: string[]" in a
 
 
 def step(i: int, prompt: str, code: str, writes: list[str]) -> Step:

@@ -20,7 +20,12 @@
     "paths": {
       "@/*": ["./src/*"],
       "@quarry/hooks": ["./src/runtime/hooks.ts"],
-      "@builtin/*": ["../src/quarry/components/builtin/*"]
+      "@builtin/*": ["../src/quarry/components/builtin/*"],
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "ag-grid-react": ["./node_modules/ag-grid-react"],
+      "ag-grid-community": ["./node_modules/ag-grid-community"],
+      "lightweight-charts": ["./node_modules/lightweight-charts"]
     }
   },
   "include": ["src", "../src/quarry/components/builtin/**/*.tsx"]

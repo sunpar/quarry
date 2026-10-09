@@ -1,0 +1,15 @@
+{
+  "id": "time-series",
+  "name": "Time series",
+  "description": "Line chart of one numeric column over a date or datetime column.",
+  "tags": ["line", "time", "series", "price", "returns"],
+  "contract_version": 1,
+  "schema": {
+    "requires": [
+      { "role": "time", "dtype": "datetime", "min": 1 },
+      { "role": "value", "dtype": "numeric", "min": 1 }
+    ]
+  },
+  "origin": "builtin",
+  "created_at": "2026-10-08T00:00:00Z"
+}

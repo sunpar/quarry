@@ -1,0 +1,10 @@
+{
+  "id": "data-table",
+  "name": "Data table",
+  "description": "Sortable, filterable grid over one dataset. Columns come from the schema.",
+  "tags": ["table", "grid", "rows", "inspect"],
+  "contract_version": 1,
+  "schema": { "requires": [] },
+  "origin": "builtin",
+  "created_at": "2026-10-08T00:00:00Z"
+}
