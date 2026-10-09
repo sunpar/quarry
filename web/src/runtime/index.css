@@ -1,0 +1,15 @@
+@import "../styles/tokens.css";
+
+/* Generated views arrive after the build, so Tailwind cannot scan them. Keep the layout
+   utilities the agent reaches for available; shadcn components carry their own classes. */
+@source inline("{flex,inline-flex,grid,block,hidden} {flex-col,flex-row,flex-wrap,flex-1,shrink-0,grow} {items-start,items-center,items-end,justify-start,justify-center,justify-between,justify-end}");
+@source inline("{grid-cols-1,grid-cols-2,grid-cols-3,grid-cols-4} {gap-1,gap-2,gap-3,gap-4,gap-6,gap-8} {p,px,py,pt,pb,m,mx,my,mt,mb}-{0,1,2,3,4,6,8} {w,h}-full {min-h,h}-{48,64,80,96} overflow-{auto,hidden,x-auto,y-auto}");
+@source inline("text-{xs,sm,base,lg,xl,2xl} font-{normal,medium,semibold} font-mono text-{left,right,center} tabular-nums truncate");
+@source inline("text-{foreground,muted-foreground,primary,destructive} bg-{background,card,muted} border border-{t,b,l,r} rounded rounded-{sm,md,lg}");
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
