@@ -1,0 +1,66 @@
+import { useState } from "react";
+import { PromptBox } from "../components/PromptBox";
+import { SessionRail } from "../components/SessionRail";
+import {
+  useCreateSession,
+  useInterrupt,
+  useSession,
+  useSessions,
+  useSubmitPrompt,
+} from "../api/hooks";
+import { StepList } from "./StepList";
+
+export function SessionPage() {
+  const sessions = useSessions();
+  const create = useCreateSession();
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const current = activeId ?? sessions.data?.[0]?.id ?? null;
+
+  return (
+    <div className="flex h-screen">
+      <SessionRail
+        sessions={sessions.data ?? []}
+        activeId={current}
+        onSelect={setActiveId}
+        onCreate={() =>
+          create.mutate("Untitled", {
+            onSuccess: (meta) => setActiveId(meta.id),
+          })
+        }
+      />
+      {current === null ? (
+        <main className="flex-1" />
+      ) : (
+        <SessionColumn key={current} id={current} />
+      )}
+    </div>
+  );
+}
+
+function SessionColumn({ id }: { id: string }) {
+  const session = useSession(id);
+  const submit = useSubmitPrompt(id);
+  const interrupt = useInterrupt(id);
+  const steps = session.data?.steps ?? [];
+  const running = steps.at(-1)?.status === "running" || submit.isPending;
+
+  return (
+    <main className="flex min-w-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="max-w-[944px]">
+          {submit.isError && (
+            <p className="px-8 pt-4 text-sm text-destructive">
+              {submit.error.message}
+            </p>
+          )}
+          <StepList steps={steps} />
+        </div>
+      </div>
+      <PromptBox
+        running={running}
+        onSubmit={(prompt) => submit.mutate({ prompt })}
+        onStop={() => interrupt.mutate()}
+      />
+    </main>
+  );
+}
