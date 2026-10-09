@@ -85,4 +85,50 @@ describe("runtime mount", () => {
       ).toBe(true),
     );
   });
+
+  it("ignores a stale mount once a newer mount arrives", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    const slowTable = {
+      ...table,
+      "@quarry/hooks": async () => {
+        if (calls++ === 0) await gate;
+        return { __esModule: true, ...(await import("./hooks")) };
+      },
+    } satisfies ModuleTable;
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const runtime = createRuntime(() => {}, root, slowTable);
+    const view = (label: string) => `
+      import { useViewState } from "@quarry/hooks";
+      export default function V() {
+        useViewState("n", 0);
+        return <p>${label}</p>;
+      }`;
+    await act(async () => {
+      runtime.handle({
+        type: "mount",
+        viewId: "a",
+        source: view("first-view"),
+        initialState: {},
+        datasets: [],
+      });
+      runtime.handle({
+        type: "mount",
+        viewId: "b",
+        source: view("second-view"),
+        initialState: {},
+        datasets: [],
+      });
+    });
+    await waitFor(() => expect(screen.getByText("second-view")).toBeTruthy());
+    await act(async () => {
+      release();
+    });
+    expect(screen.queryByText("first-view")).toBeNull();
+    expect(screen.getByText("second-view")).toBeTruthy();
+  });
 });

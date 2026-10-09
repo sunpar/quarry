@@ -51,11 +51,14 @@ export function createRuntime(
       300,
     );
     const cache = new RequestCache(bridge);
-    mounted = { bridge, store };
+    const m: Mounted = { bridge, store };
+    mounted = m;
     try {
       const component = await loadComponent(message.source, table);
-      render(mounted, cache, component, message.datasets);
+      if (mounted !== m) return;
+      render(m, cache, component, message.datasets);
     } catch (error) {
+      if (mounted !== m) return;
       const e = error instanceof Error ? error : new Error(String(error));
       bridge.error(e.message, e.stack);
       root.render(
