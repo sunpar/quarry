@@ -90,6 +90,8 @@ def test_write_and_read_view(tmp_path: Path) -> None:
         store.read_view("p", "nope")
     with pytest.raises(ValueError):
         store.write_view("p", view_meta("Bad Name!"), source="", state={}, queries=[])
+    with pytest.raises(ValueError):  # `$` alone matches before a trailing newline
+        store.write_view("p", view_meta("closes\n"), source="", state={}, queries=[])
 
 
 def test_set_canvas(tmp_path: Path) -> None:
@@ -98,3 +100,17 @@ def test_set_canvas(tmp_path: Path) -> None:
     cards = [CanvasCard(view="closes", x=0, y=0, w=6, h=8)]
     assert store.set_canvas("p", cards).canvas == cards
     assert store.meta("p").canvas == cards
+    with pytest.raises(ValueError):
+        store.set_canvas("p", [*cards, CanvasCard(view="closes", x=6, y=0, w=6, h=8)])
+    assert store.meta("p").canvas == cards
+
+
+def test_live_resave_drops_the_pinned_parquet(tmp_path: Path) -> None:
+    store = ProjectStore(tmp_path)
+    store.create("p")
+    pinned = dataset_meta().model_copy(update={"mode": "pinned"})
+    store.pinned_path("p", "prices").write_bytes(b"parquet")
+    store.write_dataset("p", pinned, recipe="", raw="")
+    assert store.parquet_path("p", "prices").exists()
+    store.write_dataset("p", dataset_meta(), recipe="", raw="")
+    assert not store.parquet_path("p", "prices").exists()

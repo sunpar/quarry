@@ -8,7 +8,6 @@ from typing import TypeVar
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from quarry.kernel.client import KernelDead
 from quarry.projects.models import (
     CanvasCard,
     Project,
@@ -16,7 +15,6 @@ from quarry.projects.models import (
     SavedDatasetMeta,
     SavedViewMeta,
 )
-from quarry.server.kernels import SessionBusy
 from quarry.server.models import Step
 from quarry.server.projects import (
     ProjectService,
@@ -72,7 +70,7 @@ def register_project_routes(
 
     @api.put("/projects/{slug}/canvas")
     def set_canvas(slug: str, body: list[CanvasCard]) -> ProjectMeta:
-        return _found(lambda: projects.set_canvas(slug, body))
+        return _saving(lambda: projects.set_canvas(slug, body))
 
 
 def _found(call: Callable[[], T]) -> T:
@@ -87,11 +85,5 @@ def _saving(call: Callable[[], T]) -> T:
         return _found(call)
     except (UnknownDataset, StepNotFound) as exc:
         raise HTTPException(status_code=404, detail=f"not found: {exc}") from exc
-    except SessionBusy as exc:
-        raise HTTPException(
-            status_code=409, detail="the session is busy; try again when it finishes"
-        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except KernelDead as exc:
-        raise HTTPException(status_code=503, detail="kernel is dead; restart the session") from exc

@@ -1,3 +1,5 @@
+import os
+import stat
 import time
 from pathlib import Path
 
@@ -109,6 +111,25 @@ def test_bad_tidy_falls_back_to_validated_raw(tmp_path: Path) -> None:
     sessions.shutdown()
 
 
+def test_pinned_save_is_private(tmp_path: Path) -> None:
+    # The kernel inherits the umask when it spawns, so it is set before the first step.
+    previous = os.umask(0o022)
+    try:
+        provider = FakeProvider([py("c1", PRICES), end(), end(TIDY_OK)])
+        sessions, projects = build(tmp_path, provider)
+        sid, _ = run_prices(sessions)
+        slug = projects.create("p", "").slug
+        projects.save_dataset(
+            slug, SaveDatasetRequest(session_id=sid, dataset="prices", mode="pinned")
+        )
+        sessions.shutdown()
+    finally:
+        os.umask(previous)
+    base = tmp_path / "projects" / slug / "datasets" / "prices"
+    assert stat.S_IMODE(base.stat().st_mode) == 0o700
+    assert stat.S_IMODE((base / "data.parquet").stat().st_mode) == 0o600
+
+
 def test_unreproducible_recipe_saved_unvalidated(tmp_path: Path) -> None:
     mark = tmp_path / "mark"
     code = (
@@ -168,6 +189,31 @@ def test_save_rejected_while_step_runs(tmp_path: Path) -> None:
         )
     sessions.interrupt(sid)
     wait_idle(sessions, sid)
+    sessions.shutdown()
+
+
+def test_save_refused_until_a_reopened_session_replays(tmp_path: Path) -> None:
+    provider = FakeProvider([py("c1", PRICES), render("c2"), end()])
+    sessions, _ = build(tmp_path, provider)
+    sid, step_id = run_prices(sessions)
+    sessions.shutdown()
+    # A fresh service over the same root is the server after a restart: steps, no kernel.
+    sessions, projects = build(tmp_path, FakeProvider([end(TIDY_OK)]))
+    slug = projects.create("p", "").slug
+    with pytest.raises(ValueError, match="restart the session"):
+        projects.save_dataset(
+            slug, SaveDatasetRequest(session_id=sid, dataset="prices", mode="live")
+        )
+    with pytest.raises(ValueError, match="restart the session"):
+        projects.save_view(
+            slug, SaveViewRequest(session_id=sid, step_id=step_id, name="table", mode="live")
+        )
+    assert sessions.status(sid).kernel.status == "starting"  # the refusal spawned no kernel
+    assert sessions.restart(sid).failed_step is None
+    meta = projects.save_dataset(
+        slug, SaveDatasetRequest(session_id=sid, dataset="prices", mode="live")
+    )
+    assert meta.validated
     sessions.shutdown()
 
 

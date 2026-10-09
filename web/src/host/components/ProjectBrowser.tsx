@@ -28,7 +28,7 @@ export function ProjectBrowser({
       </div>
       {projects.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          Save a dataset or view to start a project.
+          Create a project to save datasets and views into.
         </p>
       )}
       <ul className="flex flex-col gap-1">

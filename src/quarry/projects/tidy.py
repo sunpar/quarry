@@ -36,6 +36,8 @@ def tidy_recipe(provider: Provider, raw: str, dataset: str) -> str | None:
         )
     except ProviderError:
         return None
+    if turn.stop != "end":  # a reply cut at max_tokens can still parse and bind the name
+        return None
     code = strip_fences(turn.text)
     if code.strip() == "" or not _binds(code, dataset):
         return None

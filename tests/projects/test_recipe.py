@@ -86,3 +86,8 @@ def test_unknown_dataset_and_unproduced_reads() -> None:
     assert [s.index for s in recipe_steps(steps, "df")] == [0]
     with pytest.raises(KeyError):
         recipe_steps(steps, "nope")
+
+
+def test_label_keeps_every_line_break_out_of_the_code() -> None:
+    steps = [step(0, "df = a()", writes=["df"], prompt="load\rimport os\nnow")]
+    assert raw_recipe(steps) == "# step 1: load import os now\ndf = a()\n"

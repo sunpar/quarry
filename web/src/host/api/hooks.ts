@@ -146,7 +146,8 @@ export function useSetCanvas() {
       qc.setQueryData(keys.project(slug), (old: Project | undefined) =>
         old ? { ...old, meta } : old,
       );
-      void qc.invalidateQueries({ queryKey: keys.projects() });
+      // Exact: the prefix also matches every saved view's query, each a full TSX source.
+      void qc.invalidateQueries({ queryKey: keys.projects(), exact: true });
     },
   });
 }

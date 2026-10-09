@@ -178,8 +178,9 @@ has made yet. Decisions already made are in
   a stale mount is not disposed, so its debounced change can still post.
 - The Lightweight Charts attribution link is inert under the sandbox (no
   popups).
-- Add component tests for `SessionPage` (reload keeps the session, 401 message)
-  and the time series success and "needs a date column" paths.
+- Add component tests for `SessionPage` (reload keeps the session, 401 message),
+  the time series success and "needs a date column" paths, and the canvas's
+  debounced layout write and its flush on unmount.
 - Extend lineage to SQL strings by passing string literals given to `sql_local`,
   `duckdb.sql` and `_conn.sql` through `duckdb.get_table_names`. Recipes from
   `sql_local` steps miss their source step until then. Such a recipe fails in
@@ -200,6 +201,21 @@ has made yet. Decisions already made are in
   `isidentifier()` but runs as `trades`.
 - Choose the Arrow IPC compatibility level, including view types, that
   Perspective reads.
+- Map `anthropic.APIError` and `openai.APIError` to a non-retryable
+  `ProviderError` at the provider boundary. Until then, an unmapped SDK error
+  escapes a save after its pinned parquet is written.
+- Give recipe validation a timeout: `validate_recipe` waits on the scratch
+  kernel, so a recipe that hangs hangs the save request, which is synchronous so
+  that it can show a saving state. The session stays usable, since the hold is
+  released first.
+- Two clients on one project can race: `create()` can pick the same slug twice,
+  and `_touch` can overwrite a canvas written at the same moment.
+- A failed view recall keeps its view on the step, so the frame shows a query
+  error under the recall's traceback.
+- Canvas cards: a card is blank when its saved view fails to load, a card whose
+  view is missing has no Remove, and recall and layout errors never clear.
+- The rail's project list does not scroll, and `SaveDialog` picks its project
+  only when it opens, so a project list that arrives later leaves none chosen.
 
 ### Any time
 

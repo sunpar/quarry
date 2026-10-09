@@ -707,11 +707,15 @@ them.
   recipe that does not reproduce it, which validation then reports.
 - **Project files are private and durable**: `quarry.projects.files` holds the
   session store's atomic writer, which both stores now import, so project files
-  are written 0600, fsynced and renamed into place, and `ProjectStore` creates
-  each project, dataset and view directory 0700. The plan's helper made
-  directories and wrote text in place, while recipes hold the same code that
-  made session files private. Cost if wrong: a researcher must `chmod` a project
-  to share it in place, and the fsyncs add a little save latency.
+  are written 0600, fsynced and renamed into place. `ProjectStore` creates each
+  project directory and each dataset and view directory 0700; the intermediate
+  `projects/`, `datasets/` and `views/` follow the umask, which the 0700 root
+  and project directory cover. A pinned save creates its dataset directory
+  before the kernel's snapshot, whose own `mkdir` would follow the kernel's
+  umask, and makes `data.parquet` 0600 once the snapshot returns. The plan's
+  helper made directories and wrote text in place, while recipes hold the same
+  code that made session files private. Cost if wrong: a researcher must `chmod`
+  a project to share it in place, and the fsyncs add a little save latency.
 - **Projects list by name, then slug**: `ProjectStore.list` sorts by lowercased
   name with the slug breaking ties, since "Momentum" and "momentum" share a
   lowercased name and `iterdir` order is arbitrary. The plan sorted by name
@@ -719,6 +723,13 @@ them.
 - **A save looks the session up first**: `save_dataset` reads the session before
   it holds the kernel, so an unknown session is 404 and never starts a kernel,
   since `KernelManager.get` spawns one for any id.
+- **A save waits for the replay**: `save_dataset` answers 400 with "restart the
+  session so its steps replay before saving" while the session's kernel status
+  is `replay_needed`, before it holds the kernel. A session reopened after a
+  server restart otherwise got an empty kernel and a 404 for the dataset its
+  step card shows. `save_view` reaches the check through each dataset it saves,
+  and needs no kernel when all are saved. Cost if wrong: a dataset loaded on the
+  fresh kernel cannot be saved until a restart replays every step.
 - **Pinned data is read by absolute path**: a pinned save snapshots to the
   absolute `data.parquet` path, and recall generates `pl.read_parquet` of that
   path at recall time rather than storing it in the project. That settles the
@@ -726,11 +737,13 @@ them.
   wrong: a session that recalled pinned data replays only while the project
   stays where it was.
 - **Recall asks before it runs**: a recall from the rail always asks first, and
-  the prompt says an existing dataset of that name is replaced. A confirmed
-  dataset recall rebinds the name, and since the recall is a real step, the
-  overwrite is on the record. The canvas "Load" does not ask, because a view
-  recall loads only the datasets the session lacks. Cost if wrong: the session's
-  own binding is gone until the step that made it runs again.
+  the prompt says what it changes: a dataset recall replaces an existing dataset
+  of that name, and a view recall loads the view and any of its datasets the
+  session lacks. A confirmed dataset recall rebinds the name, and since the
+  recall is a real step, the overwrite is on the record. The canvas "Load" does
+  not ask, because a view recall loads only the datasets the session lacks. Cost
+  if wrong: the session's own binding is gone until the step that made it runs
+  again.
 - **View recall checks the kernel inside a hold**: a view recall lists the
   session's datasets inside `hold`, so it answers 409 at once while a step,
   restart or save runs, and its step loads only the datasets the session lacks.
@@ -742,6 +755,16 @@ them.
   Save and recall errors, a 409 included, show in the notice line or under the
   rail. The plan split this between an `onSave` prop and
   `renderActions(step, dataset?)`, with no single owner of the dialog.
+- **A save shows that it runs**: `StepActions` posts "Saving <name>…" in the
+  notice line before the request and disables its buttons until the save and any
+  pin finish; the result then replaces the notice. A save is a provider call and
+  one or two scratch kernels per dataset, which can take a minute, and a second
+  click started a second save of the same files.
+- **A view is on a canvas once**: cards are keyed by view name, so `set_canvas`
+  answers 400 for a canvas that repeats a view, and "Pin to canvas" adds a card
+  only for a view the project's canvas lacks, read from the project rather than
+  the list. Pinning a saved view again refreshes its card through `saved_at`. A
+  second pin had added a duplicate card, and Remove then dropped both.
 - **The canvas binds to the active session**: cards query through its kernel,
   and a card whose datasets the session lacks shows "Load", which recalls the
   view as a step. Only the layout lives in `project.json`; a card's state lasts

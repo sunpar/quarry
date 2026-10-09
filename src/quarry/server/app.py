@@ -170,10 +170,12 @@ def create_app(
         session_or_404(session_id)
         return service.restart(session_id)
 
-    # A step or a restart holds the session: new steps, restarts and data reads wait.
+    # A step, a restart or a save holds the session: new steps, restarts and data reads wait.
     @app.exception_handler(SessionBusy)
     async def session_busy(_request: Request, _exc: SessionBusy) -> JSONResponse:
-        return JSONResponse(status_code=409, content={"detail": "a step or restart is running"})
+        return JSONResponse(
+            status_code=409, content={"detail": "the session is busy; try again when it finishes"}
+        )
 
     # A dead kernel, or one that cannot start, on any route that touches it.
     @app.exception_handler(KernelDead)

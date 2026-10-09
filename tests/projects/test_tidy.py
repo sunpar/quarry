@@ -33,3 +33,8 @@ def test_tidy_returns_none_on_failure_or_garbage() -> None:
     assert tidy_recipe(FakeProvider([end("")]), "x = 1", "x") is None
     assert tidy_recipe(FakeProvider([end("def (")]), "x = 1", "x") is None
     assert tidy_recipe(FakeProvider([end("y = 2")]), "x = 1", "x") is None
+
+
+def test_tidy_rejects_a_reply_that_did_not_end() -> None:
+    cut = AssistantTurn(text="prices = pl.DataFrame()", tool_calls=[], stop="max_tokens")
+    assert tidy_recipe(FakeProvider([cut]), "prices = pl.DataFrame()", "prices") is None

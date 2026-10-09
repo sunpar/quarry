@@ -1,12 +1,15 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import type { Step } from "@/shared/api-types";
+import { useApi } from "../api/context";
 import {
   useProjects,
   useSaveDataset,
   useSaveView,
   useSetCanvas,
 } from "../api/hooks";
+import { keys } from "../api/keys";
 import { SaveDialog, type SaveChoice } from "../components/SaveDialog";
 
 interface StepActionsProps {
@@ -25,16 +28,37 @@ export function StepActions({
   dataset,
   onDone,
 }: StepActionsProps) {
+  const api = useApi();
+  const qc = useQueryClient();
   const projects = useProjects();
   const [pending, setPending] = useState<Pending>(null);
   const saveDataset = useSaveDataset();
   const saveView = useSaveView();
   const setCanvas = useSetCanvas();
+  const saving =
+    saveDataset.isPending || saveView.isPending || setCanvas.isPending;
   const onError = (e: Error) => onDone(e.message);
+
+  // The project itself, not the list, holds the canvas this pin extends.
+  const pinCard = async (slug: string, view: string) => {
+    const project = await qc.fetchQuery({
+      queryKey: keys.project(slug),
+      queryFn: () => api.getProject(slug),
+    });
+    const current = project.meta.canvas;
+    // The save already refreshed an existing card through its saved_at.
+    if (current.some((c) => c.view === view)) return;
+    const y = current.reduce((max, c) => Math.max(max, c.y + c.h), 0);
+    setCanvas.mutate(
+      { slug, cards: [...current, { view, x: 0, y, w: 6, h: 8 }] },
+      { onError },
+    );
+  };
 
   const onSave = (choice: SaveChoice) => {
     const { slug } = choice;
     if (pending?.kind === "dataset") {
+      onDone(`Saving ${pending.name}…`);
       saveDataset.mutate(
         {
           slug,
@@ -57,6 +81,7 @@ export function StepActions({
       );
     } else if (pending?.kind === "view") {
       const pin = pending.pin;
+      onDone(`Saving view ${choice.name}…`);
       saveView.mutate(
         {
           slug,
@@ -71,18 +96,7 @@ export function StepActions({
         {
           onSuccess: (meta) => {
             onDone(`Saved view ${meta.name}`);
-            if (pin) {
-              const current =
-                projects.data?.find((p) => p.slug === slug)?.canvas ?? [];
-              const y = current.reduce((max, c) => Math.max(max, c.y + c.h), 0);
-              setCanvas.mutate(
-                {
-                  slug,
-                  cards: [...current, { view: meta.name, x: 0, y, w: 6, h: 8 }],
-                },
-                { onError },
-              );
-            }
+            if (pin) pinCard(slug, meta.name).catch(onError);
           },
           onError,
         },
@@ -98,6 +112,7 @@ export function StepActions({
           variant="ghost"
           size="xs"
           aria-label={`Save dataset ${dataset}`}
+          disabled={saving}
           onClick={() => setPending({ kind: "dataset", name: dataset })}
         >
           Save
@@ -108,6 +123,7 @@ export function StepActions({
           <Button
             variant="ghost"
             size="xs"
+            disabled={saving}
             onClick={() => setPending({ kind: "view", pin: false })}
           >
             Save view
@@ -115,6 +131,7 @@ export function StepActions({
           <Button
             variant="ghost"
             size="xs"
+            disabled={saving}
             onClick={() => setPending({ kind: "view", pin: true })}
           >
             Pin to canvas

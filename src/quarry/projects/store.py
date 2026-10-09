@@ -21,7 +21,7 @@ from quarry.server.models import now_iso
 
 _PRIVATE_DIR = 0o700
 
-NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+NAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")  # use with fullmatch
 
 
 def slugify(name: str) -> str:
@@ -73,6 +73,9 @@ class ProjectStore:
         return Project(meta=meta, datasets=datasets, views=views)
 
     def set_canvas(self, slug: str, cards: builtins.list[CanvasCard]) -> ProjectMeta:
+        views = [c.view for c in cards]
+        if len(set(views)) != len(views):  # a card is keyed by its view
+            raise ValueError("a canvas holds each view once")
         meta = self._read_meta(slug).model_copy(update={"canvas": cards})
         self._write_meta(meta)
         return meta
@@ -83,6 +86,8 @@ class ProjectStore:
         write_atomic(base / "recipe.raw.py", raw)
         write_atomic(base / "recipe.py", recipe)
         write_atomic(base / "meta.json", meta.model_dump_json(by_alias=True, indent=2))
+        if meta.mode == "live":  # a pinned save before this one left its rows
+            (base / "data.parquet").unlink(missing_ok=True)
         self._touch(slug)
 
     def read_recipe(self, slug: str, name: str) -> str:
@@ -94,6 +99,13 @@ class ProjectStore:
     def parquet_path(self, slug: str, name: str) -> Path:
         return self._dataset_dir(slug, name) / "data.parquet"
 
+    def pinned_path(self, slug: str, name: str) -> Path:
+        """Where a pinned save snapshots, in a dataset directory made private first: the
+        kernel's own mkdir would make it at the kernel's umask."""
+        base = self._dataset_dir(slug, name)
+        base.mkdir(mode=_PRIVATE_DIR, parents=True, exist_ok=True)
+        return base / "data.parquet"
+
     def write_view(
         self,
         slug: str,
@@ -103,7 +115,7 @@ class ProjectStore:
         state: dict[str, Json],
         queries: builtins.list[dict[str, Json]],
     ) -> None:
-        if NAME_RE.match(meta.name) is None:
+        if NAME_RE.fullmatch(meta.name) is None:
             raise ValueError(
                 "view names are lowercase letters, digits, '-' and '_', up to 64 chars"
             )

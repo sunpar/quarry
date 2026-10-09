@@ -89,7 +89,10 @@ class ProjectService:
         # KeyError for an unknown session before any kernel starts for it: KernelManager.get
         # spawns a kernel for any id.
         self._sessions.get(req.session_id)
-        # Busy is checked before anything else so a running step answers 409, never 404.
+        # Without its steps the kernel lacks the dataset; `hold` would start an empty one.
+        if self._sessions.status(req.session_id).kernel.replay_needed:
+            raise ValueError("restart the session so its steps replay before saving")
+        # Busy is checked before any kernel call so a running step answers 409, never 404.
         with self._sessions.hold(req.session_id) as kernel:
             steps = self._sessions.get(req.session_id).steps
             lineage = recipe_steps(steps, req.dataset)
@@ -99,7 +102,9 @@ class ProjectService:
             except RpcFailure as exc:
                 raise UnknownDataset(req.dataset) from exc
             if req.mode == "pinned":
-                kernel.snapshot(req.dataset, self._store.parquet_path(slug, req.dataset))
+                path = self._store.pinned_path(slug, req.dataset)
+                kernel.snapshot(req.dataset, path)
+                path.chmod(0o600)  # the kernel writes it at its own umask
         threads = self._config.data.kernel_threads
         tidied = self._tidy(raw, req.dataset)
         candidate = tidied if tidied is not None else raw
@@ -126,7 +131,7 @@ class ProjectService:
         return meta
 
     def save_view(self, slug: str, req: SaveViewRequest) -> SavedViewMeta:
-        if NAME_RE.match(req.name) is None:  # before any dataset save spends a kernel
+        if NAME_RE.fullmatch(req.name) is None:  # before any dataset save spends a kernel
             raise ValueError(
                 "view names are lowercase letters, digits, '-' and '_', up to 64 chars"
             )

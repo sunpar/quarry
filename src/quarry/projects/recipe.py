@@ -32,7 +32,8 @@ def raw_recipe(steps: list[Step]) -> str:
         code = "\n".join(run.code.rstrip("\n") for run in step.runs if run.status == "ok")
         if code == "":
             continue
-        label = (step.prompt or step.kind).replace("\n", " ")
+        # Every line break, `\r` included, would end the comment and run the rest as code.
+        label = " ".join((step.prompt or step.kind).splitlines())
         blocks.append(f"# step {step.index + 1}: {label}\n{code}\n")
     return "\n".join(blocks)
 

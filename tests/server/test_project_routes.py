@@ -60,3 +60,11 @@ def test_save_while_running_is_409(tmp_path: Path) -> None:
     assert client.post("/projects/p/datasets", json=body).status_code == 409
     client.post(f"/sessions/{sid}/interrupt")
     wait_idle(client, sid)
+
+
+def test_canvas_rejects_a_view_twice(tmp_path: Path) -> None:
+    client = make_client(tmp_path, [])
+    client.post("/projects", json={"name": "p"})
+    card = {"view": "table", "x": 0, "y": 0, "w": 6, "h": 8}
+    assert client.put("/projects/p/canvas", json=[card, {**card, "y": 8}]).status_code == 400
+    assert client.get("/projects/p").json()["meta"]["canvas"] == []

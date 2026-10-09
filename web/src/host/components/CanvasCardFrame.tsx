@@ -22,7 +22,13 @@ export function CanvasCardFrame({
     <div className="flex h-full flex-col overflow-hidden rounded-md border border-border bg-card">
       <div className="card-handle flex cursor-move items-center justify-between border-b border-border px-3 py-1.5 text-sm">
         <span className="truncate">{title}</span>
-        <Button variant="ghost" size="xs" onClick={onRemove}>
+        <Button
+          variant="ghost"
+          size="xs"
+          aria-label={`Remove ${title} from canvas`}
+          title={`Remove ${title} from canvas`}
+          onClick={onRemove}
+        >
           Remove
         </Button>
       </div>

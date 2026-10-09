@@ -33,11 +33,11 @@ export function ProjectRail({ sessionId, onOpen }: ProjectRailProps) {
         onOpen={onOpen}
         onRecall={(project, kind, name) => {
           if (sessionId === null) return;
-          if (
-            window.confirm(
-              `Recall ${name} into this session? An existing dataset with that name is replaced.`,
-            )
-          ) {
+          const effect =
+            kind === "dataset"
+              ? "An existing dataset with that name is replaced."
+              : "This loads the view and any of its datasets the session lacks.";
+          if (window.confirm(`Recall ${name} into this session? ${effect}`)) {
             recall.mutate({ project, kind, name });
           }
         }}

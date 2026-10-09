@@ -8,8 +8,9 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Finish Stage 4, projects and the canvas: run the final whole-branch review of
-`claude/quarry-stage4-projects`, then open its pull request. The
+Finish Stage 4, projects and the canvas: the final whole-branch review of
+`claude/quarry-stage4-projects` is done and its fixes are in, so open its pull
+request. The
 [Stage 5 plan](superpowers/plans/2026-10-09-quarry-stage5-breadth.md) and
 [Stage 5 handoff](superpowers/handoffs/2026-10-09-quarry-stage5-handoff.md) are
 written; Stage 5 starts once Stage 4 merges.
@@ -63,23 +64,23 @@ against the built UI. Its calls are under
 [server and agent](context/decisions.md#server-and-agent) and
 [first UI](context/decisions.md#first-ui); the modules are in the
 [code map](context/code-map.md#quarryprojects), and what it left is filed under
-[Stage 5](open-items.md#stage-5). The minor findings from the task reviews are
-filed after the final review.
+[Stage 5](open-items.md#stage-5). The final review's four Important findings and
+eight of its ten Minor ones are fixed; the other two, with the task reviews'
+deferred findings a researcher could hit, are filed there too.
 
 ## Latest verification
 
-`claude/quarry-stage4-projects` on 2026-10-09, at the last plan task: 987 tests
-passed and 3 skipped (the live provider tests and the memory-cap test),
-including the three browser tests under `tests/e2e`, and
-`tests/e2e/test_projects.py` passed three runs in a row; `ruff check`,
+`claude/quarry-stage4-projects` on 2026-10-09, after the final review's fixes:
+993 tests passed and 3 skipped (the live provider tests and the memory-cap
+test), including the three browser tests under `tests/e2e`; `ruff check`,
 `ruff format --check`, `mypy src` and `uv lock --check` were clean; in `web/`,
-`npm run check` (tsc and prettier), `npm test` (88 tests) and `npm run build`
+`npm run check` (tsc and prettier), `npm test` (91 tests) and `npm run build`
 passed.
 
 ## Next actions
 
-1. Run the final whole-branch review of `claude/quarry-stage4-projects` against
-   `main`, land its fixes, and run `/simplify` once on the branch diff.
+1. Run `/simplify` once on the branch diff of `claude/quarry-stage4-projects`
+   against `main`.
 2. Open the pull request to `main`.
 3. Get the Claude and Codex reviews and address them.
 4. Merge.

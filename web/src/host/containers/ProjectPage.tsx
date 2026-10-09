@@ -15,7 +15,9 @@ export function ProjectPage({ slug, sessionId, onBack }: ProjectPageProps) {
   const [tab, setTab] = useState<"saved" | "canvas">("canvas");
   if (project.data === undefined)
     return (
-      <main className="flex-1 p-8 text-sm text-muted-foreground">Loading</main>
+      <main className="flex-1 p-8 text-sm text-muted-foreground">
+        {project.error?.message ?? "Loading"}
+      </main>
     );
   return (
     <main className="flex min-w-0 flex-1 flex-col">
