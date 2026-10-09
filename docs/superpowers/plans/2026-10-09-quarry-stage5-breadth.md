@@ -21,7 +21,7 @@
 - Every query spec that reaches `to_source` with a bad identifier, a non-ASCII-NFKC name, or a malformed value raises `QueryError`, never `ValueError` or `TypeError`.
 - Perspective to query spec is lossy by design: expressions, column sorts, `ends with`, more than one `split_by`, and any aggregate without a `QuerySpec` equivalent are dropped and listed in the view state under `dropped`, so "to code" can say what it left out. Recorded as a decision in Task 9.
 - A generated component is saved under `<root>/components/<id>/` with `origin: "generated"`; an id that any library root already holds is refused with 409. Ids match `^[a-z0-9][a-z0-9-]{0,63}$`.
-- Stage 5 may ship as two pull requests (Tasks 1 to 7 server and kernel; Tasks 8 to 13 runtime, built-ins and host). Each half must leave `main` green.
+- Stage 5 may ship as two pull requests: Tasks 1 to 7 (kernel, server, CLI, plus Task 2's runtime CSP and Perspective proof, which the server half needs to validate its Arrow transport) and Tasks 8 to 13 (the rest of the runtime, built-ins and host). Each half must leave `main` green.
 
 ## Review Focus
 
@@ -236,7 +236,7 @@ git add src tests && git commit -m "feat: cast arrow query results to the types 
 **Interfaces:**
 
 - Produces: `decodeBase64(text: string): ArrayBuffer`; `useQuery` success gains `arrow: ArrayBuffer | null`; `@quarry/perspective` exporting `PerspectiveViewer` (props `{ arrow: ArrayBuffer; config?: ViewerConfigUpdate; onConfig?: (c: ViewerConfigUpdate) => void; className?: string }`), `ensureEngine(): Promise<Client>` and the `ViewerConfigUpdate` type.
-- Consumes: Stage 3 `MODULES`, `RUNTIME_LIBRARIES`, `useQuery`, `RequestCache`; Stage 3 Task 9 static CORS middleware (`STATIC_PREFIXES` already lists `/libs/`); Task 1 stream bytes.
+- Consumes: Stage 3 `MODULES`, `RUNTIME_LIBRARIES`, `useQuery`, `RequestCache`; Stage 3 Task 9 Step 2b static CORS middleware (`STATIC_PREFIXES` lists `/assets/`, `/runtime.html`, `/libs/`); if the Stage 3 branch lacks it, add it here exactly as that step describes, with its test; Task 1 stream bytes.
 
 - [ ] **Step 1: CSP and spec amendment**
 
@@ -327,6 +327,60 @@ In `src/quarry/agent/context.py` `CONTRACT`, the `useQuery` line becomes:
   useQuery(spec): {status:"loading"} | {status:"success", rows, schema, rowCount, truncated, arrow} | {status:"error", message}
     arrow is an ArrayBuffer of Arrow IPC when spec.format is "arrow" (rows is then []), else null.
 ```
+
+- [ ] **Step 3b: Report state once after mount**
+
+The Stage 3 plan's `ViewStateStore` posts `stateChanged` only from `set()`, so a view the researcher never touches (every built-in with sensible defaults) records no snapshot: `step.view.snapshots` stays empty, Stage 4's `save_view` writes `queries: []`, and "To code" (Task 12) has nothing to render. Check the real Stage 3 branch first; if `createRuntime` already flushes after mount, skip this step.
+
+Test, appended to `web/src/runtime/mount.test.tsx` (use that file's `post` spy and fake module table):
+
+```tsx
+it("reports the mount-time state and queries once, unprompted", async () => {
+  vi.useFakeTimers();
+  const { runtime, post } = setup();
+  runtime.handle({
+    type: "mount",
+    viewId: "v1",
+    source: SOURCE_WITH_ONE_QUERY,
+    initialState: { limit: 5 },
+    datasets: ["df"],
+  });
+  await vi.runAllTimersAsync();
+  const reported = post.mock.calls
+    .map(([m]) => m)
+    .filter((m) => m.type === "stateChanged");
+  expect(reported).toHaveLength(1);
+  expect(reported[0]).toMatchObject({ viewId: "v1", state: { limit: 5 } });
+  expect(reported[0].queries).toHaveLength(1);
+  vi.useRealTimers();
+});
+```
+
+`SOURCE_WITH_ONE_QUERY` is a component calling `useQuery({ dataset: "df", limit: 5 })` once; the Stage 3 test file already has one for the query round trip, reuse it.
+
+Implementation: add `flush(): void` to `ViewStateStore`:
+
+```ts
+  /** Report the current state now, with the queries issued so far. */
+  flush(): void {
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.onChange(this.cached);
+  }
+```
+
+and in `createRuntime`'s `mount`, after `render(mounted, cache, component, message.datasets)`:
+
+```ts
+// One report after the first render so an untouched view still records its queries.
+setTimeout(() => {
+  if (mounted?.store === store) store.flush();
+}, 300);
+```
+
+The snapshot route (Stage 3 Task 9) treats a repeated identical state as a new snapshot; one extra entry per mount is acceptable and keeps the route simple. The Stage 4 route test asserting `view["queries"] == []` runs without a browser and stays as it is.
 
 - [ ] **Step 4: Perspective wrapper**
 
@@ -1650,7 +1704,7 @@ git add pyproject.toml uv.lock src tests && git commit -m "feat: export projects
 **Interfaces:**
 
 - Produces: `LibraryStatus(BaseModel){id: Literal["highcharts","scichart"], enabled: bool, reason: str | None, license: str | None, entry: str | None}`; `licensed_libraries(config) -> list[LibraryStatus]`; `mount_licensed(app, config) -> None`; `GET /libraries` → `list[LibraryStatus]`; `enabled_libraries(config, available=None)` adds a licensed id only when its status is enabled.
-- Consumes: `LibrariesConfig` (`config.py`), `STATIC_PREFIXES` and the static CORS middleware (Stage 3 Task 9), `runtime_libraries` (Stage 3 Task 3).
+- Consumes: `LibrariesConfig` (`config.py`), `STATIC_PREFIXES` and the static CORS middleware (Stage 3 Task 9 Step 2b; if absent on the branch, Task 2 added it), `runtime_libraries` (Stage 3 Task 3).
 
 Highcharts ships `highstock.js` (UMD, sets `window.Highcharts`) at its package root; SciChart ships a self-contained ESM bundle `index.min.mjs` and its wasm under `_wasm/`. The runtime (Task 8) loads `/libs/highcharts/highstock.js` as a classic script and `/libs/scichart/index.min.mjs` as a module, and points SciChart's `wasmUrl` at `/libs/scichart/_wasm/scichart.wasm`. The `entry` field tells it which file to load, so the Python side owns the file names.
 
@@ -1663,6 +1717,7 @@ import logging
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 from quarry.agent.context import enabled_libraries
 from quarry.config import LibrariesConfig, QuarryConfig
@@ -1714,7 +1769,8 @@ def test_enabled_library_is_mounted_with_cors_and_listed(tmp_path: Path) -> None
         assert listed["scichart"]["entry"] == "/libs/scichart/index.min.mjs"
         served = client.get("/libs/highcharts/highstock.js")
         assert served.status_code == 200 and served.headers["access-control-allow-origin"] == "*"
-        assert client.get("/libraries", headers={}).status_code == 401
+    bare = TestClient(client.app)  # no Authorization header at all
+    assert bare.get("/libraries").status_code == 401
     assert enabled_libraries(config) == [*enabled_libraries(QuarryConfig(root=tmp_path)), "highcharts", "scichart"]
 
 
@@ -1724,7 +1780,7 @@ def test_unlicensed_library_is_not_mounted(tmp_path: Path) -> None:
         assert all(s["enabled"] is False for s in client.get("/libraries").json())
 ```
 
-`make_client` in `tests/server/test_app.py` already accepts `config=`. The 401 assertion passes `headers={}` to override the client default; if `TestClient` merges rather than replaces headers, build a second `TestClient(app)` without the token instead.
+`make_client` in `tests/server/test_app.py` already accepts `config=`; `TestClient` merges per-call headers with its defaults, so the 401 check uses a second client built on the same app with no token. Import `TestClient` from `fastapi.testclient`.
 
 In `tests/agent/test_context.py`, `test_enabled_libraries` sets only `highcharts_license` and expects `"highcharts"` in the result; change it to also set `highcharts_path` to an existing temp directory (and assert the license-only config excludes it).
 
@@ -3317,6 +3373,7 @@ Every one of these pushes its grouping and aggregation into the query spec, so "
 The four tests share one shape; `bar-line.test.tsx` in full, the others differ only in the mock and the expected spec:
 
 ```tsx
+import type { ReactNode } from "react";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { QueryHookResult } from "@/runtime/hooks";
@@ -3331,15 +3388,11 @@ vi.mock("@quarry/hooks", () => ({
   ],
 }));
 vi.mock("recharts", () => ({
-  ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
+  ResponsiveContainer: ({ children }: { children: ReactNode }) => (
     <div data-testid="chart">{children}</div>
   ),
-  BarChart: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  LineChart: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
+  BarChart: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  LineChart: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   Bar: () => null,
   Line: () => null,
   XAxis: () => null,
@@ -3588,9 +3641,7 @@ export default function Scatter({ datasets }: Props) {
       </pre>
     );
 
-  const num = (col: string) => result.rows.map((r) => Number(r[col]));
-  const colors =
-    color === null ? undefined : result.rows.map((r) => String(r[color]));
+  const traces = tracesFor(result.rows, x, y, color);
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap gap-3 border-b border-border px-3 py-1 text-sm">
@@ -3621,19 +3672,7 @@ export default function Scatter({ datasets }: Props) {
       </div>
       <div className="min-h-0 flex-1">
         <Plot
-          data={[
-            {
-              type: "scattergl",
-              mode: "markers",
-              x: num(x),
-              y: num(y),
-              text: colors,
-              marker: {
-                size: 5,
-                color: colors === undefined ? "#1e6e63" : undefined,
-              },
-            },
-          ]}
+          data={traces}
           layout={{
             autosize: true,
             margin: { t: 16, r: 16, b: 40, l: 48 },
@@ -3651,52 +3690,165 @@ export default function Scatter({ datasets }: Props) {
 }
 ```
 
-plus the same `Select` helper as `bar-line` (copied; built-ins cannot share files at runtime). A categorical `color` becomes one trace per distinct value: build `traces` by grouping rows on `color` when it is set (`Map<string, number[]>` for x and y), each trace `{ type: "scattergl", mode: "markers", name, x, y }`; the test with no color expects one trace.
-
-`src/quarry/components/builtin/heatmap/component.tsx`: the same skeleton with state `{ row, column, value }` and `agg` (default `"mean"`); `row` defaults to the first non-numeric column, `column` to the second non-numeric (or the first numeric with few distinct values is not knowable, so the next column in schema order that is not `row`), `value` to the first numeric. Query:
-
-```ts
-const result = useQuery(
-  ready
-    ? {
-        dataset,
-        pivot: { index: [row], columns: column, values: value, agg },
-        sort: [{ col: row }],
-        limit: 500,
-      }
-    : { dataset, limit: 1 },
-);
-```
-
-The pivoted frame has `row` plus one column per distinct `column` value. Render:
+plus the same `Select` helper as `bar-line` (copied; built-ins cannot share files at runtime) and the trace builder, one trace without a color column and one per distinct value with it:
 
 ```tsx
-const cols = result.schema.map((c) => c.name).filter((n) => n !== row);
-const z = result.rows.map((r) =>
-  cols.map((c) => (r[c] === null ? null : Number(r[c]))),
-);
-<Plot
-  data={[
-    {
-      type: "heatmap",
-      z,
-      x: cols,
-      y: result.rows.map((r) => String(r[row])),
-      colorscale: "Viridis",
-    },
-  ]}
-  layout={{
-    autosize: true,
-    margin: { t: 16, r: 16, b: 60, l: 80 },
-    font: { family: "IBM Plex Sans, sans-serif" },
-  }}
-  useResizeHandler
-  style={{ width: "100%", height: "100%" }}
-  config={{ displaylogo: false }}
-/>;
+import type { Data } from "plotly.js";
+
+function tracesFor(
+  rows: Row[],
+  x: string,
+  y: string,
+  color: string | null,
+): Data[] {
+  const groups = new Map<string, { x: number[]; y: number[] }>();
+  for (const row of rows) {
+    const key = color === null ? "" : String(row[color]);
+    const group = groups.get(key) ?? { x: [], y: [] };
+    group.x.push(Number(row[x]));
+    group.y.push(Number(row[y]));
+    groups.set(key, group);
+  }
+  return [...groups.entries()].map(([name, points]) => ({
+    type: "scattergl",
+    mode: "markers",
+    name,
+    x: points.x,
+    y: points.y,
+    marker: { size: 5, ...(color === null ? { color: "#1e6e63" } : {}) },
+  }));
+}
 ```
 
-`@types/react-plotly.js` types `data` as `Plotly.Data[]`; `z: (number | null)[][]` is accepted by the heatmap trace type. If `tsc` objects to `null`, map nulls to `NaN`.
+(`Row` from `@/shared/api-types`; `Data` is the trace union `@types/plotly.js` exports, which `react-plotly.js` accepts for `data`.)
+
+`src/quarry/components/builtin/heatmap/component.tsx`:
+
+```tsx
+import Plot from "react-plotly.js";
+import { useDatasetSchema, useQuery, useViewState } from "@quarry/hooks";
+import type { Agg } from "@/shared/api-types";
+
+interface Props {
+  datasets: string[];
+}
+
+interface Keys {
+  row: string | null;
+  column: string | null;
+  value: string | null;
+}
+
+const AGGS: Agg["fn"][] = ["mean", "sum", "count", "min", "max", "median"];
+const isNumeric = (dtype: string) => /^(Int|UInt|Float|Decimal)/.test(dtype);
+
+export default function Heatmap({ datasets }: Props) {
+  const dataset = datasets[0] ?? "";
+  const schema = useDatasetSchema(dataset);
+  const names = (schema ?? []).map((c) => c.name);
+  const keys = (schema ?? [])
+    .filter((c) => !isNumeric(c.dtype))
+    .map((c) => c.name);
+  const [agg, setAgg] = useViewState<Agg["fn"]>("agg", "mean");
+  const [chosen, setChosen] = useViewState<Keys>("columns", {
+    row: null,
+    column: null,
+    value: null,
+  });
+  const row = chosen.row ?? keys[0] ?? null;
+  const column =
+    chosen.column ?? names.find((n) => n !== row && keys.includes(n)) ?? null;
+  const value =
+    chosen.value ??
+    (schema ?? []).find((c) => isNumeric(c.dtype))?.name ??
+    null;
+  const ready = row !== null && column !== null && value !== null;
+  const result = useQuery(
+    ready
+      ? {
+          dataset,
+          pivot: { index: [row], columns: column, values: value, agg },
+          sort: [{ col: row }],
+          limit: 500,
+        }
+      : { dataset, limit: 1 },
+  );
+
+  if (schema === null || result.status === "loading")
+    return <p className="p-4 text-sm text-muted-foreground">Loading</p>;
+  if (!ready)
+    return (
+      <p className="p-4 text-sm text-muted-foreground">
+        This dataset needs two key columns and a numeric column.
+      </p>
+    );
+  if (result.status === "error")
+    return (
+      <pre className="p-4 font-mono text-sm text-destructive">
+        {result.message}
+      </pre>
+    );
+
+  // The pivoted frame is the row key plus one column per distinct `column` value.
+  const cols = result.schema.map((c) => c.name).filter((n) => n !== row);
+  const z = result.rows.map((r) =>
+    cols.map((c) => (r[c] === null ? NaN : Number(r[c]))),
+  );
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex flex-wrap gap-3 border-b border-border px-3 py-1 text-sm">
+        <Select
+          label="Row"
+          value={row}
+          options={names}
+          onChange={(v) => setChosen({ ...chosen, row: v })}
+        />
+        <Select
+          label="Column"
+          value={column}
+          options={names}
+          onChange={(v) => setChosen({ ...chosen, column: v })}
+        />
+        <Select
+          label="Value"
+          value={value}
+          options={names.filter((n) => !keys.includes(n))}
+          onChange={(v) => setChosen({ ...chosen, value: v })}
+        />
+        <Select
+          label="Aggregate"
+          value={agg}
+          options={AGGS}
+          onChange={(v) => setAgg(v as Agg["fn"])}
+        />
+      </div>
+      <div className="min-h-0 flex-1">
+        <Plot
+          data={[
+            {
+              type: "heatmap",
+              z,
+              x: cols,
+              y: result.rows.map((r) => String(r[row])),
+              colorscale: "Viridis",
+            },
+          ]}
+          layout={{
+            autosize: true,
+            margin: { t: 16, r: 16, b: 60, l: 80 },
+            font: { family: "IBM Plex Sans, sans-serif" },
+          }}
+          useResizeHandler
+          style={{ width: "100%", height: "100%" }}
+          config={{ displaylogo: false }}
+        />
+      </div>
+    </div>
+  );
+}
+```
+
+plus the `Select` helper. Nulls in the pivot become `NaN`, which Plotly leaves blank. `cols` reads the result schema rather than the rows so an empty result still renders an empty grid.
 
 - [ ] **Step 5: Implement large-series**
 
@@ -3908,11 +4060,9 @@ export async function downloadFile(
 ): Promise<void> {
   const blob = await api.fetchBlob(path);
   const url = URL.createObjectURL(blob);
-  try {
-    save(url, filename);
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  save(url, filename);
+  // Revoking right after click() can cancel the download; the browser needs a moment.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function saveViaAnchor(url: string, filename: string): void {
@@ -3923,7 +4073,7 @@ function saveViaAnchor(url: string, filename: string): void {
 }
 ```
 
-A plain link to `/projects/<slug>/export.ipynb` would not carry the token, so every download goes through `fetchBlob`. `web/src/host/api/download.test.ts` stubs `URL.createObjectURL`/`revokeObjectURL` (jsdom lacks them) and asserts `save` is called with the filename and the URL is revoked afterwards.
+A plain link to `/projects/<slug>/export.ipynb` would not carry the token, so every download goes through `fetchBlob`. `web/src/host/api/download.test.ts` stubs `URL.createObjectURL`/`revokeObjectURL` (jsdom lacks them), uses fake timers, and asserts `save` is called with the filename and the URL is revoked only after the timer runs.
 
 Hooks:
 
@@ -4169,7 +4319,7 @@ In `StepActions` (Stage 4), add state `toCode: { code: string; dropped: string[]
 }
 ```
 
-where `latestQueries = step.view?.snapshots.at(-1)?.queries ?? []` (typed `QuerySpec[]`: `Snapshot.queries` is `JsonObject[]` in Stage 3's types; cast through `unknown` or change the type to `QuerySpec[]`, which the server guarantees) and `dropped` is `latestState["dropped"]` when it is an array of strings (the pivot built-in's key), else `[]`. The "To code" button stays disabled until the view has reported a state, which the Stage 3 runtime does once on mount after its first queries.
+where `latestQueries = step.view?.snapshots.at(-1)?.queries ?? []` (typed `QuerySpec[]`: `Snapshot.queries` is `JsonObject[]` in Stage 3's types; cast through `unknown` or change the type to `QuerySpec[]`, which the server guarantees) and `dropped` is `latestState["dropped"]` when it is an array of strings (the pivot built-in's key), else `[]`. The "To code" button stays disabled until the view has reported a state, which the runtime now does once after mount (Task 2 Step 3b).
 
 Render `<ToCodeDrawer>` under the buttons when `toCode !== null`, with `onRun` submitting `toCode.code` through `useSubmitManual` and closing on success, and `error` from either mutation's `error?.message`. Render `<SaveComponentDialog>` when `savingComponent`, `defaultId` = `` `step-${step.index + 1}-view` ``, `onSave` calling `saveComponent.mutate({ ...choice, source: step.view.source, session_id: sessionId, dataset: step.view.datasets[0] ?? null })` and reporting `onDone(\`Saved ${manifest.id} to your library\`)`or the error detail (409 reads "component 'x' already exists" from the server). The`StepCard` `actions`slot already renders`StepActions`; the drawer appears inside the step, under the view.
 

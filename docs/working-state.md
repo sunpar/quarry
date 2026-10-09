@@ -11,9 +11,10 @@ be true next month belongs in [context/](context/) or
 Build Stage 2, the server and agent loop, on top of the merged Stage 1 core,
 following the
 [Stage 2 plan](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md). The
-[Stage 3 plan](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md) and the
-[Stage 4 plan](superpowers/plans/2026-10-08-quarry-stage4-projects.md) are
-written; Stage 3 waits for Stage 2, Stage 4 for Stage 3.
+[Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md),
+[Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md) and
+[Stage 5](superpowers/plans/2026-10-09-quarry-stage5-breadth.md) plans are
+written; each stage waits for the one before it.
 
 ## Status by stage
 
@@ -23,7 +24,7 @@ written; Stage 3 waits for Stage 2, Stage 4 for Stage 3.
 | 2. Server and agent | In progress, sunpar/quarry#2 open      | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
 | 3. First UI         | Planned, handoff ready, not started    | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
 | 4. Projects         | Planned, handoff ready, not started    | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
-| 5. Breadth          | Not planned yet                        | Spec §15                                                              |
+| 5. Breadth          | Planned, not started                   | [Stage 5](superpowers/plans/2026-10-09-quarry-stage5-breadth.md)      |
 
 ### Stage 1: core
 
@@ -56,6 +57,9 @@ session building Stage 2 owns this subsection.
    which points at the plan and its [deferred items](open-items.md#stage-3).
 5. Stage 4: once sunpar/quarry#2 and sunpar/quarry#4 are merged, start from the
    [Stage 4 handoff](superpowers/handoffs/2026-10-08-quarry-stage4-handoff.md).
+6. Stage 5: once Stage 4 is merged, execute the
+   [Stage 5 plan](superpowers/plans/2026-10-09-quarry-stage5-breadth.md), which
+   closes the Stage 5 and Stage 4 items in [open-items.md](open-items.md).
 
 ## Resuming
 
