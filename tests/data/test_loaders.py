@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from quarry.data.loaders import describe_loaders, load_loaders
+from quarry.data.loaders import describe_failures, describe_loaders, load_loaders
 
 
 def write(tmp_path: Path, body: str) -> Path:
@@ -165,6 +165,8 @@ def test_duplicate_name_keeps_the_first_entry(tmp_path: Path) -> None:
     assert [s.name for s in reg.specs] == ["daily_returns"]
     assert reg.bound().daily_returns(["X"])["ticker"].to_list() == ["X"]
     assert describe_loaders(reg) == "loaders.daily_returns: f() -- d"
+    assert describe_failures(reg).startswith("daily_returns: ")
+    assert "duplicate" in describe_failures(reg)
 
 
 def test_name_that_is_not_an_identifier_is_skipped(tmp_path: Path) -> None:

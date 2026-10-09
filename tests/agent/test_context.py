@@ -37,6 +37,13 @@ def test_build_system_is_deterministic_and_filtered() -> None:
     assert "## plotly" in a and "## ag-grid" in a
     assert "## highcharts" not in a and "## recharts" not in a
     assert "loaders.x" in a and "prices" in a and "year" in a
+    assert "failed to load" not in a
+
+
+def test_build_system_lists_loaders_that_failed() -> None:
+    ctx = SystemContext(loader_failures="daily: ModuleNotFoundError: no module named 'firm'")
+    assert "# Loaders that failed to load" in build_system(ctx)
+    assert "daily: ModuleNotFoundError" in build_system(ctx)
 
 
 def step(i: int, prompt: str, code: str, writes: list[str]) -> Step:

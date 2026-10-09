@@ -25,13 +25,14 @@ class KernelManager:
         self._lock = threading.Lock()
 
     def get(self, session_id: str) -> KernelClient:
+        """The session's kernel, started on first use; KernelDead once it died, until restart."""
         with self._lock:
             client = self._clients.get(session_id)
-            if client is None or not client.is_alive():
-                if client is not None:
-                    client.close()
+            if client is None:
                 client = KernelClient.spawn(self._root)
                 self._clients[session_id] = client
+            elif not client.is_alive():
+                raise KernelDead("kernel died; restart the session to replay its steps")
             return client
 
     def status(self, session_id: str) -> KernelStatus:
@@ -50,10 +51,11 @@ class KernelManager:
             self._running.discard(session_id)
 
     def restart(self, session_id: str, steps: list[Step]) -> ReplayReport:
-        """Replace the kernel and re-run `steps` in index order, stopping at the first failure.
+        """Replace the kernel and re-run each step's runs in index order.
 
-        `replayed` counts the steps that ran ok; indices may have gaps, so it is not an index.
-        A step that kills the kernel fails the replay like any other failing step.
+        A run that failed the first time may fail again, so its partial effects come back; an
+        interrupted run is skipped. Replay stops at the first run that was ok and now is not,
+        or that kills the kernel. `replayed` counts whole steps, not indices, which can gap.
         """
         with self._lock:
             old = self._clients.pop(session_id, None)
@@ -61,15 +63,18 @@ class KernelManager:
                 old.close()
         client = self.get(session_id)
         for replayed, step in enumerate(sorted(steps, key=lambda s: s.index)):
-            try:
-                result = client.execute(step.code)
-            except KernelDead as exc:
-                return ReplayReport(
-                    replayed=replayed, failed_step=step.index, error=f"kernel died: {exc}"
-                )
-            if result.status != "ok":
-                message = result.error.traceback if result.error else result.status
-                return ReplayReport(replayed=replayed, failed_step=step.index, error=message)
+            for run in step.runs:
+                if run.status == "interrupted":
+                    continue
+                try:
+                    result = client.execute(run.code)
+                except KernelDead as exc:
+                    return ReplayReport(
+                        replayed=replayed, failed_step=step.index, error=f"kernel died: {exc}"
+                    )
+                if run.status == "ok" and result.status != "ok":
+                    message = result.error.traceback if result.error else result.status
+                    return ReplayReport(replayed=replayed, failed_step=step.index, error=message)
         return ReplayReport(replayed=len(steps), failed_step=None, error=None)
 
     def close_all(self) -> None:

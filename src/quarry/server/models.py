@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from quarry.agent.tools import PendingView
+from quarry.agent.tools import CodeRun, PendingView
 from quarry.agent.types import Message
 from quarry.kernel.datasets import DatasetMeta
 from quarry.kernel.executor import ExecError
@@ -59,6 +59,8 @@ class Step(BaseModel):
     kind: StepKind
     prompt: str | None
     code: str
+    # Each execution in order; restart replays these, not `code`.
+    runs: list[CodeRun] = Field(default_factory=list)
     status: StepStatus
     error: ExecError | None
     note: str = ""

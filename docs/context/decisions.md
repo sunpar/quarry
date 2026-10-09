@@ -333,27 +333,22 @@ them.
 - **An empty dataset searches by tags**: `search_components` takes `dataset: ""`
   to skip the schema filter. Strict mode made `dataset` required, which left no
   way to search before a dataset existed.
-- **Only written views are transpile-checked**: `render_view` mounts a library
-  component without the check, since library components are files a person wrote
-  rather than model output. Spec §8 is amended. Cost: a broken library component
-  fails only at mount.
 - **`write_view` names its datasets**: it takes `datasets` as `render_view`
   does, so a written view records the datasets it reads. Spec §8 is amended.
 - **A prompt step's code is the blocks that ran**: `Step.code` joins only the
   `run_python` calls that succeeded, read as spec §5's "the final Python that
-  ran". The plan joined every call, so replaying a step in which the model had
-  fixed an error reran the error. Failed attempts stay in the transcript. Cost:
-  a replayed block can depend on a failed block's partial side effects.
-- **Replay skips only failed manual steps**: restart reruns each manual step
-  that ended `ok` and every prompt step with code, whatever its status. A prompt
-  step that ended in error still holds blocks that ran, and skipping it broke
-  the steps after it: a probe's replay stopped at step 1 with
-  `NameError: name 'df' is not defined`. A failed manual step would only stop
-  the replay where the researcher already saw it fail. Spec §6 is amended.
-- **Replay reports instead of raising**: replay stops at the first failing step
-  and returns a `ReplayReport` naming it, and a kernel that dies mid-replay
-  counts as that step failing. `/restart` answers 503 only when the new kernel
-  cannot start.
+  ran". It is for reading; replay uses `runs`.
+- **Replay reruns every execution**: each step keeps `runs`, one
+  `{code, status}` per execution: every `run_python` call of a prompt step, or a
+  manual step's code. Restart reruns them one by one, so a failed run's partial
+  effects come back. `df = ...; 1 / 0` leaves `df` behind for a later repair to
+  use, and replaying only the repair failed with `NameError`. Separate runs also
+  keep a later `from __future__` import valid. A run that failed may fail again,
+  and an interrupted run is skipped. Spec §5 and §6 are amended. Cost: a run
+  that failed before and succeeds now leaves state the session never had.
+- **Replay reports instead of raising**: replay stops at the first run that was
+  `ok` and now is not, or that kills the kernel, and returns a `ReplayReport`
+  naming its step. `/restart` answers 503 only when the new kernel cannot start.
 - **Prompt-step lineage is a fold**: `step_lineage` combines the `ExecResult` of
   each `run_python` call. Reads are names a call read before an earlier call in
   the step wrote them, writes and defines are unions, and each dataset's
@@ -372,12 +367,26 @@ them.
   runs gets 409, and so does a restart while a step runs. Cost: a hung step can
   be escaped only by killing the kernel; see
   [open questions](../open-items.md#open-questions).
+- **The repair rule is checked after each call**: the second failed `run_python`
+  call in a row ends the step at once, even mid-turn, so later calls in the same
+  turn never run. Their tool results are left out of the transcript, which no
+  provider sees again.
 - **HTTP errors**: an invalid query spec is 400 rather than FastAPI's 422,
-  because the route validates the body itself. A kernel that fails to start
-  during `/query`, `/datasets` or `/restart` is 503.
-- **Reads respawn a dead kernel**: `/query`, `/datasets` and `/interrupt` start
-  a kernel when the session has none or it died. Its namespace is empty, as
-  after a server restart, until `/restart` replays the steps.
+  because the route validates the body itself. A dead kernel, or one that fails
+  to start, is 503 from `/query`, `/datasets`, `/interrupt` and `/restart`.
+- **A dead kernel stays dead until restart**: reads answer 503 and new steps
+  fail at once, so `/status` keeps reporting `dead` and the client can offer
+  restart and replay, as spec §13 says. Starting an empty kernel instead had
+  turned the status back to `idle` and made later queries fail on missing
+  datasets. A session with no kernel yet, as after a server restart, starts one
+  on first use.
+- **Component search skips the row count**: `search_components` takes its
+  dataset's schema from `list_datasets`, which never counts rows, since matching
+  needs only the schema. `describe` counts, which runs a lazy plan or scans a
+  relation in full. `describe_dataset` still counts.
+- **Failed loaders are reported**: the server logs each loader that failed to
+  load and lists them in the system prompt, so the agent can say why a
+  configured loader is missing.
 - **Session reads take the service lock**: `get` reads the step files and the
   running step under the lock that saving a step holds. Unlocked reads tore in
   56 of 1000 tries in a probe, and `/status` returned 500 once in 400 polls

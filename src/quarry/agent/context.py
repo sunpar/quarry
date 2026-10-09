@@ -51,6 +51,7 @@ DATA_HELPERS: Final = (
 
 class SystemContext(BaseModel):
     loaders: str = ""
+    loader_failures: str = ""
     layout: list[PartitionLayout] = Field(default_factory=list)
     enabled_libraries: list[str] = Field(default_factory=list)
 
@@ -72,6 +73,8 @@ def build_system(ctx: SystemContext) -> str:
     sections = [CONTRACT, "# Chart and table libraries", _guide_for(ctx.enabled_libraries)]
     if ctx.loaders:
         sections += ["# Registered loaders (call as loaders.<name>)", ctx.loaders]
+    if ctx.loader_failures:
+        sections += ["# Loaders that failed to load (not callable)", ctx.loader_failures]
     if ctx.layout:
         lines = [
             f"- {entry.dataset}: partitioned by {', '.join(entry.keys)}" for entry in ctx.layout

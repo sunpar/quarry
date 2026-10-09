@@ -7,7 +7,7 @@ from typing import Final, Literal
 
 from pydantic import BaseModel
 
-from quarry.agent.tools import TOOL_DEFS, PendingView, ToolExecutor
+from quarry.agent.tools import TOOL_DEFS, CodeRun, PendingView, ToolExecutor
 from quarry.agent.types import Message, Provider, ProviderError, ToolResult
 from quarry.kernel.client import KernelDead
 from quarry.kernel.datasets import DatasetMeta
@@ -24,8 +24,9 @@ class StepOutcome(BaseModel):
     transcript: list[Message]
     error_message: str | None
     view: PendingView | None
-    # Only the run_python blocks that succeeded: replaying this on a fresh kernel must not fail.
+    # The run_python blocks that succeeded, for reading; restart replays `runs`.
     code: str
+    runs: list[CodeRun]
     iterations: int
     exec_results: list[ExecResult]
 
@@ -67,7 +68,6 @@ def run_agent_step(
     max_iterations: int = MAX_ITERATIONS,
 ) -> StepOutcome:
     transcript: list[Message] = [Message(role="user", text=f"{summary}\n\n# Request\n{prompt}")]
-    code_blocks: list[str] = []
     consecutive_failures = 0
     iterations = 0
 
@@ -78,9 +78,10 @@ def run_agent_step(
             transcript=transcript,
             error_message=error,
             view=tools.view,
-            code="\n\n".join(code_blocks),
+            code="\n\n".join(code for code, r in tools.runs if r.status == "ok"),
+            runs=[CodeRun(code=code, status=r.status) for code, r in tools.runs],
             iterations=iterations,
-            exec_results=list(tools.exec_results),
+            exec_results=[r for _, r in tools.runs],
         )
 
     while iterations < max_iterations:
@@ -98,6 +99,7 @@ def run_agent_step(
             return finish("ok", note=turn.text)
 
         results: list[ToolResult] = []
+        halt: tuple[StepStatus, str] | None = None
         for call in turn.tool_calls:
             try:
                 result = tools.run(call)
@@ -106,17 +108,19 @@ def run_agent_step(
             results.append(result)
             if call.name != "run_python":
                 continue
-            code = call.input.get("code")
-            if not result.is_error and isinstance(code, str):
-                code_blocks.append(code)
-            # Needs a fresh ToolExecutor per step and a return on the first interrupted result.
-            if any(r.status == "interrupted" for r in tools.exec_results):
-                transcript.append(Message(role="user", tool_results=results))
-                return finish("interrupted", error="interrupted by researcher")
+            # Needs a fresh ToolExecutor per step and a halt on the first interrupted result.
+            if any(r.status == "interrupted" for _, r in tools.runs):
+                halt = ("interrupted", "interrupted by researcher")
+                break
             consecutive_failures = consecutive_failures + 1 if result.is_error else 0
+            if consecutive_failures >= 2:
+                halt = ("error", _last_traceback(results))
+                break
+        # After a halt this holds results for only part of the turn's calls. That is fine:
+        # transcripts are shown, never sent to a provider again.
         transcript.append(Message(role="user", tool_results=results))
-        if consecutive_failures >= 2:
-            return finish("error", error=_last_traceback(results))
+        if halt is not None:
+            return finish(halt[0], error=halt[1])
     return finish("error", error=f"iteration cap reached ({max_iterations})")
 
 

@@ -161,11 +161,15 @@ def test_kernel_death_then_restart_replays(tmp_path: Path) -> None:
         assert status["kernel"]["status"] == "dead"
         steps = client.get(f"/sessions/{sid}").json()["steps"]
         assert steps[1]["status"] == "error" and "kernel" in steps[1]["error"]["message"].lower()
+        # A dead kernel stays dead: reads fail instead of starting an empty one.
+        assert client.get(f"/sessions/{sid}/datasets").status_code == 503
+        assert client.post(f"/sessions/{sid}/interrupt").status_code == 503
+        assert client.get(f"/sessions/{sid}/status").json()["kernel"]["status"] == "dead"
         report = client.post(f"/sessions/{sid}/restart").json()
-        assert report["failed_step"] is None
-        # only the ok step is replayed; the crashing step is skipped
-        assert report["replayed"] == 1
+        # The crashing step has no runs, since the kernel died before answering.
+        assert report == {"replayed": 2, "failed_step": None, "error": None}
         assert client.get(f"/sessions/{sid}/status").json()["kernel"]["status"] == "idle"
+        assert [d["name"] for d in client.get(f"/sessions/{sid}/datasets").json()] == []
 
 
 def test_restart_while_step_runs_is_409(tmp_path: Path) -> None:
@@ -231,6 +235,22 @@ def test_restart_replays_ok_code_of_a_failed_prompt_step(tmp_path: Path) -> None
         assert [s["status"] for s in steps] == ["error", "ok"] and steps[0]["code"] == load
         report = client.post(f"/sessions/{sid}/restart").json()
         assert report["failed_step"] is None and report["replayed"] == 2
+        assert [d["name"] for d in client.get(f"/sessions/{sid}/datasets").json()] == ["df"]
+
+
+def test_restart_restores_what_failed_blocks_left_behind(tmp_path: Path) -> None:
+    turns = [py("c1", "df = pl.DataFrame({'a': [1]})\n1/0"), py("c2", "n = df.height"), end()]
+    with make_client(tmp_path, turns) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps", json={"prompt": "load"})
+        wait_idle(client, sid)
+        for code in ["m = n + 1\n1/0", "k = m"]:
+            client.post(f"/sessions/{sid}/steps/manual", json={"code": code})
+            wait_idle(client, sid)
+        steps = client.get(f"/sessions/{sid}").json()["steps"]
+        assert [s["status"] for s in steps] == ["ok", "error", "ok"]
+        report = client.post(f"/sessions/{sid}/restart").json()
+        assert report == {"replayed": 3, "failed_step": None, "error": None}
         assert [d["name"] for d in client.get(f"/sessions/{sid}/datasets").json()] == ["df"]
 
 

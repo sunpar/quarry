@@ -78,6 +78,10 @@ def describe_loaders(registry: LoaderRegistry) -> str:
     )
 
 
+def describe_failures(registry: LoaderRegistry) -> str:
+    return "\n".join(f"{f.name}: {f.error}" for f in registry.failures)
+
+
 def _read_entries(path: Path) -> list[object] | LoaderFailure:
     try:
         with path.open("rb") as handle:

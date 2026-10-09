@@ -95,5 +95,8 @@ Terms as Quarry's code and docs use them. Section numbers point into the
 - **Transpile check**: the server-side syntax check `write_view` runs on
   generated TSX, through `transpile-check.mjs` under node when that file exists
   (§8).
-- **Replay**: rerunning a session's step code in order on a new kernel, which
+- **Run**: one execution of code in the kernel, saved on its step as
+  `{code, status}`: each `run_python` call of a prompt step, or a manual step's
+  code.
+- **Replay**: rerunning a session's runs in order on a new kernel, which
   `POST /sessions/{id}/restart` does (§6).

@@ -8,8 +8,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
@@ -134,16 +134,11 @@ def create_app(
             return service.query(session_id, spec)
         except (QueryError, RpcFailure) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except KernelDead as exc:
-            raise HTTPException(status_code=503, detail="kernel is not running") from exc
 
     @api.get("/sessions/{session_id}/datasets")
     def datasets(session_id: str) -> list[DatasetMeta]:
         session_or_404(session_id)
-        try:
-            return service.datasets(session_id)
-        except KernelDead as exc:
-            raise HTTPException(status_code=503, detail="kernel is not running") from exc
+        return service.datasets(session_id)
 
     @api.post("/sessions/{session_id}/restart")
     def restart(session_id: str) -> ReplayReport:
@@ -152,8 +147,11 @@ def create_app(
             return service.restart(session_id)
         except SessionBusy as exc:
             raise HTTPException(status_code=409, detail="a step or replay is running") from exc
-        except KernelDead as exc:
-            raise HTTPException(status_code=503, detail="kernel failed to start") from exc
+
+    # A dead kernel, or one that cannot start, on any route that touches it.
+    @app.exception_handler(KernelDead)
+    async def kernel_dead(_request: Request, exc: KernelDead) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"detail": f"kernel is not running: {exc}"})
 
     app.include_router(api)
     if (static / "index.html").exists():
