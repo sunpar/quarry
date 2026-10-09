@@ -52,6 +52,8 @@ describe("time-series built-in", () => {
         { ts: "2024-01-02T10:00:01.100", px: 2 },
         { ts: "2024-01-02T10:00:01.900", px: 3 },
         { ts: "2024-01-02T10:00:05+00:00", px: 4 },
+        { ts: "2024-01-02T10:00:06+00:00", px: "4.25" },
+        { ts: "2024-01-02T10:00:07+00:00", px: "" },
       ],
     });
     render(<TimeSeries datasets={["px"]} />);
@@ -59,6 +61,7 @@ describe("time-series built-in", () => {
     expect(setData).toHaveBeenLastCalledWith([
       { time: base + 1, value: 3 },
       { time: base + 5, value: 4 },
+      { time: base + 6, value: 4.25 },
     ]);
   });
 });

@@ -65,13 +65,20 @@ export function ViewFrameContainer({
       onError: (message) => setError(message),
     });
     const stop = bridge.listen(window);
+    // The runtime posts `ready` once while loading, which can beat this listener; the
+    // frame's `load` event is the fallback.
+    const onLoad = () => bridge.frameLoaded();
+    frame.addEventListener("load", onLoad);
     setError(null);
     bridge.mount({
       source: view.source,
       initialState: view.initial_state,
       datasets: view.datasets,
     });
-    return stop;
+    return () => {
+      frame.removeEventListener("load", onLoad);
+      stop();
+    };
   }, [api, queryClient, sessionId, step.id, contentHash, ownDatasets]);
 
   if (step.view === null) return null;

@@ -22,9 +22,13 @@ export function useQuery(spec: QuerySpec): QueryHookResult {
   );
   if (state.status === "success") {
     const { result } = state;
+    // Views get JSON rows; the Arrow payload has no consumer in the runtime.
+    if (result.rows === null) {
+      return { status: "error", message: 'views cannot use format "arrow"' };
+    }
     return {
       status: "success",
-      rows: result.rows ?? [],
+      rows: result.rows,
       schema: result.schema,
       rowCount: result.row_count,
       truncated: result.truncated,

@@ -143,15 +143,20 @@ function parseTime(raw: Row[string]): number {
   return Date.parse(naive ? `${raw}Z` : raw);
 }
 
+// Decimal columns are serialised as strings to keep their precision.
+function parseValue(raw: Row[string]): number {
+  if (typeof raw === "number") return raw;
+  return typeof raw === "string" && raw.trim() !== "" ? Number(raw) : NaN;
+}
+
 // Rows arrive sorted by time. Lightweight Charts needs finite, strictly ascending
 // times, so unplottable rows are dropped and rows on the same second keep the last.
 function toPoints(rows: Row[], time: string, value: string): Point[] {
   const points: Point[] = [];
   for (const row of rows) {
-    const v = row[value];
+    const v = parseValue(row[value] ?? null);
     const ms = parseTime(row[time] ?? null);
-    if (typeof v !== "number" || !Number.isFinite(v) || !Number.isFinite(ms))
-      continue;
+    if (!Number.isFinite(v) || !Number.isFinite(ms)) continue;
     const t = Math.floor(ms / 1000) as UTCTimestamp;
     if (points.length > 0 && points[points.length - 1]?.time === t)
       points.pop();

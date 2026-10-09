@@ -45,6 +45,13 @@ export class HostBridge {
     if (this.ready) this.flushMount();
   }
 
+  /** The frame's `load` fired, so its runtime is listening even if `ready` was missed. */
+  frameLoaded(): void {
+    if (this.ready) return;
+    this.ready = true;
+    this.flushMount();
+  }
+
   restore(state: JsonObject): void {
     this.send({ type: "restore", viewId: this.options.viewId, state });
   }

@@ -46,8 +46,14 @@ export async function loadComponent(
   ) => void;
   factory(require, module.exports, module);
   const component = module.exports["default"];
-  if (typeof component !== "function") {
+  if (!isComponent(component)) {
     throw new Error("the view must `export default` a React component");
   }
-  return component as ViewComponent;
+  return component;
+}
+
+// `memo`, `forwardRef` and `lazy` wrap a component in an object tagged with `$$typeof`.
+function isComponent(value: unknown): value is ViewComponent {
+  if (typeof value === "function") return true;
+  return typeof value === "object" && value !== null && "$$typeof" in value;
 }

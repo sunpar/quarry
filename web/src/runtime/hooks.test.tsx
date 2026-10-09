@@ -62,6 +62,29 @@ describe("hooks", () => {
     expect(screen.getByTestId("status").textContent).toBe("success");
   });
 
+  it("useQuery reports an Arrow result as an error", async () => {
+    const { bridge, sent, wrap } = harness();
+    render(wrap(<Probe />));
+    const msg = sent.find((m) => m.type === "query");
+    if (msg?.type !== "query") throw new Error("expected query");
+    await act(async () => {
+      bridge.handle({
+        type: "queryResult",
+        viewId: "v1",
+        id: msg.id,
+        ok: true,
+        result: {
+          schema: [],
+          rows: null,
+          arrow_base64: "QVJST1cx",
+          row_count: 1,
+          truncated: false,
+        },
+      });
+    });
+    expect(screen.getByTestId("status").textContent).toBe("error");
+  });
+
   it("useViewState reads the mounted state and re-queries on change", async () => {
     const { sent, wrap } = harness();
     render(wrap(<Probe />));

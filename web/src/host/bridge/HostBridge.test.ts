@@ -50,6 +50,18 @@ describe("HostBridge", () => {
     });
   });
 
+  it("mounts on the frame's load when ready was missed, once", () => {
+    const { bridge, posted, send } = setup();
+    bridge.mount({ source: "x", initialState: {}, datasets: ["df"] });
+    bridge.frameLoaded();
+    bridge.frameLoaded();
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toMatchObject({ type: "mount", viewId: "v1" });
+    send({ type: "ready" });
+    bridge.frameLoaded();
+    expect(posted).toHaveLength(2);
+  });
+
   it("resends the mount on every ready", () => {
     const { bridge, posted, send } = setup();
     bridge.mount({ source: "x", initialState: {}, datasets: ["df"] });

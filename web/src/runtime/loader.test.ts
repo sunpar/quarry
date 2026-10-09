@@ -23,6 +23,14 @@ describe("loadComponent", () => {
     expect(typeof component).toBe("function");
   });
 
+  it("accepts a memoised or forwarded default export", async () => {
+    const source = `
+      import { memo } from "react";
+      export default memo(function V() { return <div>memo</div>; });`;
+    const component = await loadComponent(source, table);
+    expect(typeof component).toBe("object");
+  });
+
   it("refuses imports outside the allowlist with a clear message", async () => {
     const source = `import axios from "axios"; export default () => null;`;
     await expect(loadComponent(source, table)).rejects.toThrow(
