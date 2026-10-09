@@ -51,6 +51,12 @@ class ExecError(BaseModel):
     message: str
     traceback: str
 
+    @classmethod
+    def from_exception(cls, exc: BaseException) -> ExecError:
+        # format_exception already survives a failing __str__ ("<exception str() failed>").
+        trace = "".join(traceback.format_exception(exc))
+        return cls(type=type(exc).__name__, message=exception_message(exc), traceback=trace)
+
 
 class ExecResult(BaseModel):
     status: Status
@@ -254,7 +260,7 @@ class Executor:
             return "interrupted", None, names, prior
         # SystemExit included: a step calling exit() must not end the kernel.
         except BaseException as exc:
-            return "error", _exec_error(exc), names, prior
+            return "error", ExecError.from_exception(exc), names, prior
         return "ok", None, names, prior
 
     def _describe_write(self, name: str) -> tuple[DatasetMeta, ExecError | None]:
@@ -282,7 +288,7 @@ class Executor:
         except NOT_FAILURES:
             raise
         except BaseException as exc:  # polars panics are BaseException, not Exception
-            error = _exec_error(exc)
+            error = ExecError.from_exception(exc)
             meta = undescribed(name, obj, error=f"{error.type}: {error.message}")
             return meta, error.model_copy(update={"message": f"{name}: {error.message}"})
 
@@ -404,9 +410,3 @@ def _arrow_base64(frame: pl.DataFrame) -> str:
     buffer = io.BytesIO()
     frame.write_ipc(buffer)
     return base64.b64encode(buffer.getvalue()).decode("ascii")
-
-
-def _exec_error(exc: BaseException) -> ExecError:
-    # format_exception already survives a failing __str__ ("<exception str() failed>").
-    trace = "".join(traceback.format_exception(exc))
-    return ExecError(type=type(exc).__name__, message=exception_message(exc), traceback=trace)

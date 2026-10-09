@@ -51,6 +51,19 @@ def test_append_and_reload_steps(tmp_path: Path) -> None:
     assert (tmp_path / "sessions" / meta.id / "steps" / "0001.json").exists()
 
 
+def record_fsyncs(monkeypatch: pytest.MonkeyPatch) -> list[os.stat_result]:
+    """Each file `os.fsync` is given from now on, as `fstat` saw it."""
+    synced: list[os.stat_result] = []
+    fsync = os.fsync
+
+    def recording_fsync(fd: int) -> None:
+        synced.append(os.fstat(fd))
+        fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", recording_fsync)
+    return synced
+
+
 def mode(path: Path) -> int:
     return stat.S_IMODE(path.stat().st_mode)
 
@@ -92,25 +105,17 @@ def test_write_syncs_the_file_before_replace_and_the_directory_after(
     store = SessionStore(tmp_path)
     meta = store.create(title="t", provider=ProviderInfo(name="openai", model="gpt"))
     steps_dir = tmp_path / "sessions" / meta.id / "steps"
-    events: list[str] = []
-    synced: list[os.stat_result] = []
-    fsync = os.fsync
+    synced = record_fsyncs(monkeypatch)
+    replaced_after: list[int] = []  # how many fsyncs came before each replace
     replace = Path.replace
 
-    def recording_fsync(fd: int) -> None:
-        info = os.fstat(fd)
-        events.append("fsync dir" if stat.S_ISDIR(info.st_mode) else "fsync file")
-        synced.append(info)
-        fsync(fd)
-
     def recording_replace(self: Path, target: Path) -> Path:
-        events.append("replace")
+        replaced_after.append(len(synced))
         return replace(self, target)
 
     def no_chmod(*_: object, **__: object) -> None:
         raise AssertionError("the temp file is created private, not narrowed afterwards")
 
-    monkeypatch.setattr(os, "fsync", recording_fsync)
     monkeypatch.setattr(Path, "replace", recording_replace)
     monkeypatch.setattr(os, "chmod", no_chmod)
     monkeypatch.setattr(os, "fchmod", no_chmod)
@@ -118,9 +123,9 @@ def test_write_syncs_the_file_before_replace_and_the_directory_after(
     # (0o666) would show here.
     with umask(0):
         store.append_step(meta.id, step(0))
-    assert events == ["fsync file", "replace", "fsync dir"]
     temp_info, dir_info = synced
-    assert stat.S_IMODE(temp_info.st_mode) == 0o600
+    assert replaced_after == [1]  # the file is synced before the rename, the directory after
+    assert stat.S_ISREG(temp_info.st_mode) and stat.S_IMODE(temp_info.st_mode) == 0o600
     assert os.path.samestat(dir_info, steps_dir.stat())
 
 
@@ -162,3 +167,24 @@ def test_view_from_pending_hashes_source() -> None:
     view = View.from_pending(pending)
     assert len(view.content_hash) == 64
     assert view.initial_state == {"a": 1} and view.datasets == ["df"] and view.snapshots == []
+
+
+def test_steps_come_back_in_index_order_past_four_digits(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path)
+    meta = store.create(title="t", provider=ProviderInfo(name="openai", model="gpt"))
+    for index in (10000, 1001, 9999):
+        store.append_step(meta.id, step(index))
+    # By name, 10000.json sorts before 1001.json.
+    assert [s.index for s in store.get(meta.id).steps] == [1001, 9999, 10000]
+
+
+def test_create_syncs_the_directories_that_gained_an_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    synced = record_fsyncs(monkeypatch)
+    meta = SessionStore(tmp_path).create(
+        title="t", provider=ProviderInfo(name="openai", model="gpt")
+    )
+    # A new directory is durable only once the directory holding its entry is synced.
+    for parent in (tmp_path, tmp_path / "sessions", tmp_path / "sessions" / meta.id):
+        assert any(os.path.samestat(s, parent.stat()) for s in synced), parent

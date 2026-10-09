@@ -23,11 +23,15 @@ class KernelManager:
         self._threads = threads
         self._clients: dict[str, KernelClient] = {}
         self._running: set[str] = set()
+        self._closed = False
         self._lock = threading.Lock()
 
     def get(self, session_id: str) -> KernelClient:
         """The session's kernel, started on first use; KernelDead once it died, until restart."""
         with self._lock:
+            # A step thread can reach here after shutdown closed every kernel.
+            if self._closed:
+                raise KernelDead("the server is shutting down")
             client = self._clients.get(session_id)
             if client is None:
                 client = KernelClient.spawn(self._root, threads=self._threads)
@@ -60,7 +64,8 @@ class KernelManager:
                 client.close()
 
     def restart(self, session_id: str, steps: list[Step]) -> ReplayReport:
-        """Replace the kernel and re-run each step's runs in index order.
+        """Replace the kernel and re-run each step's runs, in the order given (the store's,
+        by index).
 
         A run that failed the first time may fail again, so its partial effects come back; an
         interrupted run is skipped. Replay stops at the first run that was ok and now is not,
@@ -71,7 +76,7 @@ class KernelManager:
             if old is not None:
                 old.close()
         client = self.get(session_id)
-        for replayed, step in enumerate(sorted(steps, key=lambda s: s.index)):
+        for replayed, step in enumerate(steps):
             for run in step.runs:
                 if run.status == "interrupted":
                     continue
@@ -88,6 +93,7 @@ class KernelManager:
 
     def close_all(self) -> None:
         with self._lock:
+            self._closed = True
             for client in self._clients.values():
                 client.close()
             self._clients.clear()

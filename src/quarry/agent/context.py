@@ -121,7 +121,7 @@ def _short_block(s: Step) -> str:
 
 
 def _guide_for(enabled: list[str]) -> str:
-    text = GUIDE_PATH.read_text()
+    text = GUIDE_PATH.read_text(encoding="utf-8")
     sections = [f"## {part.strip()}" for part in text.split("## ")[1:]]
     wanted = {f"## {name}" for name in enabled}
     return "\n\n".join(sec for sec in sections if sec.split("\n", 1)[0] in wanted)

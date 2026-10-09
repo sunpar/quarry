@@ -6,8 +6,8 @@ import builtins
 import logging
 import threading
 import time
-import traceback
 from collections.abc import Callable
+from typing import Final
 
 from pydantic import BaseModel
 
@@ -41,6 +41,8 @@ from quarry.server.models import (
 from quarry.server.store import SessionStore
 
 log = logging.getLogger(__name__)
+# Past this wait, a step still running at shutdown is lost, as in a crash.
+SHUTDOWN_WAIT_SECONDS: Final = 10.0
 
 ProviderFactory = Callable[[QuarryConfig], Provider]
 
@@ -180,7 +182,13 @@ class SessionService:
                 self._restarts.discard(session_id)
 
     def shutdown(self) -> None:
+        """Stop every running step and close the kernels, then give the steps time to save."""
+        with self._lock:
+            for cancel in self._cancels.values():
+                cancel.set()
         self._kernels.close_all()
+        with self._lock:
+            self._released.wait_for(lambda: not self._running, SHUTDOWN_WAIT_SECONDS)
 
     def _begin(
         self, session_id: str, *, kind: StepKind, prompt: str | None, code: str
@@ -253,7 +261,7 @@ class SessionService:
         # The step thread's boundary: anything else would leave the session busy for good.
         except Exception as exc:
             # What ran stays with the step: restart replays it, and its writes name this step.
-            done = _recorded(_failed(step, _crash(exc), started), ran)
+            done = _recorded(_failed(step, ExecError.from_exception(exc), started), ran)
         self._finish(session_id, done)
 
     def _run_manual(self, session_id: str, step: Step, cancel: threading.Event) -> None:
@@ -269,7 +277,7 @@ class SessionService:
             done = _died(step, exc, cancel, started)
         # The step thread's boundary: anything else would leave the session busy for good.
         except Exception as exc:
-            done = _failed(step, _crash(exc), started)
+            done = _failed(step, ExecError.from_exception(exc), started)
         self._finish(session_id, done)
 
     def _finish(self, session_id: str, step: Step) -> None:
@@ -368,11 +376,6 @@ def _died(step: Step, exc: KernelDead, cancel: threading.Event, started: float) 
         return _stopped(step, started)
     error = ExecError(type="KernelDead", message=f"kernel died: {exc}", traceback="")
     return _failed(step, error, started)
-
-
-def _crash(exc: Exception) -> ExecError:
-    trace = "".join(traceback.format_exception(exc))
-    return ExecError(type=type(exc).__name__, message=str(exc), traceback=trace)
 
 
 def _safe_datasets(kernel: KernelClient) -> list[DatasetMeta]:

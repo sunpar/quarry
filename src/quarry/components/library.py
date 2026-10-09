@@ -63,10 +63,10 @@ class ComponentLibrary:
                     continue
                 try:
                     manifest = ComponentManifest.model_validate(
-                        json.loads(manifest_path.read_text())
+                        json.loads(manifest_path.read_bytes())
                     )
-                # JSONDecodeError and pydantic's ValidationError are both ValueErrors.
-                except ValueError as exc:
+                # Unreadable or bad content; JSONDecodeError and ValidationError are ValueErrors.
+                except (OSError, ValueError) as exc:
                     log.warning("skipping component manifest %s: %s", manifest_path, exc)
                     continue
                 seen.setdefault(manifest.id, ComponentEntry(manifest=manifest, source_path=source))
