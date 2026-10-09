@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Final
 
@@ -59,13 +60,25 @@ def estimate_tokens(text: str) -> int:
     return len(text) // 4
 
 
-def enabled_libraries(config: QuarryConfig) -> list[str]:
+def runtime_libraries(static_dir: Path) -> list[str] | None:
+    """Library ids the built runtime bundle can resolve, or None when no build exists."""
+    manifest = static_dir / "runtime-manifest.json"
+    if not manifest.exists():
+        return None
+    data = json.loads(manifest.read_text())
+    return [str(item) for item in data.get("libraries", [])]
+
+
+def enabled_libraries(config: QuarryConfig, available: list[str] | None = None) -> list[str]:
     extra: list[str] = []
     if config.libraries.highcharts_license:
         extra.append("highcharts")
     if config.libraries.scichart_license:
         extra.append("scichart")
-    return [*ALWAYS_ON, *extra]
+    wanted = [*ALWAYS_ON, *extra]
+    if available is None:
+        return wanted
+    return [lib for lib in wanted if lib in available]
 
 
 def build_system(ctx: SystemContext) -> str:

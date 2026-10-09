@@ -13,6 +13,7 @@ from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
+from quarry.agent.context import enabled_libraries, runtime_libraries
 from quarry.agent.transpile import default_transpiler
 from quarry.components.library import ComponentLibrary, builtin_root
 from quarry.config import QuarryConfig
@@ -53,6 +54,7 @@ def create_app(
         provider_factory=provider_factory,
         library=ComponentLibrary(roots),
         transpiler=default_transpiler(static),
+        libraries=enabled_libraries(config, runtime_libraries(static)),
     )
 
     @asynccontextmanager

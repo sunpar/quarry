@@ -6,6 +6,7 @@ from quarry.agent.context import (
     build_system,
     enabled_libraries,
     estimate_tokens,
+    runtime_libraries,
 )
 from quarry.config import QuarryConfig
 from quarry.data.parquet import PartitionLayout
@@ -74,3 +75,18 @@ def test_build_summary_collapses_old_steps_over_budget() -> None:
     text = build_summary(steps, [], budget_tokens=5000, keep_full=8)
     assert "prompt 0" in text and "d0" in text
     assert text.count("x" * 4000) == 8
+
+
+def test_runtime_libraries_reads_manifest(tmp_path: Path) -> None:
+    assert runtime_libraries(tmp_path) is None
+    (tmp_path / "runtime-manifest.json").write_text('{"libraries": ["ag-grid"]}')
+    assert runtime_libraries(tmp_path) == ["ag-grid"]
+
+
+def test_enabled_libraries_gated_by_runtime(tmp_path: Path) -> None:
+    config = QuarryConfig(root=tmp_path)
+    assert enabled_libraries(config, ["ag-grid", "lightweight-charts"]) == [
+        "lightweight-charts",
+        "ag-grid",
+    ]
+    assert enabled_libraries(config, None) == enabled_libraries(config)

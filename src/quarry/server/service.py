@@ -81,6 +81,7 @@ class SessionService:
         provider_factory: ProviderFactory,
         library: ComponentLibrary,
         transpiler: Transpiler,
+        libraries: list[str] | None = None,
     ) -> None:
         self._config = config
         self._store = store
@@ -88,6 +89,7 @@ class SessionService:
         self._provider_factory = provider_factory
         self._library = library
         self._transpiler = transpiler
+        self._libraries = libraries if libraries is not None else enabled_libraries(config)
         # A session in here is busy: its running step, or None while a restart replays.
         self._running: dict[str, Step | None] = {}
         self._last_error: dict[str, str] = {}
@@ -265,7 +267,7 @@ class SessionService:
         return SystemContext(
             loaders=describe_loaders(registry),
             layout=scan_layout(root) if root is not None else [],
-            enabled_libraries=enabled_libraries(self._config),
+            enabled_libraries=self._libraries,
         )
 
 
