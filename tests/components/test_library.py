@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from quarry.components.library import ComponentLibrary, dtype_class
+from quarry.components.library import ComponentLibrary, ComponentManifest, dtype_class, satisfies
 from quarry.kernel.datasets import Column, DatasetMeta
 from tests.fixtures import chmodded, root_ignores_modes
 
@@ -56,6 +56,34 @@ def test_dtype_class() -> None:
     assert dtype_class("Float32") == "numeric"
     assert dtype_class("String") == "string"
     assert dtype_class("Boolean") == "other"
+
+
+@pytest.mark.parametrize(
+    ("requires", "fits"),
+    [
+        ([("numeric", 1), ("numeric", 1)], False),  # two roles, one numeric column
+        ([("datetime", 1), ("any", 3)], False),  # the date column is taken
+        ([("datetime", 1), ("any", 1)], True),
+        ([("numeric", 1), ("string", 1), ("any", 1)], True),
+    ],
+)
+def test_each_role_needs_its_own_columns(requires: list[tuple[str, int]], fits: bool) -> None:
+    manifest = ComponentManifest.model_validate(
+        {
+            "id": "c",
+            "name": "c",
+            "description": "",
+            "schema": {
+                "requires": [
+                    {"role": f"r{i}", "dtype": d, "min": n} for i, (d, n) in enumerate(requires)
+                ]
+            },
+            "origin": "builtin",
+            "created_at": "",
+        }
+    )
+    dataset = meta([("date", "Date"), ("px", "Float64"), ("ticker", "String")])
+    assert satisfies(manifest, dataset) is fits
 
 
 def test_entries_and_first_root_wins(tmp_path: Path) -> None:
@@ -115,7 +143,12 @@ def test_unreadable_manifest_is_skipped(tmp_path: Path, caplog: pytest.LogCaptur
 
 @pytest.mark.parametrize(
     "override",
-    [{"contract_version": 2}, {"contract_verison": 2}, {"schema": {"require": []}}],
+    [
+        {"contract_version": 2},
+        {"contract_verison": 2},
+        {"schema": {"require": []}},
+        {"schema": {"requires": [{"role": "y", "dtype": "numeric", "min": 0}]}},
+    ],
 )
 def test_manifest_quarry_cannot_mount_is_skipped(
     tmp_path: Path, caplog: pytest.LogCaptureFixture, override: dict[str, object]

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import Counter
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 from quarry.kernel.datasets import DatasetMeta
 
@@ -24,7 +25,7 @@ class _Manifest(BaseModel):
 class SchemaRequirement(_Manifest):
     role: str
     dtype: Literal["datetime", "numeric", "string", "any"]
-    min: int = 1
+    min: PositiveInt = 1
 
 
 class ComponentSchema(_Manifest):
@@ -90,14 +91,15 @@ class ComponentLibrary:
 
 
 def satisfies(manifest: ComponentManifest, dataset: DatasetMeta) -> bool:
-    counts: dict[str, int] = {"datetime": 0, "numeric": 0, "string": 0, "other": 0}
-    for col in dataset.schema_:
-        counts[dtype_class(col.dtype)] += 1
+    """Each role needs columns of its own: typed roles take their dtype's, and `any` roles
+    take what is left."""
+    counts: Counter[str] = Counter(dtype_class(col.dtype) for col in dataset.schema_)
+    needed: Counter[str] = Counter()
     for req in manifest.schema_.requires:
-        available = len(dataset.schema_) if req.dtype == "any" else counts[req.dtype]
-        if available < req.min:
-            return False
-    return True
+        needed[req.dtype] += req.min
+    if any(counts[dtype] < n for dtype, n in needed.items() if dtype != "any"):
+        return False
+    return len(dataset.schema_) >= needed.total()
 
 
 def dtype_class(dtype: str) -> DtypeClass:
