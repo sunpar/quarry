@@ -22,7 +22,7 @@ written and waits for Stage 3.
 | 1. Core             | Merged in sunpar/quarry#1 as `d00b5fa`               | [Stage 1](superpowers/plans/2026-10-08-quarry-stage1-core.md)         |
 | 2. Server and agent | Implemented, sunpar/quarry#2 open                    | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
 | 3. First UI         | Implemented, pull request open on the Stage 2 branch | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
-| 4. Projects         | Planned, not started                                 | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
+| 4. Projects         | Planned, handoff ready, not started                  | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
 | 5. Breadth          | Not planned yet                                      | Spec §15                                                              |
 
 ### Stage 1: core
@@ -69,10 +69,11 @@ prettier), `npm test` (56 tests) and `npm run build` passed; the wheel from
 3. Run the live provider tests with a key:
    `QUARRY_ANTHROPIC_API_KEY=... uv run pytest tests/agent/test_live_providers.py -v`,
    then open the UI with a real key and try a prompt.
-4. Stage 4 (projects and canvas): write its plan from the spec and the real
-   Stage 3 code. It picks up the snapshot scrubber (`HostBridge.restore` and
-   `ViewStateStore.replace` are ready), linked `shared:` keys, save view, and
-   the [Stage 4 items](open-items.md#stage-4).
+4. Stage 4: once sunpar/quarry#2 and sunpar/quarry#4 are merged, start from the
+   [Stage 4 handoff](superpowers/handoffs/2026-10-08-quarry-stage4-handoff.md).
+   Its plan was written against the Stage 3 plan, so re-check it against the
+   real `HostBridge`, hooks and snapshot route; `HostBridge.restore` and
+   `ViewStateStore.replace` are ready for the scrubber.
 
 ## Resuming
 

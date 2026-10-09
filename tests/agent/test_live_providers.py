@@ -1,4 +1,5 @@
 import os
+import threading
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,7 @@ def _run(provider: Provider, tmp_path: Path) -> None:
             summary="",
             provider=provider,
             tools=tools,
+            cancel=threading.Event(),
         )
         assert out.status == "ok", out.error_message
         assert any(m.name == "demo" for m in kernel.list_datasets())
