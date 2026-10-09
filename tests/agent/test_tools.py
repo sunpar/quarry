@@ -51,12 +51,13 @@ def test_run_python_success_and_failure(kernel: KernelClient, tmp_path: Path) ->
     assert ok.is_error is False
     body = json.loads(ok.content)
     assert body["writes"] == ["df"]
-    assert ex.last_python_failed is False
     bad = ex.run(ToolCall(id="2", name="run_python", input={"code": "1/0"}))
     assert bad.is_error is True
     assert "ZeroDivisionError" in bad.content
-    assert ex.last_python_failed is True
-    assert [r.status for r in ex.exec_results] == ["ok", "error"]
+    assert [(code, r.status) for code, r in ex.runs] == [
+        ("df = pl.DataFrame({'a': [1]})", "ok"),
+        ("1/0", "error"),
+    ]
 
 
 def test_describe_dataset(kernel: KernelClient, tmp_path: Path) -> None:
@@ -181,3 +182,29 @@ def test_broken_manifests_do_not_break_render_or_search(
     )
     assert rendered.is_error is False
     assert ex.view is not None and ex.view.component_id == "table"
+
+
+class Rejecting:
+    def check(self, source: str) -> str | None:
+        return f"cannot parse {len(source)} characters"
+
+
+def test_render_view_checks_the_component_source(kernel: KernelClient, tmp_path: Path) -> None:
+    ex = executor(kernel, tmp_path, Rejecting())
+    ex.run(ToolCall(id="1", name="run_python", input=MAKE_DF))
+    out = ex.run(
+        ToolCall(
+            id="2",
+            name="render_view",
+            input={"component_id": "table", "datasets": ["df"], "initial_state": "{}"},
+        )
+    )
+    assert out.is_error is True and "transpile error" in out.content
+    assert ex.view is None
+
+
+def test_search_for_an_unknown_dataset_is_an_error(kernel: KernelClient, tmp_path: Path) -> None:
+    out = executor(kernel, tmp_path).run(
+        ToolCall(id="1", name="search_components", input={"dataset": "zz", "tags": []})
+    )
+    assert out.is_error is True and "zz" in out.content

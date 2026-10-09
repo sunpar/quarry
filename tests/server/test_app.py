@@ -13,7 +13,7 @@ from starlette.routing import BaseRoute
 
 from quarry.agent.fake import FakeProvider
 from quarry.agent.types import AssistantTurn, Provider, ToolCall
-from quarry.config import ConfigError, QuarryConfig
+from quarry.config import ConfigError, DataConfig, QuarryConfig
 from quarry.server import service as service_module
 from quarry.server.app import create_app
 from quarry.server.models import Step
@@ -39,8 +39,9 @@ def make_client(
     turns: list[AssistantTurn],
     *,
     provider_factory: ProviderFactory | None = None,
+    config: QuarryConfig | None = None,
 ) -> TestClient:
-    config = QuarryConfig(root=tmp_path)
+    config = config or QuarryConfig(root=tmp_path)
     factory = provider_factory or (lambda _cfg: FakeProvider(turns))
     app = create_app(config=config, token=TOKEN, provider_factory=factory)
     client = TestClient(app)
@@ -143,6 +144,17 @@ def test_manual_step_and_bad_query(tmp_path: Path) -> None:
         assert client.post(f"/sessions/{sid}/query", json={"dataset": "nope"}).status_code == 400
 
 
+def test_kernel_threads_config_caps_polars_in_session_kernels(tmp_path: Path) -> None:
+    config = QuarryConfig(root=tmp_path, data=DataConfig(kernel_threads=2))
+    with make_client(tmp_path, [], config=config) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        manual = {"code": "print(pl.thread_pool_size())"}
+        assert client.post(f"/sessions/{sid}/steps/manual", json=manual).status_code == 202
+        wait_idle(client, sid)
+        step = client.get(f"/sessions/{sid}").json()["steps"][0]
+        assert step["stdout_tail"].strip() == "2"
+
+
 def test_query_spec_validation_is_400(tmp_path: Path) -> None:
     with make_client(tmp_path, []) as client:
         sid = client.post("/sessions", json={}).json()["id"]
@@ -161,21 +173,25 @@ def test_kernel_death_then_restart_replays(tmp_path: Path) -> None:
         assert status["kernel"]["status"] == "dead"
         steps = client.get(f"/sessions/{sid}").json()["steps"]
         assert steps[1]["status"] == "error" and "kernel" in steps[1]["error"]["message"].lower()
+        # A dead kernel stays dead: reads fail instead of starting an empty one.
+        assert client.get(f"/sessions/{sid}/datasets").status_code == 503
+        assert client.post(f"/sessions/{sid}/interrupt").status_code == 503
+        assert client.get(f"/sessions/{sid}/status").json()["kernel"]["status"] == "dead"
         report = client.post(f"/sessions/{sid}/restart").json()
-        assert report["failed_step"] is None
-        # only the ok step is replayed; the crashing step is skipped
-        assert report["replayed"] == 1
+        # The crashing step has no runs, since the kernel died before answering.
+        assert report == {"replayed": 2, "failed_step": None, "error": None}
         assert client.get(f"/sessions/{sid}/status").json()["kernel"]["status"] == "idle"
+        assert [d["name"] for d in client.get(f"/sessions/{sid}/datasets").json()] == []
 
 
-def test_respawn_after_death_reports_replay_needed(tmp_path: Path) -> None:
+def test_server_restart_reports_replay_needed(tmp_path: Path) -> None:
     with make_client(tmp_path, []) as client:
         sid = client.post("/sessions", json={}).json()["id"]
         client.post(f"/sessions/{sid}/steps/manual", json={"code": "a = 1"})
         assert wait_idle(client, sid)["kernel"]["replay_needed"] is False
-        client.post(f"/sessions/{sid}/steps/manual", json={"code": "import os\nos._exit(2)\n"})
-        assert wait_idle(client, sid)["kernel"]["status"] == "dead"
-        assert client.get(f"/sessions/{sid}/datasets").status_code == 200
+    # A new server over the same root starts an empty kernel for a session with steps.
+    with make_client(tmp_path, []) as client:
+        assert client.get(f"/sessions/{sid}/datasets").json() == []
         kernel = client.get(f"/sessions/{sid}/status").json()["kernel"]
         assert kernel["status"] == "idle" and kernel["replay_needed"] is True
         assert client.post(f"/sessions/{sid}/restart").json()["replayed"] == 1
@@ -245,6 +261,22 @@ def test_restart_replays_ok_code_of_a_failed_prompt_step(tmp_path: Path) -> None
         assert [s["status"] for s in steps] == ["error", "ok"] and steps[0]["code"] == load
         report = client.post(f"/sessions/{sid}/restart").json()
         assert report["failed_step"] is None and report["replayed"] == 2
+        assert [d["name"] for d in client.get(f"/sessions/{sid}/datasets").json()] == ["df"]
+
+
+def test_restart_restores_what_failed_blocks_left_behind(tmp_path: Path) -> None:
+    turns = [py("c1", "df = pl.DataFrame({'a': [1]})\n1/0"), py("c2", "n = df.height"), end()]
+    with make_client(tmp_path, turns) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps", json={"prompt": "load"})
+        wait_idle(client, sid)
+        for code in ["m = n + 1\n1/0", "k = m"]:
+            client.post(f"/sessions/{sid}/steps/manual", json={"code": code})
+            wait_idle(client, sid)
+        steps = client.get(f"/sessions/{sid}").json()["steps"]
+        assert [s["status"] for s in steps] == ["ok", "error", "ok"]
+        report = client.post(f"/sessions/{sid}/restart").json()
+        assert report == {"replayed": 3, "failed_step": None, "error": None}
         assert [d["name"] for d in client.get(f"/sessions/{sid}/datasets").json()] == ["df"]
 
 

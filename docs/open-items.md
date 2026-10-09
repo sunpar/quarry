@@ -97,10 +97,8 @@ has made yet. Decisions already made are in
 - **Interrupt cannot stop a model call**: `/interrupt` reaches only the kernel,
   so while a step waits on the provider it answers `ok: false` and the loop goes
   on. Silent.
-- **`/interrupt` can return 500**: it starts a kernel when none runs, and a
-  failed start there is not mapped to 503. Fails loudly.
-- **A crashed prompt step loses its code**: an exception other than
-  `ProviderError` or `KernelDead` fails the step with empty `code`, so restart
+- **A crashed prompt step loses its runs**: an exception other than
+  `ProviderError` or `KernelDead` fails the step with no `runs`, so restart
   skips blocks that ran. Silent until a restart.
 - **A kernel never started reads as `starting`**: after a server restart,
   `/status` reports `starting` for a session whose kernel was never spawned, so
@@ -114,12 +112,9 @@ has made yet. Decisions already made are in
   traceback in `error.message` and leaves `traceback` empty, while manual steps
   fill `traceback`. Silent.
 - **No transpile check runs yet**: spec §8 promises a Sucrase check, but
-  `transpile-check.mjs` ships with the Stage 3 frontend, so `write_view` accepts
-  any source until then. `CommandTranspiler` then runs it with no timeout, so a
-  hung check would hang the step. Silent.
-- **The repair rule counts whole turns**: after two failed `run_python` calls in
-  one turn of parallel calls, that turn's later calls still run, because the
-  step ends only after the turn. Silent.
+  `transpile-check.mjs` ships with the Stage 3 frontend, so `render_view` and
+  `write_view` accept any source until then. `CommandTranspiler` then runs it
+  with no timeout, so a hung check would hang the step. Silent.
 - **Session files are neither durable nor private**: atomic writes skip `fsync`,
   so a machine crash can lose a finished step. The root and session directories
   take the umask, so other users can usually read prompts and code. Silent.
@@ -134,8 +129,6 @@ has made yet. Decisions already made are in
   recomputing previews and the uninterruptible RPCs stay fast.
 - Stamp `DatasetMeta.origin_step` in the server and pass the kernel a
   `--session` argument, since the kernel has no step ids.
-- Show loader failures in the agent's context: the server lists only the loaders
-  that bound.
 - Keep an unreadable path from stopping the server: catch `PermissionError` in
   `scan_layout` and in `load_loaders`, which is meant never to raise. Make
   `scan_layout` list unpartitioned dataset directories too.
@@ -164,8 +157,7 @@ has made yet. Decisions already made are in
   keys now fail startup.
 - Settle the open questions on the root override, memory limits, CPU thread
   caps, previews and result streams.
-- Save the blocks that ran when a prompt step crashes, so restart replays them.
-- Map a failed kernel start in `/interrupt` to 503.
+- Save the runs of a prompt step that crashes, so restart replays them.
 - Create the root and session directories private, and `fsync` step files.
 
 ### Stage 4

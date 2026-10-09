@@ -157,6 +157,7 @@ Step {
   kind: "prompt" | "manual" | "load" | "recall",
   prompt: string | null,     // the researcher's text for prompt steps
   code: string,              // the final Python that ran
+  runs: { code, status }[],  // each execution in order, for replay
   status: "running" | "ok" | "error" | "interrupted",
   error: { type, message, traceback } | null,
   stdout_tail, stderr_tail,  // last 4 KB each
@@ -300,9 +301,11 @@ path as arguments. It imports polars and duckdb, builds the data layer
 | `shutdown()`           | Clean exit.                                                                                                                                                                       |
 
 The server treats a broken socket as a dead kernel. Recovery is restart and
-replay: a new kernel, then every step's code re-executed in order, skipping
-manual steps that failed. Replay runs as a single "restart" operation with
-progress in the UI, and stops at the first failing step.
+replay: a new kernel, then every step's runs re-executed in order, one at a
+time. A run that failed the first time may fail again, so its partial effects
+come back; interrupted runs are skipped. Replay runs as a single "restart"
+operation with progress in the UI, and stops at the first run that succeeded
+before and fails now.
 
 ### Lineage capture
 
@@ -411,8 +414,8 @@ backoff, then fail the step with the provider's message.
 Tool schemas are strict, so every input is required and `initial_state` is a
 JSON object encoded as a string.
 
-`write_view` runs a server-side transpile check with Sucrase before
-accepting, so syntax errors come back without a browser round trip.
+`render_view` and `write_view` run a server-side transpile check with Sucrase
+before accepting, so syntax errors come back without a browser round trip.
 Mount errors from the browser are not available synchronously (the agent loop
 is finished before the browser mounts), so the first mount is optimistic. If
 the browser reports a mount error, the host offers "fix this" which starts a

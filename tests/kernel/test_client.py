@@ -1,5 +1,8 @@
+import errno
+import json
 import math
 import os
+import signal
 import socket
 import stat
 import subprocess
@@ -9,14 +12,17 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 import pytest
 from pydantic import ValidationError
 
+import quarry.kernel.client as client_module
 from quarry.config import ENV_API_KEY, ENV_MSSQL_DSN
 from quarry.kernel.client import KernelClient, KernelDead, RpcFailure, _accept
 from quarry.kernel.executor import ExecResult
+from quarry.kernel.protocol import Response, encode, read_lines
 from quarry.query import Filter, QuerySpec
 from tests.kernel.fixtures import BUSY_LOOP, HEAVY
 
@@ -357,6 +363,24 @@ def test_spawn_reports_a_kernel_that_exits_before_connecting(tmp_path: Path) -> 
     assert time.monotonic() - started < 10
 
 
+def test_spawn_does_not_kill_again_a_kernel_that_exited_before_connecting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "config.toml").write_text('[data]\nrow_cap = "lots"\n')
+    signalled: list[int] = []
+    killpg = os.killpg
+
+    def record(pgid: int, sig: int) -> None:
+        signalled.append(pgid)
+        killpg(pgid, sig)
+
+    monkeypatch.setattr(os, "killpg", record)
+    with pytest.raises(KernelDead, match="before connecting"):
+        KernelClient.spawn(tmp_path)
+    # `_accept` killed its group when it reaped it; once reaped the pid can belong to another.
+    assert len(signalled) == 1
+
+
 def test_undecodable_response_marks_kernel_dead(stand_in: StandIn) -> None:
     client, peer = stand_in(60)  # outlives the test, so only the garbage can end the call
 
@@ -376,3 +400,149 @@ def test_call_fails_when_kernel_exits_with_its_socket_still_open(stand_in: Stand
     with pytest.raises(KernelDead, match="exited"):
         client.list_datasets()
     assert time.monotonic() - started < 5
+
+
+def test_spawn_interrupted_after_the_kernel_started_kills_and_reaps_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started: list[tuple[subprocess.Popen[bytes], str]] = []
+
+    def interrupted(
+        listener: socket.socket, process: subprocess.Popen[bytes], timeout: float
+    ) -> socket.socket:
+        started.append((process, listener.getsockname()))
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(client_module, "_accept", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        KernelClient.spawn(tmp_path)
+    [(process, socket_path)] = started
+    assert process.returncode == -signal.SIGKILL  # killed, and reaped by spawn
+    assert not Path(socket_path).parent.exists()
+
+
+def test_close_releases_the_socket_and_directory_when_the_kernel_will_not_exit(
+    stand_in: StandIn, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    client, _ = stand_in(60)
+    tmpdir = Path(client._tmpdir.name)
+
+    def never_exits(timeout: float | None = None) -> int:
+        raise subprocess.TimeoutExpired("kernel", timeout or 0)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(client._process, "wait", never_exits)
+        client.close()  # does not raise: a kernel SIGKILL cannot end is left to the OS
+    assert f"kernel {client.pid} outlived SIGKILL" in capsys.readouterr().err
+    assert client._conn.fileno() == -1
+    assert not tmpdir.exists()
+
+
+def test_spawn_reports_a_socket_path_too_long_to_bind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    long_dir = tmp_path / ("d" * 150)  # past the 104 (macOS) or 108 (Linux) bytes of sun_path
+    long_dir.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(long_dir))
+    with pytest.raises(KernelDead, match="path too long") as info:
+        KernelClient.spawn(tmp_path)
+    assert isinstance(info.value.__cause__, OSError)
+    assert list(long_dir.iterdir()) == []  # the temp directory is gone
+
+
+def test_spawn_reports_a_kernel_that_cannot_be_started(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "no-such-python"))
+    # Its own temp root, short enough for the socket path, to see what `spawn` leaves in it.
+    with tempfile.TemporaryDirectory(prefix="q-") as scratch:
+        monkeypatch.setattr(tempfile, "tempdir", scratch)
+        with pytest.raises(KernelDead, match="cannot start the kernel") as info:
+            KernelClient.spawn(tmp_path)
+        assert isinstance(info.value.__cause__, FileNotFoundError)
+        assert list(Path(scratch).iterdir()) == []  # the temp directory is gone
+
+
+def test_spawn_reports_a_temp_directory_it_cannot_make(monkeypatch: pytest.MonkeyPatch) -> None:
+    def full_disk(*args: object, **kwargs: object) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(tempfile, "TemporaryDirectory", full_disk)
+    with pytest.raises(KernelDead, match="cannot start the kernel") as info:
+        KernelClient.spawn(Path("."))
+    assert isinstance(info.value.__cause__, OSError)
+
+
+def test_spawn_that_fails_building_the_client_leaves_no_kernel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started: list[tuple[subprocess.Popen[bytes], socket.socket, str]] = []
+    real_accept = _accept
+
+    def recording_accept(
+        listener: socket.socket, process: subprocess.Popen[bytes], timeout: float
+    ) -> socket.socket:
+        conn = real_accept(listener, process, timeout)
+        started.append((process, conn, listener.getsockname()))
+        return conn
+
+    def no_thread(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(client_module, "_accept", recording_accept)
+    monkeypatch.setattr(KernelClient, "__init__", no_thread)
+    with pytest.raises(RuntimeError, match="new thread"):
+        KernelClient.spawn(tmp_path)
+    [(process, conn, socket_path)] = started
+    assert process.returncode == -signal.SIGKILL
+    assert conn.fileno() == -1
+    assert not Path(socket_path).parent.exists()
+
+
+def test_close_does_not_raise_when_the_temp_directory_will_not_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = KernelClient.spawn(tmp_path)
+    tmpdir = Path(client._tmpdir.name)
+    rmdir = os.rmdir
+
+    def still_written_to(path: str, **kwargs: Any) -> None:
+        # What a process the kernel started in its own session, which the group kill misses,
+        # causes by adding a file while the directory is removed.
+        if path == str(tmpdir):
+            raise OSError(errno.ENOTEMPTY, "Directory not empty")
+        rmdir(path, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "rmdir", still_written_to)
+        client.close()
+    tmpdir.rmdir()  # what the failed removal left behind
+
+
+def answer_next_request_with(peer: socket.socket, result: object) -> None:
+    """Reply to the next request on `peer` with a well-formed response carrying `result`."""
+    request = json.loads(next(read_lines(peer)))
+    peer.sendall(encode(Response(id=request["id"], result=result)))
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda c: c.execute("x = 1"),
+        lambda c: c.interrupt(),
+        lambda c: c.describe("df"),
+        lambda c: c.list_datasets(),
+        lambda c: c.query(QuerySpec(dataset="df")),
+        lambda c: c.snapshot("df", Path("df.parquet")),
+    ],
+    ids=["execute", "interrupt", "describe", "list_datasets", "query", "snapshot"],
+)
+def test_result_that_does_not_validate_is_an_rpc_failure(
+    stand_in: StandIn, call: Callable[[KernelClient], object]
+) -> None:
+    client, peer = stand_in(60)
+    threading.Thread(target=answer_next_request_with, args=(peer, {"not": "a result"})).start()
+    with pytest.raises(RpcFailure) as info:
+        call(client)
+    assert info.value.type == "InvalidResult"
+    assert client.is_alive()  # the envelope was fine: only that answer was wrong

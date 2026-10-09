@@ -40,6 +40,24 @@ def test_build_system_is_deterministic_and_filtered() -> None:
     assert "loaders.x" in a and "prices" in a and "year" in a
     assert "datasets: string[]" in a
     assert "@/components/ui/textarea" in a
+    assert "failed to load" not in a
+
+
+def test_build_system_renders_partitioned_and_unpartitioned_datasets() -> None:
+    ctx = SystemContext(
+        layout=[
+            PartitionLayout(dataset="prices", keys=["year", "month"]),
+            PartitionLayout(dataset="flat", keys=[]),
+        ]
+    )
+    system = build_system(ctx)
+    assert "- prices: partitioned by year, month\n- flat: not partitioned\n" in system
+
+
+def test_build_system_lists_loaders_that_failed() -> None:
+    ctx = SystemContext(loader_failures="daily: ModuleNotFoundError: no module named 'firm'")
+    assert "# Loaders that failed to load" in build_system(ctx)
+    assert "daily: ModuleNotFoundError" in build_system(ctx)
 
 
 def step(i: int, prompt: str, code: str, writes: list[str]) -> Step:

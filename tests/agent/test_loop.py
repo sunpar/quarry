@@ -80,12 +80,25 @@ def test_one_error_then_success_is_ok(kernel: KernelClient, tmp_path: Path) -> N
     assert run(provider, kernel, tmp_path).status == "ok"
 
 
-def test_code_replays_only_blocks_that_succeeded(kernel: KernelClient, tmp_path: Path) -> None:
+def test_code_shows_ok_blocks_and_runs_keep_every_block(
+    kernel: KernelClient, tmp_path: Path
+) -> None:
     provider = FakeProvider([py("c1", "1/0"), py("c2", "x = 1"), end()])
     out = run(provider, kernel, tmp_path)
     assert out.status == "ok"
     assert out.code == "x = 1"
-    assert [r.status for r in out.exec_results] == ["error", "ok"]
+    assert [(r.code, r.status) for r in out.runs] == [("1/0", "error"), ("x = 1", "ok")]
+
+
+def test_second_failure_stops_the_rest_of_the_turn(kernel: KernelClient, tmp_path: Path) -> None:
+    calls = [
+        ToolCall(id=f"c{i}", name="run_python", input={"code": code})
+        for i, code in enumerate(["1/0", "1/0", "x = 1"])
+    ]
+    provider = FakeProvider([AssistantTurn(text="", tool_calls=calls, stop="tool_use"), end()])
+    out = run(provider, kernel, tmp_path)
+    assert out.status == "error"
+    assert [r.code for r in out.runs] == ["1/0", "1/0"]
 
 
 def test_refusal_and_truncation(kernel: KernelClient, tmp_path: Path) -> None:

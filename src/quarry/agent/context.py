@@ -59,6 +59,7 @@ DATA_HELPERS: Final = (
 
 class SystemContext(BaseModel):
     loaders: str = ""
+    loader_failures: str = ""
     layout: list[PartitionLayout] = Field(default_factory=list)
     enabled_libraries: list[str] = Field(default_factory=list)
 
@@ -92,10 +93,10 @@ def build_system(ctx: SystemContext) -> str:
     sections = [CONTRACT, "# Chart and table libraries", _guide_for(ctx.enabled_libraries)]
     if ctx.loaders:
         sections += ["# Registered loaders (call as loaders.<name>)", ctx.loaders]
+    if ctx.loader_failures:
+        sections += ["# Loaders that failed to load (not callable)", ctx.loader_failures]
     if ctx.layout:
-        lines = [
-            f"- {entry.dataset}: partitioned by {', '.join(entry.keys)}" for entry in ctx.layout
-        ]
+        lines = [f"- {entry.dataset}: {_partitioning(entry)}" for entry in ctx.layout]
         sections += ["# Parquet cache layout (use pq('<dataset>/**/*.parquet'))", "\n".join(lines)]
     sections += ["# Data helpers", DATA_HELPERS]
     return "\n\n".join(sections)
@@ -116,6 +117,10 @@ def build_summary(
         ]
     ds_lines = [_dataset_line(d) for d in datasets]
     return "\n".join(["# Session so far", *blocks, "", "# Datasets in the kernel", *ds_lines])
+
+
+def _partitioning(entry: PartitionLayout) -> str:
+    return f"partitioned by {', '.join(entry.keys)}" if entry.keys else "not partitioned"
 
 
 def _dataset_line(d: DatasetMeta) -> str:

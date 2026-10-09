@@ -34,7 +34,9 @@ Built on `claude/quarry-stage2-server-agent-66853b` and open as sunpar/quarry#2.
 Its calls are under [server and agent](context/decisions.md#server-and-agent),
 and what it left is in [open-items.md](open-items.md#stage-2). Neither provider
 adapter has called its real API yet; see the
-[open questions](open-items.md#open-questions).
+[open questions](open-items.md#open-questions). The fixes for the first Codex
+review are in, CI Auto-fix is on, and the maintainer chose to land the
+[Stage 2 items](open-items.md#stage-2) in sunpar/quarry#2, one task at a time.
 
 ### Stage 3: first UI
 
@@ -48,12 +50,12 @@ change, the `Access-Control-Allow-Origin` header on the static mount.
 
 ## Latest verification
 
-`claude/quarry-stage3-first-ui` at `1c1c6f1` on 2026-10-08: 810 tests passed and
-2 skipped (the live provider tests), including the two browser tests under
-`tests/e2e`; `ruff check`, `ruff format --check`, `mypy src` and
-`uv lock --check` were clean; in `web/`, `npm run check` (tsc and prettier),
-`npm test` (53 tests) and `npm run build` passed; the wheel from `uv build`
-contains `quarry/static/index.html`.
+`claude/quarry-stage3-first-ui` with the Stage 2 branch merged in, on
+2026-10-08: 901 tests passed and 3 skipped (the live provider tests), including
+the two browser tests under `tests/e2e`; `ruff check`, `ruff format --check`,
+`mypy src` and `uv lock --check` were clean; in `web/`, `npm run check` (tsc and
+prettier), `npm test` (53 tests) and `npm run build` passed; the wheel from
+`uv build` contains `quarry/static/index.html`.
 
 ## Next actions
 

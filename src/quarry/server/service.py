@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import logging
 import threading
 import time
 import traceback
@@ -15,12 +16,12 @@ from quarry.agent.anthropic_provider import AnthropicProvider
 from quarry.agent.context import SystemContext, build_summary, build_system, enabled_libraries
 from quarry.agent.loop import run_agent_step, step_lineage
 from quarry.agent.openai_provider import OpenAIProvider
-from quarry.agent.tools import ToolExecutor
+from quarry.agent.tools import CodeRun, ToolExecutor
 from quarry.agent.transpile import Transpiler
 from quarry.agent.types import Provider
 from quarry.components.library import ComponentLibrary
 from quarry.config import QuarryConfig
-from quarry.data.loaders import describe_loaders, load_loaders
+from quarry.data.loaders import describe_failures, describe_loaders, load_loaders
 from quarry.data.parquet import scan_layout
 from quarry.kernel.client import KernelClient, KernelDead
 from quarry.kernel.datasets import DatasetMeta
@@ -40,6 +41,8 @@ from quarry.server.models import (
     now_iso,
 )
 from quarry.server.store import SessionStore
+
+log = logging.getLogger(__name__)
 
 MAX_SNAPSHOTS: Final = 500
 
@@ -198,13 +201,7 @@ class SessionService:
             self._running[session_id] = None
             self._kernels.mark_running(session_id, True)
         try:
-            # A prompt step's code holds only blocks that ran ok, so it replays whatever its status.
-            steps = [
-                s
-                for s in self._store.get(session_id).steps
-                if s.code and (s.status == "ok" or s.kind == "prompt")
-            ]
-            return self._kernels.restart(session_id, steps)
+            return self._kernels.restart(session_id, self._store.get(session_id).steps)
         finally:
             with self._lock:
                 self._kernels.mark_running(session_id, False)
@@ -265,6 +262,7 @@ class SessionService:
                     "status": outcome.status,
                     "note": outcome.note,
                     "code": outcome.code,
+                    "runs": outcome.runs,
                     "error": error,
                     "transcript": outcome.transcript,
                     "view": View.from_pending(outcome.view) if outcome.view else None,
@@ -317,9 +315,13 @@ class SessionService:
 
     def _system_context(self) -> SystemContext:
         registry = load_loaders(self._config.root / "loaders.toml")
+        failures = describe_failures(registry)
+        if failures:
+            log.warning("loaders that failed to load:\n%s", failures)
         root = self._config.data.parquet_root
         return SystemContext(
             loaders=describe_loaders(registry),
+            loader_failures=failures,
             layout=scan_layout(root) if root is not None else [],
             enabled_libraries=self._libraries,
         )
@@ -329,6 +331,7 @@ def _apply_exec(step: Step, result: ExecResult, started: float) -> Step:
     return step.model_copy(
         update={
             "status": result.status,
+            "runs": [CodeRun(code=step.code, status=result.status)],
             "error": result.error,
             "stdout_tail": result.stdout_tail,
             "stderr_tail": result.stderr_tail,

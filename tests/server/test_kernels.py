@@ -3,18 +3,22 @@ from pathlib import Path
 
 import pytest
 
+from quarry.agent.tools import CodeRun
 from quarry.kernel.client import KernelDead
+from quarry.kernel.executor import Status
 from quarry.server.kernels import KernelManager
 from quarry.server.models import Step, now_iso
 
 
-def step(i: int, code: str) -> Step:
+def step(i: int, code: str, *runs: tuple[str, Status]) -> Step:
+    """A step whose runs are `runs`, or one ok run of `code`."""
     return Step(
         id=f"s{i}",
         index=i,
-        kind="manual",
+        kind="prompt" if runs else "manual",
         prompt=None,
         code=code,
+        runs=[CodeRun(code=c, status=s) for c, s in runs] or [CodeRun(code=code, status="ok")],
         status="ok",
         error=None,
         created_at=now_iso(),
@@ -40,11 +44,25 @@ def test_get_spawns_once_and_status(manager: KernelManager) -> None:
     manager.mark_running("s", False)
 
 
-def test_dead_kernel_is_detected_and_respawned(manager: KernelManager) -> None:
+def test_threads_cap_polars_in_every_kernel(tmp_path: Path) -> None:
+    capped = KernelManager(tmp_path, threads=2)
+    try:
+        for session_id in ("a", "b"):
+            result = capped.get(session_id).execute("print(pl.thread_pool_size())")
+            assert result.stdout_tail.strip() == "2"
+    finally:
+        capped.close_all()
+
+
+def test_dead_kernel_stays_dead_until_restart(manager: KernelManager) -> None:
     a = manager.get("s")
     with pytest.raises(KernelDead):
         a.execute("import os\nos._exit(1)\n")
     assert manager.status("s").status == "dead"
+    with pytest.raises(KernelDead, match="restart"):
+        manager.get("s")
+    assert manager.status("s").status == "dead"
+    manager.restart("s", [])
     b = manager.get("s")
     assert b is not a and b.execute("x = 1").status == "ok"
 
@@ -64,7 +82,6 @@ def test_restart_replays_in_order_and_stops_on_failure(manager: KernelManager) -
 
 
 def test_restart_counts_replayed_steps_not_indices(manager: KernelManager) -> None:
-    # Task 10 replays only ok steps, so indices can have gaps.
     report = manager.restart("s", [step(0, "a = 1"), step(2, "c = zzz")])
     assert report.replayed == 1
     assert report.failed_step == 2
@@ -75,3 +92,26 @@ def test_restart_reports_a_kernel_that_dies_during_replay(manager: KernelManager
     assert report.replayed == 1
     assert report.failed_step == 1
     assert report.error is not None and "kernel died" in report.error
+
+
+def test_restart_replays_failed_runs_for_their_partial_effects(manager: KernelManager) -> None:
+    steps = [
+        step(0, "", ("df = 1\n1 / 0", "error"), ("y = df + 1", "ok")),
+        step(1, "z = y + 1"),
+    ]
+    report = manager.restart("s", steps)
+    assert (report.replayed, report.failed_step) == (2, None)
+    assert manager.get("s").execute("print(z)").stdout_tail.strip() == "3"
+
+
+def test_restart_runs_each_run_on_its_own(manager: KernelManager) -> None:
+    # Joined into one string, the future import would follow a statement: a SyntaxError.
+    runs = [("x = 1", "ok"), ("from __future__ import annotations\ny = x", "ok")]
+    report = manager.restart("s", [step(0, "", *runs)])
+    assert (report.replayed, report.failed_step) == (1, None)
+
+
+def test_restart_skips_interrupted_runs(manager: KernelManager) -> None:
+    runs = [("import time\ntime.sleep(60)", "interrupted"), ("a = 1", "ok")]
+    report = manager.restart("s", [step(0, "", *runs)])
+    assert (report.replayed, report.failed_step) == (1, None)

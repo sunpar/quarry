@@ -1,4 +1,6 @@
+import sys
 from collections.abc import Iterable, Sequence
+from pathlib import Path
 
 import polars as pl
 import pyarrow as pa
@@ -43,3 +45,24 @@ def test_sql_with_no_rows_keeps_the_schema() -> None:
 def test_sql_without_dsn_raises() -> None:
     with pytest.raises(RuntimeError, match="DSN"):
         make_sql("", reader=fake_reader)("SELECT 1")
+
+
+def test_sql_without_the_mssql_extra_says_to_install_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "arrow_odbc", None)
+    with pytest.raises(
+        ModuleNotFoundError, match=r"mssql extra: uv pip install 'quarry\[mssql\]'"
+    ) as raised:
+        make_sql("dsn-x")("SELECT 1")
+    assert isinstance(raised.value.__cause__, ModuleNotFoundError)
+
+
+def test_sql_reraises_another_missing_module_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "arrow_odbc.py").write_text("import quarry_test_no_such_dependency\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, "arrow_odbc", raising=False)
+    with pytest.raises(ModuleNotFoundError) as raised:
+        make_sql("dsn-x")("SELECT 1")
+    assert raised.value.name == "quarry_test_no_such_dependency"
+    assert "mssql" not in str(raised.value)

@@ -12,7 +12,7 @@ from quarry.agent.transpile import Transpiler
 from quarry.agent.types import ToolCall, ToolDef, ToolResult
 from quarry.components.library import ComponentLibrary
 from quarry.kernel.client import KernelClient, RpcFailure
-from quarry.kernel.executor import ExecResult
+from quarry.kernel.executor import ExecResult, Status
 from quarry.query.spec import Json
 
 RUN_PYTHON: Final[dict[str, Json]] = {
@@ -115,6 +115,13 @@ class PendingView(BaseModel):
     datasets: list[str] = Field(default_factory=list)
 
 
+class CodeRun(BaseModel):
+    """One execution of code in the kernel, kept so restart can replay it as its own unit."""
+
+    code: str
+    status: Status
+
+
 class _RunPython(BaseModel):
     code: str
 
@@ -162,8 +169,8 @@ class ToolExecutor:
         self._library = library
         self._transpiler = transpiler
         self.view: PendingView | None = None
-        self.last_python_failed = False
-        self.exec_results: list[ExecResult] = []
+        # Each run_python call that executed: its code and the kernel's result.
+        self.runs: list[tuple[str, ExecResult]] = []
         self._routes: dict[str, tuple[type[BaseModel], Callable[[ToolCall, Any], ToolResult]]] = {
             "run_python": (_RunPython, self._run_python),
             "describe_dataset": (_Describe, self._describe),
@@ -186,8 +193,7 @@ class ToolExecutor:
     def _run_python(self, call: ToolCall, args: _RunPython) -> ToolResult:
         result = self._kernel.execute(args.code)
         failed = result.status != "ok"
-        self.exec_results.append(result)
-        self.last_python_failed = failed
+        self.runs.append((args.code, result))
         content = result.model_dump(by_alias=True, mode="json")
         return ToolResult(call_id=call.id, content=json.dumps(content), is_error=failed)
 
@@ -201,10 +207,11 @@ class ToolExecutor:
     def _search(self, call: ToolCall, args: _Search) -> ToolResult:
         meta = None
         if args.dataset:
-            try:
-                meta = self._kernel.describe(args.dataset)
-            except RpcFailure as exc:
-                return _error(call, str(exc))
+            # Listed metadata has the schema without a row count, which can scan everything.
+            listed = {m.name: m for m in self._kernel.list_datasets()}
+            meta = listed.get(args.dataset)
+            if meta is None:
+                return _error(call, f"no dataset {args.dataset!r}")
         found = self._library.search(dataset=meta, tags=args.tags)
         return ToolResult(
             call_id=call.id, content=json.dumps([m.model_dump(by_alias=True) for m in found])
@@ -214,31 +221,33 @@ class ToolExecutor:
         entry = self._library.get(args.component_id)
         if entry is None:
             return _error(call, f"no component {args.component_id!r}")
-        missing = self._missing_datasets(args.datasets)
-        if missing:
-            return _error(call, f"unknown datasets: {missing}")
-        self.view = PendingView(
-            component_id=args.component_id,
-            source=entry.source_path.read_text(),
-            initial_state=args.initial_state,
-            datasets=args.datasets,
-        )
-        return ToolResult(call_id=call.id, content=json.dumps({"mounted": args.component_id}))
+        source = entry.source_path.read_text()
+        return self._mount(call, args.component_id, source, args.datasets, args.initial_state)
 
     def _write(self, call: ToolCall, args: _Write) -> ToolResult:
-        missing = self._missing_datasets(args.datasets)
+        return self._mount(call, "inline", args.source, args.datasets, args.initial_state)
+
+    def _mount(
+        self,
+        call: ToolCall,
+        component_id: str,
+        source: str,
+        datasets: list[str],
+        initial_state: dict[str, Json],
+    ) -> ToolResult:
+        missing = self._missing_datasets(datasets)
         if missing:
             return _error(call, f"unknown datasets: {missing}")
-        problem = self._transpiler.check(args.source)
+        problem = self._transpiler.check(source)
         if problem is not None:
             return _error(call, f"transpile error: {problem}")
         self.view = PendingView(
-            component_id="inline",
-            source=args.source,
-            initial_state=args.initial_state,
-            datasets=args.datasets,
+            component_id=component_id,
+            source=source,
+            initial_state=initial_state,
+            datasets=datasets,
         )
-        return ToolResult(call_id=call.id, content=json.dumps({"mounted": "inline"}))
+        return ToolResult(call_id=call.id, content=json.dumps({"mounted": component_id}))
 
     def _missing_datasets(self, names: list[str]) -> list[str]:
         known = {m.name for m in self._kernel.list_datasets()}

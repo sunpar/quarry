@@ -4,6 +4,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -13,7 +14,8 @@ import polars as pl
 import pytest
 
 from quarry.kernel.__main__ import apply_memory_cap, serve
-from quarry.kernel.executor import Executor
+from quarry.kernel.client import KernelClient
+from quarry.kernel.executor import ExecResult, Executor
 from quarry.kernel.protocol import Request, Response, decode_response, encode, read_lines
 from tests.kernel.fixtures import BUSY_LOOP
 
@@ -109,6 +111,75 @@ def test_serve_refuses_queued_requests_once_shutting_down() -> None:
     assert outcome(responses[1]) in {"interrupted", "KernelShutdown"}
 
 
+class GatedExecutor(Executor):
+    """An executor that waits in `execute`, past what `serve` checks when it takes a request
+    and before the step starts: the moment a shutdown can land between dequeue and exec."""
+
+    def __init__(self) -> None:
+        super().__init__({}, conn=duckdb.connect(), row_cap=10)
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.polled = threading.Event()
+        self.executed: list[str] = []
+
+    @property
+    def running(self) -> bool:
+        self.polled.set()  # only `serve` reads it, to decide whether a shutdown has a step to stop
+        return super().running
+
+    def execute(self, code: str) -> ExecResult:
+        self.executed.append(code)
+        self.entered.set()
+        self.release.wait(timeout=10)
+        return super().execute(code)
+
+
+def shut_down_during_first_request(
+    executor: GatedExecutor, codes: list[str]
+) -> dict[int, Response]:
+    """Serve `codes` as executes ids 1..n, with a shutdown (id 0) arriving once `executor` holds
+    the first and has not started it; release it after `serve` tried to interrupt."""
+    kernel_end, client_end = socket.socketpair()
+    client_end.settimeout(10)  # a missing response fails the test instead of hanging it
+
+    def drive() -> None:
+        for i, code in enumerate(codes, start=1):
+            client_end.sendall(encode(Request(id=i, method="execute", params={"code": code})))
+        executor.entered.wait(timeout=10)
+        client_end.sendall(encode(Request(id=0, method="shutdown", params={})))
+        # Closing `kernel_end` under its reader sends no EOF on Linux; the reader must end first.
+        client_end.shutdown(socket.SHUT_WR)
+        executor.polled.wait(timeout=10)
+        executor.release.set()
+
+    driver = threading.Thread(target=drive)
+    driver.start()
+    with client_end:
+        serve(kernel_end, executor, on_disconnect=lambda: None)
+        driver.join()
+        received = b"".join(iter(lambda: client_end.recv(65536), b""))
+    return {r.id: r for r in map(decode_response, received.splitlines())}
+
+
+# Long enough to outlast the test unless a shutdown interrupts it.
+SLEEP_STEP = "import time\ntime.sleep(5)"
+
+
+def test_shutdown_stops_a_step_taken_but_not_started() -> None:
+    executor = GatedExecutor()
+    started = time.monotonic()
+    responses = shut_down_during_first_request(executor, [SLEEP_STEP])
+    assert outcome(responses[1]) == "interrupted"
+    assert time.monotonic() - started < 4
+
+
+def test_serve_does_not_run_requests_taken_after_a_shutdown() -> None:
+    executor = GatedExecutor()
+    responses = shut_down_during_first_request(executor, [SLEEP_STEP, "x = 1"])
+    assert executor.executed == [SLEEP_STEP]
+    assert outcome(responses[2]) == "KernelShutdown"
+
+
 def test_shutdown_ends_a_kernel_mid_step(kernel_process: KernelProcess) -> None:
     process, conn = kernel_process
     responses = read_lines(conn)
@@ -142,7 +213,7 @@ def test_kernel_exits_when_its_server_goes_away_mid_step(kernel_process: KernelP
     assert process.wait(timeout=5) == 0
 
 
-def test_memory_cap_limits_address_space(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_memory_cap_limits_the_data_segment(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[int, tuple[int, int]]] = []
 
     def record(which: int, limits: tuple[int, int]) -> None:
@@ -151,7 +222,7 @@ def test_memory_cap_limits_address_space(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(resource, "setrlimit", record)
     apply_memory_cap(512)
     limit = 512 * 1024 * 1024
-    assert calls == [(resource.RLIMIT_AS, (limit, limit))]
+    assert calls == [(resource.RLIMIT_DATA, (limit, limit))]
 
 
 def test_memory_cap_the_os_refuses_is_reported_not_fatal(
@@ -163,3 +234,48 @@ def test_memory_cap_the_os_refuses_is_reported_not_fatal(
     monkeypatch.setattr(resource, "setrlimit", refuse)
     apply_memory_cap(512)
     assert "memory cap of 512 MB not applied" in capfd.readouterr().err
+
+
+def run_in_kernel(root: Path, config: str, code: str) -> str:
+    """Stdout of `code` as a step, in a kernel started for a root whose config.toml is `config`."""
+    (root / "config.toml").write_text(config)
+    kernel = KernelClient.spawn(root)
+    try:
+        result = kernel.execute(code)
+    finally:
+        kernel.close()
+    assert result.status == "ok", result.error
+    return result.stdout_tail
+
+
+# Enough that the kernel starts: on Linux the limit counts what its imports allocate and the
+# stack of every thread.
+CAP_MB = 4096
+
+
+@pytest.mark.skipif(sys.platform == "darwin", reason="macOS refuses RLIMIT_DATA")
+def test_kernel_applies_the_configured_memory_cap(tmp_path: Path) -> None:
+    out = run_in_kernel(
+        tmp_path,
+        f"[data]\nkernel_memory_mb = {CAP_MB}\n",
+        "import resource\nprint(resource.getrlimit(resource.RLIMIT_DATA))",
+    )
+    limit = CAP_MB * 1024 * 1024
+    assert out.strip() == str((limit, limit))
+
+
+DUCKDB_THREADS = "duckdb.sql(\"SELECT current_setting('threads')\").fetchone()[0]"
+
+
+def test_kernel_threads_caps_duckdb(tmp_path: Path) -> None:
+    # polars is capped by the client that spawns the kernel (test_kernels.py), not by its config.
+    out = run_in_kernel(tmp_path, "[data]\nkernel_threads = 2\n", f"print({DUCKDB_THREADS})")
+    assert out.strip() == "2"
+
+
+def test_kernel_threads_of_zero_leaves_the_defaults(tmp_path: Path) -> None:
+    step = f"print(pl.thread_pool_size(), {DUCKDB_THREADS})"
+    out = run_in_kernel(tmp_path, "[data]\nkernel_threads = 0\n", step)
+    row = duckdb.connect().sql("SELECT current_setting('threads')").fetchone()
+    assert row is not None
+    assert out.split() == [str(pl.thread_pool_size()), str(row[0])]
