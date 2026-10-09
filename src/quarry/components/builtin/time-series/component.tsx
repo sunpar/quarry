@@ -38,12 +38,13 @@ export default function TimeSeries({ datasets }: Props) {
       ? { dataset, select: [time, value], sort: [{ col: time }], limit: 50000 }
       : { dataset, limit: 1 },
   );
+  const rows = result.status === "success" ? result.rows : null;
   const container = useRef<HTMLDivElement>(null);
 
   // Lightweight Charts owns its canvas; this is the one place a DOM library needs an effect.
   useEffect(() => {
     const el = container.current;
-    if (el === null || !ready || result.status !== "success") return;
+    if (el === null || !ready || rows === null) return;
     const chart: IChartApi = createChart(el, {
       autoSize: true,
       layout: {
@@ -55,10 +56,10 @@ export default function TimeSeries({ datasets }: Props) {
       color: "#1e6e63",
       lineWidth: 2,
     });
-    series.setData(result.rows.map((row) => point(row, time, value)));
+    series.setData(toPoints(rows, time, value));
     chart.timeScale().fitContent();
     return () => chart.remove();
-  }, [ready, result, time, value]);
+  }, [ready, rows, time, value]);
 
   if (schema === null)
     return <p className="p-4 text-sm text-muted-foreground">Loading</p>;
@@ -125,21 +126,29 @@ function ColumnPicker({ label, value, options, onChange }: PickerProps) {
   );
 }
 
-function point(
-  row: Row,
-  time: string,
-  value: string,
-): { time: UTCTimestamp; value: number } {
-  const raw = row[time];
-  const ms =
-    typeof raw === "string"
-      ? Date.parse(raw)
-      : typeof raw === "number"
-        ? raw
-        : NaN;
-  const v = row[value];
-  return {
-    time: Math.floor(ms / 1000) as UTCTimestamp,
-    value: typeof v === "number" ? v : NaN,
-  };
+type Point = { time: UTCTimestamp; value: number };
+
+// Naive ISO datetimes carry no offset; the kernel runs in UTC, so read them as UTC.
+function parseTime(raw: Row[string]): number {
+  if (typeof raw === "number") return raw;
+  if (typeof raw !== "string") return NaN;
+  const naive = raw.includes("T") && !/(Z|[+-]\d{2}:?\d{2})$/.test(raw);
+  return Date.parse(naive ? `${raw}Z` : raw);
+}
+
+// Rows arrive sorted by time. Lightweight Charts needs finite, strictly ascending
+// times, so unplottable rows are dropped and rows on the same second keep the last.
+function toPoints(rows: Row[], time: string, value: string): Point[] {
+  const points: Point[] = [];
+  for (const row of rows) {
+    const v = row[value];
+    const ms = parseTime(row[time] ?? null);
+    if (typeof v !== "number" || !Number.isFinite(v) || !Number.isFinite(ms))
+      continue;
+    const t = Math.floor(ms / 1000) as UTCTimestamp;
+    if (points.length > 0 && points[points.length - 1]?.time === t)
+      points.pop();
+    points.push({ time: t, value: v });
+  }
+  return points;
 }

@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { QueryHookResult } from "@/runtime/hooks";
 
+const setData = vi.hoisted(() => vi.fn());
 const query = vi.fn<(spec: unknown) => QueryHookResult>();
 vi.mock("@quarry/hooks", () => ({
   useQuery: (spec: unknown) => query(spec),
@@ -14,7 +15,7 @@ vi.mock("@quarry/hooks", () => ({
 vi.mock("lightweight-charts", () => ({
   LineSeries: {},
   createChart: () => ({
-    addSeries: () => ({ setData: vi.fn() }),
+    addSeries: () => ({ setData }),
     applyOptions: vi.fn(),
     timeScale: () => ({ fitContent: vi.fn() }),
     remove: vi.fn(),
@@ -34,5 +35,30 @@ describe("time-series built-in", () => {
       limit: 50000,
     });
     expect(screen.getByText("Loading")).toBeTruthy();
+  });
+
+  it("drops unplottable rows, keeps the last of a second, and reads naive times as UTC", () => {
+    query.mockReturnValue({
+      status: "success",
+      schema: [
+        { name: "ts", dtype: "Datetime" },
+        { name: "px", dtype: "Float64" },
+      ],
+      rowCount: 5,
+      truncated: false,
+      rows: [
+        { ts: null, px: 1 },
+        { ts: "2024-01-02T10:00:00", px: null },
+        { ts: "2024-01-02T10:00:01.100", px: 2 },
+        { ts: "2024-01-02T10:00:01.900", px: 3 },
+        { ts: "2024-01-02T10:00:05+00:00", px: 4 },
+      ],
+    });
+    render(<TimeSeries datasets={["px"]} />);
+    const base = Date.UTC(2024, 0, 2, 10) / 1000;
+    expect(setData).toHaveBeenLastCalledWith([
+      { time: base + 1, value: 3 },
+      { time: base + 5, value: 4 },
+    ]);
   });
 });
