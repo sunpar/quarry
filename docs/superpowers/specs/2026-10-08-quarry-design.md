@@ -189,7 +189,7 @@ DatasetMeta {
   schema: [{ name, dtype }],       // dtype as polars dtype string
   rows: number | null,             // null for lazy or relation until counted
   preview: Row[],                  // first 20 rows, JSON
-  origin_step: step id
+  origin_step: step id | null      // the step that last wrote it
 }
 ```
 
@@ -284,9 +284,10 @@ them.
 
 ## 6. Kernel
 
-A plain Python process, started by the server with the session id and socket
-path as arguments. It imports polars and duckdb, builds the data layer
-(section 7) into a module-level namespace, and serves JSON-RPC.
+A plain Python process, started by the server with its socket path, the
+quarry root and a private temp directory as arguments. It imports polars and
+duckdb, builds the data layer (section 7) into a module-level namespace, and
+serves JSON-RPC.
 
 ### Methods
 
@@ -305,7 +306,8 @@ replay: a new kernel, then every step's runs re-executed in order, one at a
 time. A run that failed the first time may fail again, so its partial effects
 come back; interrupted runs are skipped. Replay runs as a single "restart"
 operation with progress in the UI, and stops at the first run that succeeded
-before and fails now.
+before and fails now. A restart while a step runs cancels the step and kills
+the kernel first, and saves the step as interrupted.
 
 ### Lineage capture
 
@@ -327,9 +329,10 @@ the step; the dependency graph is derived, not stored.
 
 ### Resource limits
 
-Optional memory cap from config applied with `resource.setrlimit(RLIMIT_AS)`
-at kernel start. Query results are capped at `row_cap` rows regardless of the
-spec. Execution has no timeout; the researcher interrupts.
+Optional memory cap from config applied with
+`resource.setrlimit(RLIMIT_DATA)` at kernel start, and an optional thread cap
+for polars and DuckDB. Query results are capped at `row_cap` rows regardless
+of the spec. Execution has no timeout; the researcher interrupts.
 
 ## 7. Data layer
 
@@ -600,7 +603,7 @@ for reference. A saved dataset also exports alone as a `.py` script.
 ## 11. Persistence layout
 
 ```
-<quarry root>  (default ~/.quarry, override with --root or config)
+<quarry root>  (default ~/.quarry, override with --root)
   config.toml
   loaders.toml
   sessions/<session-id>/
@@ -627,6 +630,7 @@ parquet_root = "/data/cache"
 mssql_dsn = ""                # or QUARRY_MSSQL_DSN
 row_cap = 50000
 kernel_memory_mb = 0          # 0 = unlimited
+kernel_threads = 0            # 0 = every core
 
 [libraries]
 team_components = ""          # optional shared library path
@@ -648,6 +652,9 @@ scichart_path = ""            # path to a locally installed scichart npm package
   their behalf, exactly as a notebook kernel does.
 - Generated TSX runs only in the iframe with a no-network CSP. The bridge is
   the only path out and has three request types.
+- `quarry serve` creates a missing quarry root owner-only, and the server
+  creates session directories and writes session files owner-only, since
+  several researchers share each machine.
 - API keys come from environment variables or an owner-only file. The server
   refuses a key file with group or world permissions and never logs key
   values.

@@ -41,7 +41,7 @@ made and could revisit belongs in [decisions](decisions.md) instead.
 - Several researchers share each machine, so files a kernel writes can be read
   by others unless made private, and kernels compete for memory and cores.
 - Target machines run Linux, and development happens on macOS. macOS rejects
-  `RLIMIT_AS`, so the kernel memory cap applies only on Linux. macOS has no
+  `RLIMIT_DATA`, so the kernel memory cap applies only on Linux. macOS has no
   `os.waitid`, so the client cannot test whether the kernel is alive without
   reaping it.
 

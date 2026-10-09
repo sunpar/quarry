@@ -39,31 +39,34 @@ in [open-items.md](open-items.md).
 - Neither provider adapter has called its real API yet; see the
   [open questions](open-items.md#open-questions).
 - The fixes for the first Codex review are in, and CI Auto-fix is on.
-- The maintainer chose to land the [Stage 2 items](open-items.md#stage-2) in
-  sunpar/quarry#2. They are being worked one task at a time, each reviewed.
+- The Stage 2 deferred items landed in sunpar/quarry#2 as seven reviewed tasks:
+  config hardening, unreadable data paths, the `RLIMIT_DATA` and thread caps,
+  kernel client failures, metadata caching, restart that stops a running step,
+  and private session files with `origin_step`.
 
 ## Latest verification
 
 `main` at `023a5c1` on 2026-10-08: 721 tests passed, and `ruff check`,
 `ruff format --check` and `mypy src` were clean.
 
-`claude/quarry-stage2-server-agent-66853b` at `95a7efd` on 2026-10-08: 798 tests
-passed and 2 skipped (the live provider tests, which need API keys), and
-`ruff check`, `ruff format --check`, `mypy src` and `uv lock --check` were
-clean.
+`claude/quarry-stage2-server-agent-66853b` at `0fffd58` on 2026-10-08: 909 tests
+passed and 3 skipped (the two live provider tests, which need API keys, and the
+memory-cap test, which macOS refuses), and `ruff check`, `ruff format --check`,
+`mypy src`, `uv lock --check` and the docs prettier check were clean.
 
 ## Next actions
 
-1. Stage 2: finish its [deferred items](open-items.md#stage-2) in
-   sunpar/quarry#2, then merge it once CI is green and the Codex review is
+1. Stage 2: merge sunpar/quarry#2 once CI is green and the Codex review is
    clear.
 2. Run the live provider tests with a key:
    `QUARRY_ANTHROPIC_API_KEY=... uv run pytest tests/agent/test_live_providers.py -v`.
 3. Stage 3: start from the
    [Stage 3 handoff](superpowers/handoffs/2026-10-08-quarry-stage3-handoff.md),
    which points at the plan and its [deferred items](open-items.md#stage-3). The
-   plan's API types match Stage 2 as of `08efb23`; since then a step gained
-   `runs`, so re-check them against the merged branch.
+   plan's API types match Stage 2 as of `08efb23`. Since then a step gained
+   `runs`, `DatasetMeta` gained `origin_step`, `/interrupt` also cancels a
+   prompt step, and `/restart` stops a running step instead of answering 409, so
+   re-check the plan against the merged branch.
 4. Stage 4: once sunpar/quarry#2 and sunpar/quarry#4 are merged, start from the
    [Stage 4 handoff](superpowers/handoffs/2026-10-08-quarry-stage4-handoff.md).
 
