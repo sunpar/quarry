@@ -420,7 +420,7 @@ def test_spawn_interrupted_after_the_kernel_started_kills_and_reaps_it(
 
 
 def test_close_releases_the_socket_and_directory_when_the_kernel_will_not_exit(
-    stand_in: StandIn, monkeypatch: pytest.MonkeyPatch
+    stand_in: StandIn, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     client, _ = stand_in(60)
     tmpdir = Path(client._tmpdir.name)
@@ -430,8 +430,8 @@ def test_close_releases_the_socket_and_directory_when_the_kernel_will_not_exit(
 
     with monkeypatch.context() as patch:
         patch.setattr(client._process, "wait", never_exits)
-        with pytest.raises(subprocess.TimeoutExpired):
-            client.close()
+        client.close()  # does not raise: a kernel SIGKILL cannot end is left to the OS
+    assert f"kernel {client.pid} outlived SIGKILL" in capsys.readouterr().err
     assert client._conn.fileno() == -1
     assert not tmpdir.exists()
 
@@ -446,6 +446,19 @@ def test_spawn_reports_a_socket_path_too_long_to_bind(
         KernelClient.spawn(tmp_path)
     assert isinstance(info.value.__cause__, OSError)
     assert list(long_dir.iterdir()) == []  # the temp directory is gone
+
+
+def test_spawn_reports_a_kernel_that_cannot_be_started(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "no-such-python"))
+    # Its own temp root, short enough for the socket path, to see what `spawn` leaves in it.
+    with tempfile.TemporaryDirectory(prefix="q-") as scratch:
+        monkeypatch.setattr(tempfile, "tempdir", scratch)
+        with pytest.raises(KernelDead, match="cannot start the kernel") as info:
+            KernelClient.spawn(tmp_path)
+        assert isinstance(info.value.__cause__, FileNotFoundError)
+        assert list(Path(scratch).iterdir()) == []  # the temp directory is gone
 
 
 def answer_next_request_with(peer: socket.socket, result: object) -> None:

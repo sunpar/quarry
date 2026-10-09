@@ -89,10 +89,7 @@ class KernelClient:
         process: subprocess.Popen[bytes] | None = None
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
-                try:
-                    listener.bind(str(socket_path))
-                except OSError as exc:  # a long TMPDIR: "AF_UNIX path too long"
-                    raise KernelDead(f"cannot bind the kernel socket {socket_path}: {exc}") from exc
+                listener.bind(str(socket_path))
                 listener.listen(1)
                 # stdout and stderr are inherited: C-level output from user code goes to those
                 # fds, and a pipe nobody drains would block the kernel once it fills. A new
@@ -114,12 +111,14 @@ class KernelClient:
                     start_new_session=True,
                 )
                 conn = _accept(listener, process, startup_timeout)
-        except BaseException:
+        except BaseException as exc:
             # Not when `_accept` already killed and reaped it: the group's id may be reused.
             if process is not None and process.returncode is None:
                 _kill_group(process)
                 process.wait()
             tmpdir.cleanup()
+            if isinstance(exc, OSError):  # a long TMPDIR ("AF_UNIX path too long"), no fork
+                raise KernelDead(f"cannot start the kernel: {exc}") from exc
             raise
         return cls(process, conn, tmpdir)
 
@@ -162,7 +161,10 @@ class KernelClient:
         return not self._dead and self._poll() is None
 
     def close(self) -> None:
-        """Kill the kernel and what its steps started, and release its socket and directory."""
+        """Kill the kernel and what its steps started, and release its socket and directory.
+
+        Never raises for a kernel that outlives SIGKILL: it is left to the OS.
+        """
         with self._lock:
             # Once the kernel is reaped, `_poll` has killed its group: the group's id is the
             # kernel's pid, which another process can have by now.
@@ -170,7 +172,11 @@ class KernelClient:
                 self._group_killed = True
                 _kill_group(self._process)
         try:
-            self._process.wait(timeout=5)  # TimeoutExpired if SIGKILL did not end it
+            self._process.wait(timeout=5)
+        except subprocess.TimeoutExpired:  # uninterruptible, say in a stuck disk read
+            print(
+                f"quarry: kernel {self.pid} outlived SIGKILL; leaving it to the OS", file=sys.stderr
+            )
         finally:
             with contextlib.suppress(OSError):  # the peer may already be gone
                 # Wakes the reader thread even if a child the kernel forked holds the socket open.
