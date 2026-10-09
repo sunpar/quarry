@@ -49,7 +49,7 @@ in [open-items.md](open-items.md).
 `main` at `023a5c1` on 2026-10-08: 721 tests passed, and `ruff check`,
 `ruff format --check` and `mypy src` were clean.
 
-`claude/quarry-stage2-server-agent-66853b` at `0fffd58` on 2026-10-08: 909 tests
+`claude/quarry-stage2-server-agent-66853b` at `8c86831` on 2026-10-09: 911 tests
 passed and 3 skipped (the two live provider tests, which need API keys, and the
 memory-cap test, which macOS refuses), and `ruff check`, `ruff format --check`,
 `mypy src`, `uv lock --check` and the docs prettier check were clean.

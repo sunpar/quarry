@@ -101,9 +101,9 @@ has made yet. Decisions already made are in
   only once the provider answers the call in flight, bounded only by the
   provider client's timeout. Meanwhile `/restart` holds its request, a second
   restart gets 409, and under uvicorn a graceful Ctrl-C waits too. Silent.
-- **A crashed prompt step keeps only its runs**: an exception other than
-  `ProviderError` or `KernelDead` saves the step's runs for replay, but leaves
-  `code` empty and saves no lineage or transcript. Silent.
+- **A crashed prompt step saves no code or transcript**: an exception other than
+  `ProviderError` or `KernelDead` saves the step's runs and their lineage, but
+  leaves `code` empty and saves no view or transcript. Silent.
 - **Restart can mislabel a step**: a step that a kernel crash or the
   researcher's cancel ended right before a restart is saved with "stopped by a
   restart". Silent; the status is right.
@@ -112,6 +112,14 @@ has made yet. Decisions already made are in
 - **A stuck kernel holds the manager lock**: `KernelManager.kill` and `restart`
   close the old client under the manager's lock, and `close()` waits up to 5 s
   for a killed kernel, so every session's kernel lookup waits too. Silent.
+- **`origin_step` can name a step replay dropped**: replay skips interrupted
+  runs and stops at the first failure, but `/datasets` still credits the latest
+  saved writer. After a step that rebound `df` is interrupted and the session
+  restarts, `df` holds the older data and names the interrupted step. Silent.
+- **Saving a step stalls every route**: `_finish` writes and fsyncs the step
+  file and its directory under the service lock that every route takes. With a 1
+  s fsync in a probe, another session's `/status` took 2 s, so a slow filesystem
+  such as an NFS home directory stalls all sessions. Silent.
 - **A kernel never started reads as `starting`**: after a server restart,
   `/status` reports `starting` for a session whose kernel was never spawned, so
   a client cannot tell that its namespace is empty. Silent.

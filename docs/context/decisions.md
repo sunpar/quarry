@@ -201,9 +201,9 @@ them.
   `{"ok": true}` hid an interrupt that hit nothing. The cancel comes first, so
   it holds even when a dead kernel makes the route answer 503.
 - **Steps take a cancel**: `run_agent_step` checks a cancel event before each
-  provider call and each tool call, and ends the step `interrupted`. A step
-  waiting on the model takes no kernel interrupt. Cost: the provider call in
-  flight still runs to completion.
+  provider call and each tool call, and ends the step `interrupted`, even on the
+  last turn the 12-call cap allows. A step waiting on the model takes no kernel
+  interrupt. Cost: the provider call in flight still runs to completion.
 
 ## Lineage
 
@@ -434,7 +434,8 @@ them.
   any `Exception` into a failed step, and the session is freed even when saving
   the step or starting the thread fails. An escaped exception had left the
   session answering 409 for good. A crashed prompt step keeps the runs recorded
-  before the crash, so restart replays them.
+  before the crash and their lineage, so restart replays them and `/datasets`
+  credits the step.
 - **One step or restart at a time**: a step posted while another step or a
   restart runs gets 409, and so does a second restart.
 - **Restart stops a running step**: `/restart` while a step runs cancels it,
@@ -506,6 +507,8 @@ them.
   `fallbacks` were checked only on 1.12.1, so the floor is that release line.
 - **CI installs from the lock**: CI runs `uv sync --locked`, so a stale
   `uv.lock` fails instead of re-resolving.
+- **CI times out**: the test job stops after 20 minutes, so a hung test fails
+  instead of running to GitHub's 6-hour limit.
 - **Local Python matches CI**: `.python-version` pins 3.11. The local venv had
   resolved 3.14, so failures specific to 3.11 surfaced only in CI.
 - **Tests are annotated**: ruff's ANN rules apply to tests as well as `src`,
