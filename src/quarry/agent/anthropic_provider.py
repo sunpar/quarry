@@ -39,16 +39,19 @@ class AnthropicProvider:
     def complete(
         self, *, system: str, messages: list[Message], tools: list[ToolDef]
     ) -> AssistantTurn:
+        extra: dict[str, list[dict[str, Json]]] = {}
+        if tools:
+            extra["tools"] = to_api_tools(tools)
         try:
             response = self._create(
                 model=self._model,
                 max_tokens=MAX_TOKENS,
                 system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-                tools=to_api_tools(tools),
                 messages=to_api_messages(messages),
                 output_config={"effort": EFFORT},
                 betas=[FALLBACK_BETA],
                 fallbacks="default",
+                **extra,
             )
         except (
             anthropic.RateLimitError,
