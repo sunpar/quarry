@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Step } from "@/shared/api-types";
 import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
+import { keys } from "../api/keys";
 import { ViewFrameContainer } from "./ViewFrameContainer";
 
 const step: Step = {
@@ -72,7 +73,7 @@ function mount(onRepair = vi.fn()) {
       new MessageEvent("message", { data, source: iframe.contentWindow }),
     );
   const setVersion = (v: string) => rerender(tree(v));
-  return { fetchImpl, send, onRepair, iframe, setVersion };
+  return { fetchImpl, send, onRepair, iframe, setVersion, qc };
 }
 
 describe("ViewFrameContainer", () => {
@@ -119,6 +120,24 @@ describe("ViewFrameContainer", () => {
         ),
       ).toBe(true),
     );
+  });
+
+  it("refetches the session, and only the session, once a snapshot is saved", async () => {
+    const { send, qc } = mount();
+    qc.setQueryData(keys.session("sess"), {});
+    qc.setQueryData(keys.status("sess"), {});
+    await act(async () => {
+      send({
+        type: "stateChanged",
+        viewId: "s1",
+        state: { k: 1 },
+        queries: [],
+      });
+    });
+    await vi.waitFor(() =>
+      expect(qc.getQueryState(keys.session("sess"))?.isInvalidated).toBe(true),
+    );
+    expect(qc.getQueryState(keys.status("sess"))?.isInvalidated).toBe(false);
   });
 
   it("shows the error overlay and starts a repair", async () => {

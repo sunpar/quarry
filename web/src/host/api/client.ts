@@ -1,8 +1,17 @@
 import type {
+  CanvasCard,
   DatasetMeta,
+  Project,
+  ProjectMeta,
   QueryResult,
   QuerySpec,
+  RecallRequest,
   ReplayReport,
+  SaveDatasetRequest,
+  SavedDatasetMeta,
+  SavedView,
+  SavedViewMeta,
+  SaveViewRequest,
   Session,
   SessionMeta,
   SessionStatus,
@@ -78,6 +87,41 @@ export class ApiClient {
       `/sessions/${id}/steps/${stepId}/snapshots`,
       body,
     );
+  }
+
+  listProjects(): Promise<ProjectMeta[]> {
+    return this.request("GET", "/projects");
+  }
+
+  createProject(name: string, description = ""): Promise<ProjectMeta> {
+    return this.request("POST", "/projects", { name, description });
+  }
+
+  getProject(slug: string): Promise<Project> {
+    return this.request("GET", `/projects/${slug}`);
+  }
+
+  getSavedView(slug: string, name: string): Promise<SavedView> {
+    return this.request("GET", `/projects/${slug}/views/${name}`);
+  }
+
+  saveDataset(
+    slug: string,
+    body: SaveDatasetRequest,
+  ): Promise<SavedDatasetMeta> {
+    return this.request("POST", `/projects/${slug}/datasets`, body);
+  }
+
+  saveView(slug: string, body: SaveViewRequest): Promise<SavedViewMeta> {
+    return this.request("POST", `/projects/${slug}/views`, body);
+  }
+
+  setCanvas(slug: string, cards: CanvasCard[]): Promise<ProjectMeta> {
+    return this.request("PUT", `/projects/${slug}/canvas`, cards);
+  }
+
+  recall(sessionId: string, body: RecallRequest): Promise<Step> {
+    return this.request("POST", `/sessions/${sessionId}/recall`, body);
   }
 
   private async request<T>(

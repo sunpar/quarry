@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 interface ViewFrameProps {
   title: string;
   error: string | null;
-  disabled: boolean;
-  onFix: () => void;
+  disabled?: boolean;
+  /** Absent where a view cannot be repaired, as on a canvas card. */
+  onFix?: () => void;
   onLoad: () => void;
 }
 
@@ -29,11 +30,13 @@ export const ViewFrame = forwardRef<HTMLIFrameElement, ViewFrameProps>(
             <pre className="whitespace-pre-wrap font-mono text-sm text-destructive">
               {error}
             </pre>
-            <div>
-              <Button size="sm" disabled={disabled} onClick={onFix}>
-                Fix this view
-              </Button>
-            </div>
+            {onFix !== undefined && (
+              <div>
+                <Button size="sm" disabled={disabled} onClick={onFix}>
+                  Fix this view
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>
