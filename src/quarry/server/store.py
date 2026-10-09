@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from quarry.projects.files import PRIVATE_DIR, sync_dir, write_atomic
+from quarry.projects.files import PRIVATE_DIR, child, sync_dir, write_atomic
 from quarry.server.models import ProviderInfo, Session, SessionMeta, Step, new_id, now_iso
 
 
@@ -64,7 +64,7 @@ class SessionStore:
         return len(list((self._dir / session_id / "steps").glob("*.json")))
 
     def _session_dir(self, session_id: str) -> Path:
-        path = self._dir / session_id
+        path = child(self._dir, session_id)
         if not (path / "session.json").exists():
             raise KeyError(session_id)
         return path
