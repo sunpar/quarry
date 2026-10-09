@@ -13,6 +13,7 @@ import polars as pl
 import pytest
 
 from quarry.kernel.__main__ import apply_memory_cap, serve
+from quarry.kernel.client import KernelClient
 from quarry.kernel.executor import Executor
 from quarry.kernel.protocol import Request, Response, decode_response, encode, read_lines
 from tests.kernel.fixtures import BUSY_LOOP
@@ -142,7 +143,7 @@ def test_kernel_exits_when_its_server_goes_away_mid_step(kernel_process: KernelP
     assert process.wait(timeout=5) == 0
 
 
-def test_memory_cap_limits_address_space(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_memory_cap_limits_the_data_segment(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[int, tuple[int, int]]] = []
 
     def record(which: int, limits: tuple[int, int]) -> None:
@@ -151,7 +152,7 @@ def test_memory_cap_limits_address_space(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(resource, "setrlimit", record)
     apply_memory_cap(512)
     limit = 512 * 1024 * 1024
-    assert calls == [(resource.RLIMIT_AS, (limit, limit))]
+    assert calls == [(resource.RLIMIT_DATA, (limit, limit))]
 
 
 def test_memory_cap_the_os_refuses_is_reported_not_fatal(
@@ -163,3 +164,31 @@ def test_memory_cap_the_os_refuses_is_reported_not_fatal(
     monkeypatch.setattr(resource, "setrlimit", refuse)
     apply_memory_cap(512)
     assert "memory cap of 512 MB not applied" in capfd.readouterr().err
+
+
+def run_in_kernel(root: Path, config: str, code: str) -> str:
+    """Stdout of `code` as a step, in a kernel started for a root whose config.toml is `config`."""
+    (root / "config.toml").write_text(config)
+    kernel = KernelClient.spawn(root)
+    try:
+        result = kernel.execute(code)
+    finally:
+        kernel.close()
+    assert result.status == "ok", result.error
+    return result.stdout_tail
+
+
+# Enough that the kernel starts: on Linux the limit counts what its imports allocate and the
+# stack of every thread.
+CAP_MB = 4096
+
+
+@pytest.mark.skipif(sys.platform == "darwin", reason="macOS refuses RLIMIT_DATA")
+def test_kernel_applies_the_configured_memory_cap(tmp_path: Path) -> None:
+    out = run_in_kernel(
+        tmp_path,
+        f"[data]\nkernel_memory_mb = {CAP_MB}\n",
+        "import resource\nprint(resource.getrlimit(resource.RLIMIT_DATA))",
+    )
+    limit = CAP_MB * 1024 * 1024
+    assert out.strip() == str((limit, limit))

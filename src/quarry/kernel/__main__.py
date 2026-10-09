@@ -58,10 +58,14 @@ def main() -> None:
 
 
 def apply_memory_cap(megabytes: int) -> None:
-    """Cap the address space at `megabytes`; where the OS refuses (macOS does), run uncapped."""
+    """Cap the data segment at `megabytes`; where the OS refuses (macOS does), run uncapped.
+
+    Not the address space: `RLIMIT_AS` also counts mmapped files, thread stacks and malloc
+    arenas, so a cap near the working set broke polars and DuckDB in confusing ways.
+    """
     limit = megabytes * 1024 * 1024
     try:
-        resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+        resource.setrlimit(resource.RLIMIT_DATA, (limit, limit))
     except (ValueError, OSError) as exc:
         _warn(f"memory cap of {megabytes} MB not applied: {exc}")
 
