@@ -430,9 +430,19 @@ them.
   from a restarted server is a same-document change.
 - **`replay_needed` on kernel status**: `KernelManager.get` records a session
   whose kernel it spawned while the session already had steps, and `restart`
-  clears it. A session reopened after a server restart gets an empty kernel on
-  its first read and never offered "Restart kernel". The banner shows on `dead`
-  or `replay_needed` and reports a replay that stopped early.
+  clears it only once a replay runs through; `status` reports it from the
+  persisted steps before the kernel starts. A session reopened after a server
+  restart gets an empty kernel on its first read and never offered "Restart
+  kernel". The banner shows on `dead` or `replay_needed` and reports a replay
+  that stopped early; the prompt stays enabled, since a fresh kernel is
+  sometimes what the researcher wants.
+- **Views get JSON rows only**: `useQuery` reports an Arrow result as an error
+  and the contract no longer lists `format`. The runtime has no Arrow decoder,
+  so a view asking for it rendered an empty table.
+- **The frame's `load` event is the mount fallback**: the runtime posts `ready`
+  once while loading, which can beat the host's listener; `HostBridge.frameLoaded`
+  sends the queued mount if `ready` was missed. A `ready` that arrives after
+  `load` mounts a second time, which the runtime tolerates.
 - **A repair step keeps the researcher's prompt**: the view source and browser
   error go only to the agent; the persisted step shows "Fix the view so it
   mounts." The plan stored the composed text as the step prompt, which put a

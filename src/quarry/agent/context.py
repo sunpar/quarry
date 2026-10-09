@@ -44,7 +44,8 @@ The hooks are exactly these, from "@quarry/hooks":
   in order).
   useQuery(spec): {status:"loading"} | {status:"success", rows, schema, rowCount, truncated}
     | {status:"error", message}
-    spec = {dataset, select?, filters?, group_by?, aggs?, pivot?, sort?, limit?, offset?, format?}
+    spec = {dataset, select?, filters?, group_by?, aggs?, pivot?, sort?, limit?, offset?}
+    (rows are JSON; views cannot request format "arrow")
   useViewState(key, initial): [value, setValue]  (recorded; keys starting with "shared:" are linked)
   useDatasetSchema(name): Column[] | null
 

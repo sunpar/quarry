@@ -189,8 +189,10 @@ def test_server_restart_reports_replay_needed(tmp_path: Path) -> None:
         sid = client.post("/sessions", json={}).json()["id"]
         client.post(f"/sessions/{sid}/steps/manual", json={"code": "a = 1"})
         assert wait_idle(client, sid)["kernel"]["replay_needed"] is False
-    # A new server over the same root starts an empty kernel for a session with steps.
+    # A new server over the same root reports the replay before and after its first kernel use.
     with make_client(tmp_path, []) as client:
+        kernel = client.get(f"/sessions/{sid}/status").json()["kernel"]
+        assert kernel["status"] == "starting" and kernel["replay_needed"] is True
         assert client.get(f"/sessions/{sid}/datasets").json() == []
         kernel = client.get(f"/sessions/{sid}/status").json()["kernel"]
         assert kernel["status"] == "idle" and kernel["replay_needed"] is True

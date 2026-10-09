@@ -181,7 +181,7 @@ class SessionService:
         return SessionStatus(
             session_id=session_id,
             running_step=running.id if running else None,
-            kernel=self._kernels.status(session_id),
+            kernel=self._kernels.status(session_id, has_steps=self._has_steps(session_id)),
             last_error=self._last_error.get(session_id),
         )
 
@@ -208,7 +208,10 @@ class SessionService:
                 self._running.pop(session_id, None)
 
     def _kernel(self, session_id: str) -> KernelClient:
-        return self._kernels.get(session_id, has_steps=self._store.next_index(session_id) > 0)
+        return self._kernels.get(session_id, has_steps=self._has_steps(session_id))
+
+    def _has_steps(self, session_id: str) -> bool:
+        return self._store.next_index(session_id) > 0
 
     def shutdown(self) -> None:
         self._kernels.close_all()
