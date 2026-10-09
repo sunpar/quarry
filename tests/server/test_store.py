@@ -88,3 +88,15 @@ def test_view_from_pending_hashes_source() -> None:
     view = View.from_pending(pending)
     assert len(view.content_hash) == 64
     assert view.initial_state == {"a": 1} and view.datasets == ["df"] and view.snapshots == []
+
+
+def test_update_step_rewrites_in_place(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path)
+    meta = store.create(title="t", provider=ProviderInfo(name="fake", model="m"))
+    first = step(0)
+    store.append_step(meta.id, first)
+    store.update_step(meta.id, first.model_copy(update={"note": "changed"}))
+    assert store.get(meta.id).steps[0].note == "changed"
+    assert store.next_index(meta.id) == 1
+    with pytest.raises(KeyError):
+        store.update_step(meta.id, step(5))

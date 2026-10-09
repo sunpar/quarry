@@ -303,3 +303,66 @@ def test_thread_start_failure_frees_the_session(
             client.post(f"/sessions/{sid}/steps/manual", json={"code": "a = 1"}).status_code == 202
         )
         wait_idle(client, sid)
+
+
+def view_turn(call_id: str) -> AssistantTurn:
+    return AssistantTurn(
+        text="",
+        tool_calls=[
+            ToolCall(
+                id=call_id,
+                name="render_view",
+                input={"component_id": "data-table", "datasets": ["df"], "initial_state": "{}"},
+            )
+        ],
+        stop="tool_use",
+    )
+
+
+def test_snapshot_appends_to_persisted_step(tmp_path: Path) -> None:
+    client = make_client(
+        tmp_path, [py("c1", "df = pl.DataFrame({'a': [1]})"), view_turn("c2"), end()]
+    )
+    sid = client.post("/sessions", json={}).json()["id"]
+    step_id = client.post(f"/sessions/{sid}/steps", json={"prompt": "show"}).json()["id"]
+    wait_idle(client, sid)
+    body = {"state": {"sort": None}, "queries": [{"dataset": "df", "limit": 1000}]}
+    assert client.post(f"/sessions/{sid}/steps/{step_id}/snapshots", json=body).json() == {
+        "count": 1
+    }
+    snapshots = client.get(f"/sessions/{sid}").json()["steps"][0]["view"]["snapshots"]
+    assert snapshots[0]["state"] == {"sort": None}
+    assert snapshots[0]["queries"] == body["queries"]
+    assert client.post(f"/sessions/{sid}/steps/nope/snapshots", json=body).status_code == 404
+
+
+def test_snapshot_rejected_for_step_without_view(tmp_path: Path) -> None:
+    client = make_client(tmp_path, [py("c1", "x = 1"), end()])
+    sid = client.post("/sessions", json={}).json()["id"]
+    step_id = client.post(f"/sessions/{sid}/steps", json={"prompt": "x"}).json()["id"]
+    wait_idle(client, sid)
+    body = {"state": {}, "queries": []}
+    assert client.post(f"/sessions/{sid}/steps/{step_id}/snapshots", json=body).status_code == 404
+
+
+def test_repair_prompt_includes_source_and_error(tmp_path: Path) -> None:
+    provider = FakeProvider(
+        [py("c1", "df = pl.DataFrame({'a': [1]})"), view_turn("c2"), end(), end("fixed")]
+    )
+    client = make_client(tmp_path, [], provider_factory=lambda _cfg: provider)
+    sid = client.post("/sessions", json={}).json()["id"]
+    step_id = client.post(f"/sessions/{sid}/steps", json={"prompt": "show"}).json()["id"]
+    wait_idle(client, sid)
+    body = {
+        "prompt": "Fix the view.",
+        "repair": {"step_id": step_id, "error": '"d3" is not available'},
+    }
+    client.post(f"/sessions/{sid}/steps", json=body)
+    wait_idle(client, sid)
+    steps = client.get(f"/sessions/{sid}").json()["steps"]
+    prompt = steps[1]["prompt"]
+    assert '"d3" is not available' in prompt
+    assert "export default" in prompt
+    assert prompt.endswith("Fix the view.")
+    last_user = [m for m in provider.calls[-1][1] if m.role == "user"][-1]
+    assert "export default" in last_user.text

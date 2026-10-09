@@ -11,7 +11,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from quarry.agent.context import enabled_libraries, runtime_libraries
 from quarry.agent.transpile import default_transpiler
@@ -30,10 +30,16 @@ from quarry.server.service import (
     SessionBusy,
     SessionService,
     SessionStatus,
+    StepNotFound,
     StepRequest,
     provider_from_config,
 )
 from quarry.server.store import SessionStore
+
+
+class SnapshotRequest(BaseModel):
+    state: dict[str, Json] = Field(default_factory=dict)
+    queries: list[dict[str, Json]] = Field(default_factory=list)
 
 
 def create_app(
@@ -102,9 +108,22 @@ def create_app(
     def post_step(session_id: str, body: StepRequest) -> Step:
         session_or_404(session_id)
         try:
-            return service.start_prompt(session_id, body.prompt)
+            return service.start_prompt(session_id, body.prompt, body.repair)
         except SessionBusy as exc:
             raise HTTPException(status_code=409, detail="a step is already running") from exc
+        except StepNotFound as exc:
+            raise HTTPException(status_code=404, detail=f"no view on step {exc}") from exc
+
+    @api.post("/sessions/{session_id}/steps/{step_id}/snapshots")
+    def post_snapshot(session_id: str, step_id: str, body: SnapshotRequest) -> dict[str, int]:
+        session_or_404(session_id)
+        try:
+            count = service.record_snapshot(session_id, step_id, body.state, body.queries)
+        except StepNotFound as exc:
+            raise HTTPException(status_code=404, detail=f"no view on step {exc}") from exc
+        except SessionBusy as exc:
+            raise HTTPException(status_code=409, detail="step is still running") from exc
+        return {"count": count}
 
     @api.post("/sessions/{session_id}/steps/manual", status_code=202)
     def post_manual(session_id: str, body: ManualStepRequest) -> Step:
