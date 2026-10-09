@@ -137,7 +137,7 @@ has made yet. Decisions already made are in
 
 ## Deferred work
 
-### Stage 4
+### Stage 5
 
 - Sort group-by and pivot results by the group keys by default. This must land
   before views page with offsets, or pages will skip or repeat groups.
@@ -162,7 +162,6 @@ has made yet. Decisions already made are in
   while a sort refetches, so the grid stops flashing to "Loading".
 - Restore the last snapshot's state on mount: a reload resets a view to
   `initial_state` even when `view.snapshots` has later state.
-  `HostBridge.restore` and `ViewStateStore.replace` are ready for the scrubber.
 - Detect a view frame that navigates itself (its `load` event fires a second
   time) and tear the frame down; see [decisions](context/decisions.md#first-ui).
 - Invalidate `RequestCache` entries: a query error cached while the kernel was
@@ -177,27 +176,20 @@ has made yet. Decisions already made are in
   replay-failure banner once a later restart succeeds.
 - `ErrorBoundary` resets only when the view id changes, and a store abandoned by
   a stale mount is not disposed, so its debounced change can still post.
-- Linked `shared:` view-state keys are advertised in the contract but not yet
-  linked across views.
 - The Lightweight Charts attribution link is inert under the sandbox (no
   popups).
 - Add component tests for `SessionPage` (reload keeps the session, 401 message)
   and the time series success and "needs a date column" paths.
 - Extend lineage to SQL strings by passing string literals given to `sql_local`,
   `duckdb.sql` and `_conn.sql` through `duckdb.get_table_names`. Recipes from
-  `sql_local` steps miss their source step until then; Stage 2 replay may need
-  it sooner.
+  `sql_local` steps miss their source step until then. Such a recipe fails in
+  the scratch kernel, so it is saved unvalidated with that reason and the gap is
+  visible. Stage 2 replay may need it sooner.
 - Cover the other lineage blind spots, helpers bound without `def` or `class`
-  and attribute mutation, before recipes rely on lineage.
-- Decide whether a failed step's in-place mutation counts as a write, since
-  recipes depend on it.
-- Set a path policy for the kernel's working directory and relative snapshot
-  paths.
+  and attribute mutation. A recipe they break usually fails validation the same
+  way.
 - Let a cleanly exiting kernel finish before `close()` kills it after
   `shutdown()`, so an in-flight snapshot completes.
-
-### Stage 5
-
 - To-code must pass `schema=` to `to_source`; without it, `ret in [0]` and
   date-shaped strings on string columns fail when run.
 - Convert INTERVAL output in generated relation code while keeping it plain
