@@ -52,16 +52,16 @@ and the Playwright tests pass against the built UI. Its calls are under
 [code map](context/code-map.md#web), and what it left is filed under
 [Stage 4](open-items.md#stage-4). The maintainer approved the one security
 change, the `Access-Control-Allow-Origin` header on the static mount. The pull
-request is sunpar/quarry#4. Four Codex reviews are addressed, and each fix
+request is sunpar/quarry#4. Five Codex reviews are addressed, and each fix
 round asks for another; it merges once one comes back clean.
 
 ## Latest verification
 
 `claude/quarry-stage3-first-ui` on 2026-10-09, with the Stage 2 branch merged
-in: 950 tests passed and 3 skipped (the live provider tests and the memory-cap
+in: 951 tests passed and 3 skipped (the live provider tests and the memory-cap
 test), including the two browser tests under `tests/e2e`; `ruff check`,
 `ruff format --check`, `mypy src` and `uv lock --check` were clean; in `web/`,
-`npm run check` (tsc and prettier), `npm test` (64 tests) and `npm run build`
+`npm run check` (tsc and prettier), `npm test` (67 tests) and `npm run build`
 passed; the wheel from `uv build` contains `quarry/static/index.html`.
 
 ## Next actions

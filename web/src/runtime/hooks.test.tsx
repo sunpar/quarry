@@ -149,6 +149,35 @@ describe("hooks", () => {
     expect(after.status === "success" && after.result.row_count).toBe(2);
   });
 
+  it("drops an answer that a refresh superseded, even when it arrives last", async () => {
+    const { bridge, cache, sent } = harness();
+    const spec = { dataset: "df" };
+    const ids = () => sent.flatMap((m) => (m.type === "query" ? [m.id] : []));
+    const answer = (id: string | undefined, rowCount: number) =>
+      bridge.handle({
+        type: "queryResult",
+        viewId: "v1",
+        id: id ?? "",
+        ok: true,
+        result: {
+          schema: [],
+          rows: [],
+          arrow_base64: null,
+          row_count: rowCount,
+          truncated: false,
+        },
+      });
+    cache.ensureQuery(spec);
+    cache.refresh();
+    cache.ensureQuery(spec);
+    const [first, second] = ids();
+    answer(second, 2);
+    answer(first, 1);
+    await Promise.resolve();
+    const state = cache.ensureQuery(spec);
+    expect(state.status === "success" && state.result.row_count).toBe(2);
+  });
+
   it("useViewState reads the mounted state and re-queries on change", async () => {
     const { sent, wrap } = harness();
     render(wrap(<Probe />));

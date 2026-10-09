@@ -62,6 +62,17 @@ describe("HostBridge", () => {
     expect(posted).toHaveLength(2);
   });
 
+  it("drops runtime messages whose fields have the wrong shape", () => {
+    const { send, onQuery, onError, onStateChanged } = setup();
+    send({ type: "error", viewId: "v1", message: { not: "text" } });
+    send({ type: "query", viewId: "v1", spec: { dataset: "df" } });
+    send({ type: "stateChanged", viewId: "v1", state: {}, queries: "all" });
+    send({ type: "unknown", viewId: "v1" });
+    expect(onError).not.toHaveBeenCalled();
+    expect(onQuery).not.toHaveBeenCalled();
+    expect(onStateChanged).not.toHaveBeenCalled();
+  });
+
   it("resends the mount on every ready", () => {
     const { bridge, posted, send } = setup();
     bridge.mount({ source: "x", initialState: {}, datasets: ["df"] });

@@ -7,7 +7,7 @@ import {
   type ColDef,
   type SortChangedEvent,
 } from "ag-grid-community";
-import { useQuery, useViewState } from "@quarry/hooks";
+import { useDatasetSchema, useQuery, useViewState } from "@quarry/hooks";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -30,8 +30,14 @@ const theme = themeQuartz.withParams({
 
 export default function DataTable({ datasets }: Props) {
   const dataset = datasets[0] ?? "";
-  const [sort, setSort] = useViewState<SortState | null>("sort", null);
+  const [saved, setSort] = useViewState<SortState | null>("sort", null);
   const [limit] = useViewState<number>("limit", 1000);
+  // A saved sort on a column the live dataset no longer has would fail every query.
+  const schema = useDatasetSchema(dataset);
+  const sort =
+    saved !== null && schema?.some((c) => c.name === saved.col) === false
+      ? null
+      : saved;
   const result = useQuery({
     dataset,
     limit,

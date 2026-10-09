@@ -574,6 +574,14 @@ them.
   kernel". The banner shows on `dead` or `replay_needed` and reports a replay
   that stopped early; the prompt stays enabled, since a fresh kernel is
   sometimes what the researcher wants.
+- **The host checks every field of a frame message**: generated code can call
+  `parent.postMessage` itself, so `isRuntimeMessage` validates each message's
+  fields and types, not only `type`. A malformed `error` can no longer put an
+  object into host React state and take down the UI.
+- **Node is a soft prerequisite**: the server checks generated TSX with `node`.
+  Without it, startup logs a warning and the check is skipped; the browser
+  still reports a broken view and "Fix this view" repairs it. Shipping a Node
+  runtime in the wheel was judged too heavy for that fallback.
 - **The server owns row order**: the data table pushes its sort into the query
   spec and gives every grid column a comparator that returns 0, so AG Grid
   keeps the server's order instead of comparing Decimal strings as text.
@@ -589,6 +597,9 @@ them.
   `refresh` when a step finishes or the kernel's pid changes. The view's cache
   marks every answer stale and keeps showing it until the refetch lands, so a
   long-lived view follows a rebound dataset without flashing to "Loading".
+  Each request carries a ticket, and only the newest per key may write, so an
+  answer from before the refresh cannot overwrite one from after. A saved
+  sort on a column the live schema lacks is dropped from the query.
 - **Views get JSON rows only**: `useQuery` reports an Arrow result as an error
   and the contract no longer lists `format`. The runtime has no Arrow decoder,
   so a view asking for it rendered an empty table.

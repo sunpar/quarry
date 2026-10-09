@@ -35,6 +35,16 @@ def test_default_transpiler_is_noop_without_bundle(tmp_path: Path) -> None:
     assert isinstance(default_transpiler(tmp_path), NoopTranspiler)
 
 
+def test_default_transpiler_warns_when_node_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    (tmp_path / "transpile-check.mjs").write_text("")
+    monkeypatch.setattr(transpile.shutil, "which", lambda _name: None)
+    with caplog.at_level("WARNING"):
+        assert isinstance(default_transpiler(tmp_path), NoopTranspiler)
+    assert "node is not on PATH" in caplog.text
+
+
 STATIC = Path(__file__).resolve().parents[2] / "src" / "quarry" / "static"
 
 

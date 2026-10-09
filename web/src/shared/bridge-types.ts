@@ -53,8 +53,44 @@ export type RuntimeToHost =
     }
   | { type: "error"; viewId: string; message: string; stack?: string };
 
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+const isString = (v: unknown): v is string => typeof v === "string";
+
+/** Generated code can post to the host directly, so every field is checked, not just `type`. */
 export function isRuntimeMessage(data: unknown): data is RuntimeToHost {
-  return typeof data === "object" && data !== null && "type" in data;
+  if (!isRecord(data)) return false;
+  switch (data["type"]) {
+    case "ready":
+      return true;
+    case "query":
+      return (
+        isString(data["viewId"]) &&
+        isString(data["id"]) &&
+        isRecord(data["spec"])
+      );
+    case "schema":
+      return (
+        isString(data["viewId"]) &&
+        isString(data["id"]) &&
+        isString(data["dataset"])
+      );
+    case "stateChanged":
+      return (
+        isString(data["viewId"]) &&
+        isRecord(data["state"]) &&
+        Array.isArray(data["queries"]) &&
+        data["queries"].every(isRecord)
+      );
+    case "error":
+      return (
+        isString(data["viewId"]) &&
+        isString(data["message"]) &&
+        (data["stack"] === undefined || isString(data["stack"]))
+      );
+    default:
+      return false;
+  }
 }
 
 export function isHostMessage(data: unknown): data is HostToRuntime {

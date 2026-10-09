@@ -81,6 +81,11 @@ uv run quarry serve
 Open the printed link (it carries the token after `#`). From a laptop, forward
 the port first with the `ssh -L` line the banner prints.
 
+The server checks each generated view's syntax with `node` before saving it.
+Without `node` on `PATH` it logs a warning at startup and skips that check; a
+broken view then fails in the browser, where "Fix this view" sends it back to
+the agent.
+
 ### Developing the UI
 
 ```bash
