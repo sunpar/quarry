@@ -49,7 +49,7 @@ def create_app(
     service = SessionService(
         config=config,
         store=SessionStore(config.root),
-        kernels=KernelManager(config.root, config.data.kernel_threads),
+        kernels=KernelManager(config.root, threads=config.data.kernel_threads),
         provider_factory=provider_factory,
         library=ComponentLibrary(roots),
         transpiler=default_transpiler(static),
