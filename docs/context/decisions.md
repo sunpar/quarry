@@ -614,9 +614,15 @@ them.
   request carries a ticket, and only the newest per key may write, so an answer
   from before the refresh cannot overwrite one from after. A saved sort on a
   column the live schema lacks is dropped from the query.
-- **Views get JSON rows only**: `useQuery` reports an Arrow result as an error
-  and the contract no longer lists `format`. The runtime has no Arrow decoder,
-  so a view asking for it rendered an empty table.
+- **Views may ask for Arrow**: `useQuery` with `format: "arrow"` returns the IPC
+  stream bytes as an `ArrayBuffer` in `arrow`, with `rows` empty, for
+  Perspective.
+- **Perspective's engine is a classic Blob worker**: Chromium refuses a module
+  worker from a `blob:` URL in the opaque-origin frame, and a worker served from
+  `/assets/` throws a `SecurityError` there, so the plan's bundled-worker
+  fallback cannot work. `ensureEngine` starts Perspective's own worker script as
+  a classic worker from a Blob URL, which `worker-src blob:` admits; the CSP is
+  the planned one.
 - **The frame's `load` event is the mount fallback**: the runtime posts `ready`
   once while loading, which can beat the host's listener;
   `HostBridge.frameLoaded` sends the queued mount if `ready` was missed. The

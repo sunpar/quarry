@@ -7,6 +7,7 @@ export const MODULES: ModuleTable = {
   react: () => import("react").then(esm),
   "react/jsx-runtime": () => import("react/jsx-runtime").then(esm),
   "@quarry/hooks": () => import("./hooks").then(esm),
+  "@quarry/perspective": () => import("./perspective").then(esm),
   "@/components/ui/button": () => import("@/components/ui/button").then(esm),
   "@/components/ui/badge": () => import("@/components/ui/badge").then(esm),
   "@/components/ui/input": () => import("@/components/ui/input").then(esm),

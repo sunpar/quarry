@@ -35,6 +35,21 @@ function Probe() {
   );
 }
 
+function ArrowProbe() {
+  const q = useQuery({ dataset: "df", format: "arrow" });
+  if (q.status !== "success")
+    return <span data-testid="status">{q.status}</span>;
+  return (
+    <div>
+      <span data-testid="status">{q.status}</span>
+      <span data-testid="rows">{q.rows.length}</span>
+      <span data-testid="arrow">
+        {q.arrow === null ? "none" : [...new Uint8Array(q.arrow)].join(",")}
+      </span>
+    </div>
+  );
+}
+
 describe("hooks", () => {
   it("useQuery goes loading -> success and dedupes identical specs", async () => {
     const { bridge, sent, wrap } = harness();
@@ -62,11 +77,12 @@ describe("hooks", () => {
     expect(screen.getByTestId("status").textContent).toBe("success");
   });
 
-  it("useQuery reports an Arrow result as an error", async () => {
+  it("exposes arrow bytes for an arrow query", async () => {
     const { bridge, sent, wrap } = harness();
-    render(wrap(<Probe />));
+    render(wrap(<ArrowProbe />));
     const msg = sent.find((m) => m.type === "query");
     if (msg?.type !== "query") throw new Error("expected query");
+    expect(msg.spec).toEqual({ dataset: "df", format: "arrow" });
     await act(async () => {
       bridge.handle({
         type: "queryResult",
@@ -74,15 +90,17 @@ describe("hooks", () => {
         id: msg.id,
         ok: true,
         result: {
-          schema: [],
+          schema: [{ name: "a", dtype: "Int64" }],
           rows: null,
-          arrow_base64: "QVJST1cx",
+          arrow_base64: "AAEC",
           row_count: 1,
           truncated: false,
         },
       });
     });
-    expect(screen.getByTestId("status").textContent).toBe("error");
+    expect(screen.getByTestId("status").textContent).toBe("success");
+    expect(screen.getByTestId("rows").textContent).toBe("0");
+    expect(screen.getByTestId("arrow").textContent).toBe("0,1,2");
   });
 
   it("records a query served from cache for the next state change", async () => {

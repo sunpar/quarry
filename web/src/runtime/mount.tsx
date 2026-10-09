@@ -62,6 +62,10 @@ export function createRuntime(
       const component = await loadComponent(message.source, table);
       if (mounted !== m) return;
       render(m, cache, component, message.datasets);
+      // One report after the first render so an untouched view still records its queries.
+      setTimeout(() => {
+        if (mounted === m) store.flush();
+      }, 300);
     } catch (error) {
       if (mounted !== m) return;
       const e = toError(error);

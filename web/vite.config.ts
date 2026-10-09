@@ -37,6 +37,10 @@ export default defineConfig({
         replacement: path.resolve(root, "./src/runtime/hooks.ts"),
       },
       {
+        find: "@quarry/perspective",
+        replacement: path.resolve(root, "./src/runtime/perspective/index.ts"),
+      },
+      {
         find: "@builtin",
         replacement: path.resolve(root, "../src/quarry/components/builtin"),
       },

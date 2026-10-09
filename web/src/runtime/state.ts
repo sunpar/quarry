@@ -36,6 +36,15 @@ export class ViewStateStore {
     this.notify();
   }
 
+  /** Report the current state now, with the queries issued so far. */
+  flush(): void {
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.onChange(this.cached);
+  }
+
   /** Stable reference between changes, for useSyncExternalStore. */
   current(): JsonObject {
     return this.cached;

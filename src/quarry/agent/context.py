@@ -42,10 +42,10 @@ The hooks are exactly these, from "@quarry/hooks":
 
   Default export: a component receiving one prop, datasets: string[] (the names you passed,
   in order).
-  useQuery(spec): {status:"loading"} | {status:"success", rows, schema, rowCount, truncated}
+  useQuery(spec): {status:"loading"} | {status:"success", rows, schema, rowCount, truncated, arrow}
     | {status:"error", message}
-    spec = {dataset, select?, filters?, group_by?, aggs?, pivot?, sort?, limit?, offset?}
-    (rows are JSON; views cannot request format "arrow")
+    spec = {dataset, select?, filters?, group_by?, aggs?, pivot?, sort?, limit?, offset?, format?}
+    arrow is an ArrayBuffer of Arrow IPC when spec.format is "arrow" (rows is then []), else null.
   useViewState(key, initial): [value, setValue]  (recorded; keys starting with "shared:" are linked)
   useDatasetSchema(name): Column[] | null
 

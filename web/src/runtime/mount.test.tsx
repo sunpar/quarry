@@ -20,6 +20,14 @@ function setup() {
   return { runtime, sent };
 }
 
+const QUERY_VIEW = `
+  import { useQuery, useViewState } from "@quarry/hooks";
+  export default function V() {
+    const [n, setN] = useViewState("n", 1);
+    useQuery({ dataset: "df", limit: n });
+    return <button onClick={() => setN(n + 1)}>more</button>;
+  }`;
+
 describe("runtime mount", () => {
   it("posts ready, mounts a component with datasets, and restores state", async () => {
     const { runtime, sent } = setup();
@@ -50,18 +58,11 @@ describe("runtime mount", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       const { runtime, sent } = setup();
-      const source = `
-        import { useQuery, useViewState } from "@quarry/hooks";
-        export default function V() {
-          const [n, setN] = useViewState("n", 1);
-          useQuery({ dataset: "df", limit: n });
-          return <button onClick={() => setN(n + 1)}>more</button>;
-        }`;
       await act(async () => {
         runtime.handle({
           type: "mount",
           viewId: "v9",
-          source,
+          source: QUERY_VIEW,
           initialState: {},
           datasets: ["df"],
         });
@@ -77,6 +78,38 @@ describe("runtime mount", () => {
       expect(change).toMatchObject({
         state: { n: 2 },
         queries: [{ dataset: "df", limit: 2 }],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports the mount-time state and queries once, unprompted", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { runtime, sent } = setup();
+      await act(async () => {
+        runtime.handle({
+          type: "mount",
+          viewId: "v1",
+          source: QUERY_VIEW,
+          initialState: { n: 5 },
+          datasets: ["df"],
+        });
+      });
+      // The view has rendered once it has asked for its data.
+      await vi.waitFor(() =>
+        expect(sent.some((m) => m.type === "query")).toBe(true),
+      );
+      await act(async () => {
+        vi.runAllTimers();
+      });
+      const reported = sent.filter((m) => m.type === "stateChanged");
+      expect(reported).toHaveLength(1);
+      expect(reported[0]).toMatchObject({
+        viewId: "v1",
+        state: { n: 5 },
+        queries: [{ dataset: "df", limit: 5 }],
       });
     } finally {
       vi.useRealTimers();

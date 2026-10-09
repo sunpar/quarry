@@ -20,6 +20,7 @@
     "paths": {
       "@/*": ["./src/*"],
       "@quarry/hooks": ["./src/runtime/hooks.ts"],
+      "@quarry/perspective": ["./src/runtime/perspective/index.ts"],
       "@builtin/*": ["../src/quarry/components/builtin/*"],
       "react": ["./node_modules/@types/react"],
       "react/*": ["./node_modules/@types/react/*"],
