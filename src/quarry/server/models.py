@@ -53,11 +53,18 @@ class View(BaseModel):
         )
 
 
+class ProviderInfo(BaseModel):
+    name: str
+    model: str
+
+
 class Step(BaseModel):
     id: str
     index: int
     kind: StepKind
     prompt: str | None
+    # The model a prompt step called; config can change between a session's steps.
+    provider: ProviderInfo | None = None
     code: str
     # Each execution in order; restart replays these, not `code`.
     runs: list[CodeRun] = Field(default_factory=list)
@@ -74,11 +81,6 @@ class Step(BaseModel):
     transcript: list[Message] | None = None
     created_at: str
     duration_ms: int = 0
-
-
-class ProviderInfo(BaseModel):
-    name: str
-    model: str
 
 
 class KernelStatus(BaseModel):

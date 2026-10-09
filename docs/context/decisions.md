@@ -201,9 +201,10 @@ them.
   `{"ok": true}` hid an interrupt that hit nothing. The cancel comes first, so
   it holds even when a dead kernel makes the route answer 503.
 - **Steps take a cancel**: `run_agent_step` checks a cancel event before each
-  provider call and each tool call, and ends the step `interrupted`, even on the
-  last turn the 12-call cap allows. A step waiting on the model takes no kernel
-  interrupt. Cost: the provider call in flight still runs to completion.
+  provider call, when the model answers, and before each tool call, and ends the
+  step `interrupted`, even on the last turn the 12-call cap allows. A step
+  waiting on the model takes no kernel interrupt. Cost: the provider call in
+  flight still runs to completion.
 
 ## Lineage
 
@@ -402,7 +403,8 @@ them.
   does, so a written view records the datasets it reads. Spec §8 is amended.
 - **A prompt step's code is the blocks that ran**: `Step.code` joins only the
   `run_python` calls that succeeded, read as spec §5's "the final Python that
-  ran". It is for reading; replay uses `runs`.
+  ran". It is for reading; replay uses `runs`. The output tails join every run's
+  tails, keeping the last 4096 characters.
 - **Replay reruns every execution**: each step keeps `runs`, one
   `{code, status}` per execution: every `run_python` call of a prompt step, or a
   manual step's code. Restart reruns them one by one, so a failed run's partial
@@ -412,8 +414,13 @@ them.
   and an interrupted run is skipped. Spec §5 and §6 are amended. Cost: a run
   that failed before and succeeds now leaves state the session never had.
 - **Replay reports instead of raising**: replay stops at the first run that was
-  `ok` and now is not, or that kills the kernel, and returns a `ReplayReport`
-  naming its step. `/restart` answers 503 only when the new kernel cannot start.
+  `ok` and now is not, that is interrupted whatever it saved, or that kills the
+  kernel, and returns a `ReplayReport` naming its step. `/restart` answers 503
+  only when the new kernel cannot start.
+- **Each prompt step records its model**: a prompt step saves the provider and
+  model it called, since `config.toml` can change between a session's steps
+  while the session keeps the provider it began with. The maintainer chose this
+  over using the session's provider or refusing a mismatch. Spec §5 is amended.
 - **The server stamps `origin_step`**: the kernel has no step ids, so a finished
   step's datasets carry its id, and `/datasets` takes each name's latest writer
   from the saved steps, or null when no step wrote it. The kernel takes no
@@ -437,7 +444,9 @@ them.
   before the crash and their lineage, so restart replays them and `/datasets`
   credits the step.
 - **One step or restart at a time**: a step posted while another step or a
-  restart runs gets 409, and so does a second restart.
+  restart runs gets 409, and so does a second restart. `/query`, `/datasets` and
+  `/interrupt` get 409 during a restart too, since a half-replayed namespace is
+  not the session's.
 - **Shutdown stops and saves running steps**: it cancels every running step,
   closes the kernels, refuses to start new ones, and waits up to 10 s for the
   steps to save as `interrupted`. A step running at shutdown was never saved

@@ -148,3 +148,10 @@ def test_closed_manager_starts_no_kernel(manager: KernelManager) -> None:
     with pytest.raises(KernelDead, match="shutting down"):
         manager.get("s")
     assert manager.status("s").status == "starting"  # nothing was spawned
+
+
+def test_replay_stops_at_an_interrupt_even_in_a_run_that_failed(manager: KernelManager) -> None:
+    # Its partial effects were not rebuilt, whatever its saved status.
+    steps = [step(0, "", ("raise KeyboardInterrupt", "error")), step(1, "x = 1")]
+    report = manager.restart("s", steps)
+    assert report.failed_step == 0 and report.replayed == 0

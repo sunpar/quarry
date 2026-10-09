@@ -443,6 +443,10 @@ def test_restart_refuses_steps_and_restarts_while_it_replays(
         assert client.post(f"/sessions/{sid}/restart").status_code == 409
         manual = {"code": "a = 1"}
         assert client.post(f"/sessions/{sid}/steps/manual", json=manual).status_code == 409
+        # A half-replayed namespace is not the session's.
+        assert client.post(f"/sessions/{sid}/query", json={"dataset": "df"}).status_code == 409
+        assert client.get(f"/sessions/{sid}/datasets").status_code == 409
+        assert client.post(f"/sessions/{sid}/interrupt").status_code == 409
         finish.set()
         restart.join(30)
         assert codes == [200]
@@ -765,3 +769,26 @@ def test_shutdown_saves_the_step_it_stops(tmp_path: Path) -> None:
     assert time.monotonic() - began < 30  # the step sleeps for 60 seconds
     [step] = SessionStore(tmp_path).get(sid).steps
     assert step.status == "interrupted"
+
+
+def test_prompt_step_keeps_the_output_of_its_runs(tmp_path: Path) -> None:
+    turns = [py("c1", "print('one')"), py("c2", "import sys\nprint('two', file=sys.stderr)"), end()]
+    with make_client(tmp_path, turns) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps", json={"prompt": "go"})
+        wait_idle(client, sid)
+        step = client.get(f"/sessions/{sid}").json()["steps"][0]
+        assert step["stdout_tail"] == "one\n" and step["stderr_tail"] == "two\n"
+
+
+def test_prompt_steps_record_the_model_they_called(tmp_path: Path) -> None:
+    with make_client(tmp_path, [end()]) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps", json={"prompt": "go"})
+        wait_idle(client, sid)
+        client.post(f"/sessions/{sid}/steps/manual", json={"code": "a = 1"})
+        wait_idle(client, sid)
+        prompt, manual = client.get(f"/sessions/{sid}").json()["steps"]
+    # The session records the model it began with; a config change later shows per step.
+    assert prompt["provider"] == {"name": "anthropic", "model": "claude-opus-5-5"}
+    assert manual["provider"] is None
