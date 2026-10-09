@@ -4,11 +4,12 @@ import { Button } from "@/components/ui/button";
 interface ViewFrameProps {
   title: string;
   error: string | null;
+  disabled: boolean;
   onFix: () => void;
 }
 
 export const ViewFrame = forwardRef<HTMLIFrameElement, ViewFrameProps>(
-  function ViewFrame({ title, error, onFix }, ref) {
+  function ViewFrame({ title, error, disabled, onFix }, ref) {
     return (
       <div className="relative border-y border-border bg-card">
         <iframe
@@ -27,7 +28,7 @@ export const ViewFrame = forwardRef<HTMLIFrameElement, ViewFrameProps>(
               {error}
             </pre>
             <div>
-              <Button size="sm" onClick={onFix}>
+              <Button size="sm" disabled={disabled} onClick={onFix}>
                 Fix this view
               </Button>
             </div>

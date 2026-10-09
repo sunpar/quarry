@@ -15,3 +15,11 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
   if (!isHostMessage(event.data)) return;
   runtime.handle(event.data);
 });
+
+// Errors from timers and promises escape React's error boundary; send them to the host too.
+window.addEventListener("error", (event) =>
+  runtime.reportError(event.error ?? event.message),
+);
+window.addEventListener("unhandledrejection", (event) =>
+  runtime.reportError(event.reason),
+);

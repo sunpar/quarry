@@ -41,7 +41,7 @@ export function useViewState<T extends Json>(
   const state = useSyncExternalStore(store.subscribe.bind(store), () =>
     store.current(),
   );
-  const value = key in state ? (state[key] as T) : initial;
+  const value = Object.hasOwn(state, key) ? (state[key] as T) : initial;
   const set = useCallback((next: T) => store.set(key, next), [store, key]);
   return [value, set];
 }

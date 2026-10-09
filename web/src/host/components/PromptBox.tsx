@@ -4,7 +4,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 interface PromptBoxProps {
   running: boolean;
-  onSubmit: (prompt: string) => void;
+  onSubmit: (prompt: string) => Promise<unknown>;
   onStop: () => void;
 }
 
@@ -13,11 +13,18 @@ export function PromptBox({ running, onSubmit, onStop }: PromptBoxProps) {
   const submit = () => {
     const prompt = text.trim();
     if (prompt === "" || running) return;
-    onSubmit(prompt);
-    setText("");
+    // Keep the text if the submit is refused; the caller shows that error.
+    onSubmit(prompt).then(
+      () => setText(""),
+      () => undefined,
+    );
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      !event.nativeEvent.isComposing
+    ) {
       event.preventDefault();
       submit();
     }

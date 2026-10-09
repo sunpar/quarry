@@ -13,6 +13,6 @@ process.stdin.on("end", () => {
     process.stderr.write(
       error instanceof Error ? error.message : String(error),
     );
-    process.exit(1);
+    process.exitCode = 1;
   }
 });

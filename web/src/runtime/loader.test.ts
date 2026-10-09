@@ -30,6 +30,13 @@ describe("loadComponent", () => {
     );
   });
 
+  it("refuses names inherited from Object.prototype", async () => {
+    const source = `import x from "constructor"; export default () => null;`;
+    await expect(loadComponent(source, table)).rejects.toThrow(
+      '"constructor" is not available in views',
+    );
+  });
+
   it("requires a default export", async () => {
     await expect(loadComponent(`export const x = 1;`, table)).rejects.toThrow(
       "export default",

@@ -86,6 +86,26 @@ describe("runtime mount", () => {
     );
   });
 
+  it("forwards a late error to the mounted view's host", async () => {
+    const { runtime, sent } = setup();
+    runtime.reportError(new Error("before mount"));
+    expect(sent.some((m) => m.type === "error")).toBe(false);
+    await act(async () => {
+      runtime.handle({
+        type: "mount",
+        viewId: "v4",
+        source: `export default () => <p>late-view</p>;`,
+        initialState: {},
+        datasets: [],
+      });
+    });
+    await waitFor(() => expect(screen.getByText("late-view")).toBeTruthy());
+    runtime.reportError(new Error("late"));
+    expect(sent).toContainEqual(
+      expect.objectContaining({ type: "error", viewId: "v4", message: "late" }),
+    );
+  });
+
   it("ignores a stale mount once a newer mount arrives", async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((resolve) => {

@@ -23,7 +23,8 @@ export async function loadComponent(
   const names = new Set([...code.matchAll(REQUIRE)].map((m) => m[2] ?? ""));
   const resolved = new Map<string, unknown>();
   for (const name of names) {
-    const load = table[name];
+    // Own keys only: "constructor" and friends live on the prototype of every object.
+    const load = Object.hasOwn(table, name) ? table[name] : undefined;
     if (load === undefined) {
       const allowed = Object.keys(table).join(", ");
       throw new Error(

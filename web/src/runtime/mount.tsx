@@ -10,6 +10,8 @@ import { ViewStateStore } from "./state";
 
 export interface Runtime {
   handle(message: HostToRuntime): void;
+  /** Forward an error thrown outside React (a timer, a promise) to the mounted view's host. */
+  reportError(error: unknown): void;
 }
 
 interface Mounted {
@@ -59,7 +61,7 @@ export function createRuntime(
       render(m, cache, component, message.datasets);
     } catch (error) {
       if (mounted !== m) return;
-      const e = error instanceof Error ? error : new Error(String(error));
+      const e = toError(error);
       bridge.error(e.message, e.stack);
       root.render(
         <pre className="m-4 whitespace-pre-wrap font-mono text-sm text-destructive">
@@ -82,7 +84,15 @@ export function createRuntime(
         if (control.type === "restore") mounted?.store.replace(control.state);
       });
     },
+    reportError(error) {
+      const e = toError(error);
+      mounted?.bridge.error(e.message, e.stack);
+    },
   };
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 function View({

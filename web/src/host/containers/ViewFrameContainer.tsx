@@ -9,12 +9,14 @@ import { ViewFrame } from "../components/ViewFrame";
 interface ViewFrameContainerProps {
   sessionId: string;
   step: Step;
+  running: boolean;
   onRepair: (repair: RepairRequest) => void;
 }
 
 export function ViewFrameContainer({
   sessionId,
   step,
+  running,
   onRepair,
 }: ViewFrameContainerProps) {
   const api = useApi();
@@ -56,7 +58,9 @@ export function ViewFrameContainer({
       onQuery: (spec) => api.query(sessionId, spec),
       onSchema: schemaFor,
       onStateChanged: (state, queries) => {
-        void api.postSnapshot(sessionId, step.id, { state, queries });
+        void api
+          .postSnapshot(sessionId, step.id, { state, queries })
+          .catch((e: unknown) => console.error("snapshot not saved", e));
       },
       onError: (message) => setError(message),
     });
@@ -76,6 +80,7 @@ export function ViewFrameContainer({
       ref={frameRef}
       title={`View for step ${step.index + 1}`}
       error={error}
+      disabled={running}
       onFix={() => error !== null && onRepair({ step_id: step.id, error })}
     />
   );

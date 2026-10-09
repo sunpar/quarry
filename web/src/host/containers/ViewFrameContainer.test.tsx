@@ -54,7 +54,12 @@ function mount(onRepair = vi.fn()) {
   render(
     <QueryClientProvider client={qc}>
       <ApiProvider client={new ApiClient("t", fetchImpl)}>
-        <ViewFrameContainer sessionId="sess" step={step} onRepair={onRepair} />
+        <ViewFrameContainer
+          sessionId="sess"
+          step={step}
+          running={false}
+          onRepair={onRepair}
+        />
       </ApiProvider>
     </QueryClientProvider>,
   );

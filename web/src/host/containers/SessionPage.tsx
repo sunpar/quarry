@@ -92,6 +92,7 @@ function SessionColumn({ id }: { id: string }) {
               <ViewFrameContainer
                 sessionId={id}
                 step={step}
+                running={running}
                 onRepair={(repair) =>
                   submit.mutate({
                     prompt: "Fix the view so it mounts.",
@@ -105,7 +106,7 @@ function SessionColumn({ id }: { id: string }) {
       </div>
       <PromptBox
         running={running}
-        onSubmit={(prompt) => submit.mutate({ prompt })}
+        onSubmit={(prompt) => submit.mutateAsync({ prompt })}
         onStop={() => interrupt.mutate()}
       />
     </main>
