@@ -790,7 +790,7 @@ def test_query_arrow_format() -> None:
     out = ex.query(QuerySpec(dataset="df", format="arrow"))
     assert out.rows is None
     assert out.arrow_base64 is not None
-    decoded = pl.read_ipc(io.BytesIO(base64.b64decode(out.arrow_base64)))
+    decoded = pl.read_ipc_stream(io.BytesIO(base64.b64decode(out.arrow_base64)))
     assert decoded["a"].to_list() == [1]
 
 
@@ -804,10 +804,10 @@ def test_query_json_rows_null_non_finite_floats_and_arrow_keeps_them() -> None:
     assert rows == [{"x": None, "x32": None, "xs": [None], "st": {"x": None}}] * 3
     arrow = ex.query(QuerySpec(dataset="f", format="arrow")).arrow_base64
     assert arrow is not None
-    decoded = pl.read_ipc(io.BytesIO(base64.b64decode(arrow)))
-    assert repr(decoded.rows()) == repr(
-        [(v, v, [v], {"x": v}) for v in (float("inf"), float("-inf"), float("nan"))]
-    )
+    decoded = pl.read_ipc_stream(io.BytesIO(base64.b64decode(arrow)))
+    # Nested columns reach the viewer as one JSON string per row.
+    pairs = ((float("inf"), "Infinity"), (float("-inf"), "-Infinity"), (float("nan"), "NaN"))
+    assert repr(decoded.rows()) == repr([(v, v, f"[{t}]", f'{{"x": {t}}}') for v, t in pairs])
 
 
 def test_query_duckdb_bigint_sum_is_an_exact_decimal_string() -> None:

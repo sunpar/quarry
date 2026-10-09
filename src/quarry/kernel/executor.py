@@ -20,6 +20,7 @@ import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field
 
 from quarry.errors import NOT_FAILURES, exception_message
+from quarry.kernel.arrow import arrow_ipc
 from quarry.kernel.datasets import (
     Column,
     Dataset,
@@ -407,6 +408,4 @@ def _write_parquet(obj: Dataset, path: Path) -> None:
 
 
 def _arrow_base64(frame: pl.DataFrame) -> str:
-    buffer = io.BytesIO()
-    frame.write_ipc(buffer)
-    return base64.b64encode(buffer.getvalue()).decode("ascii")
+    return base64.b64encode(arrow_ipc(frame)).decode("ascii")
