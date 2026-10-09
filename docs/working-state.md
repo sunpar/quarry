@@ -55,7 +55,7 @@ green. It is blocked on sunpar/quarry#2 merging.
 ## Latest verification
 
 `claude/quarry-stage3-first-ui` with the Stage 2 branch merged in again (Codex
-review addressed) on 2026-10-08: 912 tests passed and 3 skipped (the live provider tests), including
+review addressed) on 2026-10-08: 914 tests passed and 3 skipped (the live provider tests), including
 the two browser tests under `tests/e2e`; `ruff check`, `ruff format --check`,
 `mypy src` and `uv lock --check` were clean; in `web/`, `npm run check` (tsc and
 prettier), `npm test` (56 tests) and `npm run build` passed; the wheel from

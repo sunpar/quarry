@@ -5,7 +5,10 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Protocol
+from typing import Final, Protocol
+
+# A check that hangs would hold its step, and a restart waiting on that step, for good.
+CHECK_TIMEOUT_SECONDS: Final = 30
 
 
 class Transpiler(Protocol):
@@ -22,9 +25,17 @@ class CommandTranspiler:
         self._command = command
 
     def check(self, source: str) -> str | None:
-        done = subprocess.run(
-            self._command, input=source, text=True, capture_output=True, check=False
-        )
+        try:
+            done = subprocess.run(
+                self._command,
+                input=source,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=CHECK_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:  # run() has killed the check by now
+            return f"transpile check timed out after {CHECK_TIMEOUT_SECONDS} s"
         return (
             None
             if done.returncode == 0

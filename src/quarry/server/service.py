@@ -191,15 +191,15 @@ class SessionService:
         )
 
     def interrupt(self, session_id: str) -> bool:
-        """Interrupt the kernel and cancel a running prompt step, which may be waiting on the
-        model where no kernel interrupt reaches; False when there was nothing to stop."""
-        delivered = self._kernel(session_id).interrupt()
+        """Cancel a running prompt step, which may be waiting on the model where no kernel
+        interrupt reaches, then interrupt the kernel; False when there was nothing to stop.
+        The cancel comes first, so it holds even when a dead kernel raises KernelDead."""
         with self._lock:
             running = self._running.get(session_id)
             cancelled = running is not None and running.kind == "prompt"
             if cancelled:
                 self._cancels[session_id].set()
-        return delivered or cancelled
+        return self._kernel(session_id).interrupt() or cancelled
 
     def query(self, session_id: str, spec: QuerySpec) -> QueryResult:
         return self._kernel(session_id).query(spec)
