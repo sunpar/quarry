@@ -40,7 +40,12 @@ def _table(batches: Iterable[pa.RecordBatch]) -> pa.Table | None:
 
 
 def _odbc_reader(query: str, dsn: str, params: Sequence[object] | None) -> Iterable[pa.RecordBatch]:
-    from arrow_odbc import read_arrow_batches_from_odbc
+    try:
+        from arrow_odbc import read_arrow_batches_from_odbc
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "sql() needs the mssql extra: uv pip install 'quarry[mssql]'", name="arrow_odbc"
+        ) from exc
 
     # arrow-odbc binds every parameter as VARCHAR, so it accepts only str, or None for NULL.
     parameters = None if params is None else [None if p is None else str(p) for p in params]

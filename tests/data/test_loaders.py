@@ -1,7 +1,10 @@
+import os
+import time
 from pathlib import Path
 
 import pytest
 
+from quarry.data import loaders
 from quarry.data.loaders import describe_failures, describe_loaders, load_loaders
 
 
@@ -175,3 +178,79 @@ def test_name_that_is_not_an_identifier_is_skipped(tmp_path: Path) -> None:
     assert [f.name for f in reg.failures] == ["daily-returns", "class"]
     assert all("identifier" in f.error for f in reg.failures)
     assert list(reg.functions) == ["daily_returns"]
+
+
+root_ignores_modes = pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
+
+
+@root_ignores_modes
+def test_unreadable_file_is_one_failure(tmp_path: Path) -> None:
+    path = write(tmp_path, entry("daily_returns"))
+    path.chmod(0o000)
+    try:
+        reg = load_loaders(path)
+    finally:
+        path.chmod(0o644)
+    assert reg.specs == [] and reg.functions == {}
+    assert [f.name for f in reg.failures] == ["loaders.toml"]
+    assert "PermissionError" in reg.failures[0].error
+
+
+@root_ignores_modes
+def test_unreadable_directory_is_one_failure(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    path = write(home, entry("daily_returns"))
+    home.chmod(0o000)
+    try:
+        reg = load_loaders(path)
+    finally:
+        home.chmod(0o755)
+    assert reg.specs == [] and reg.functions == {}
+    assert [f.name for f in reg.failures] == ["loaders.toml"]
+    assert "PermissionError" in reg.failures[0].error
+
+
+def test_directory_in_place_of_the_file_is_one_failure(tmp_path: Path) -> None:
+    (tmp_path / "loaders.toml").mkdir()
+    reg = load_loaders(tmp_path / "loaders.toml")
+    assert [f.name for f in reg.failures] == ["loaders.toml"]
+
+
+def slow_module(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, seconds: float) -> Path:
+    (tmp_path / "quarry_test_slow_import.py").write_text(
+        f"import time\ntime.sleep({seconds})\n\ndef fn():\n    return 1\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    return write(tmp_path, entry("slow", "quarry_test_slow_import:fn"))
+
+
+def test_slow_import_is_named_on_stderr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(loaders, "IMPORT_NOTICE_SECONDS", 0.05)
+    reg = load_loaders(slow_module(tmp_path, monkeypatch, 0.4))
+    assert list(reg.functions) == ["slow"]
+    assert capsys.readouterr().err == (
+        "quarry: still importing loader slow (quarry_test_slow_import:fn) after 0.05 s\n"
+    )
+
+
+def test_import_that_returns_in_time_is_silent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(loaders, "IMPORT_NOTICE_SECONDS", 0.2)
+    reg = load_loaders(write(tmp_path, entry("daily_returns")))
+    time.sleep(0.4)  # a timer that was not cancelled would fire in this wait
+    assert list(reg.functions) == ["daily_returns"]
+    assert capsys.readouterr().err == ""
+
+
+def test_failed_import_cancels_its_notice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(loaders, "IMPORT_NOTICE_SECONDS", 0.2)
+    reg = load_loaders(write(tmp_path, entry("broken", "no.such.module:fn")))
+    time.sleep(0.4)
+    assert [f.name for f in reg.failures] == ["broken"]
+    assert capsys.readouterr().err == ""

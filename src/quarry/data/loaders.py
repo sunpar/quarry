@@ -4,15 +4,21 @@ from __future__ import annotations
 
 import importlib
 import keyword
+import sys
+import threading
 import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from quarry.errors import exception_message
+
+# A loader whose import runs this long gets a line on stderr naming it, since it may be hung.
+IMPORT_NOTICE_SECONDS: Final = 10.0
 
 
 class LoaderSpec(BaseModel):
@@ -46,8 +52,6 @@ def load_loaders(path: Path) -> LoaderRegistry:
     """The loaders declared in `path`. Never raises: every kernel builds its namespace from
     this, so a broken file, entry, or import becomes a failure and the rest still bind."""
     registry = LoaderRegistry()
-    if not path.exists():
-        return registry
     entries = _read_entries(path)
     if isinstance(entries, LoaderFailure):
         registry.failures.append(entries)
@@ -59,7 +63,7 @@ def load_loaders(path: Path) -> LoaderRegistry:
             continue
         registry.specs.append(spec)
         try:
-            registry.functions[spec.name] = _import(spec.import_)
+            registry.functions[spec.name] = _import(spec)
         # Importing runs the firm's module code, which can fail in any way (a server it reaches
         # at import time is down, or it calls sys.exit()). Any failed import skips that loader;
         # the kernel still starts. A KeyboardInterrupt is not a failed import, so it propagates.
@@ -86,6 +90,8 @@ def _read_entries(path: Path) -> list[object] | LoaderFailure:
     try:
         with path.open("rb") as handle:
             raw = tomllib.load(handle)
+    except FileNotFoundError:  # no loaders.toml is a firm with no loaders
+        return []
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         return LoaderFailure(name=path.name, error=f"{type(exc).__name__}: {exc}")
     entries = raw.get("loader", [])
@@ -123,12 +129,25 @@ def _invalid(exc: ValidationError) -> str:
     return f"invalid loader entry: {problems}"
 
 
-def _import(target: str) -> Callable[..., object]:
-    module_name, _, attr = target.partition(":")
+def _import(spec: LoaderSpec) -> Callable[..., object]:
+    module_name, _, attr = spec.import_.partition(":")
     if not module_name or not attr:
-        raise ValueError(f"import must look like module:function, got {target!r}")
-    module = importlib.import_module(module_name)
+        raise ValueError(f"import must look like module:function, got {spec.import_!r}")
+    timer = threading.Timer(IMPORT_NOTICE_SECONDS, _announce_slow_import, args=(spec,))
+    timer.start()
+    try:
+        module = importlib.import_module(module_name)
+    finally:
+        timer.cancel()
     func: object = getattr(module, attr)
     if not callable(func):
-        raise ValueError(f"{target} is not callable")
+        raise ValueError(f"{spec.import_} is not callable")
     return func
+
+
+def _announce_slow_import(spec: LoaderSpec) -> None:
+    print(
+        f"quarry: still importing loader {spec.name} ({spec.import_})"
+        f" after {IMPORT_NOTICE_SECONDS:g} s",
+        file=sys.stderr,
+    )
