@@ -20,7 +20,7 @@ written and waits for Stage 2.
 | ------------------- | -------------------------------------- | --------------------------------------------------------------------- |
 | 1. Core             | Merged in sunpar/quarry#1 as `d00b5fa` | [Stage 1](superpowers/plans/2026-10-08-quarry-stage1-core.md)         |
 | 2. Server and agent | In progress, sunpar/quarry#2 open      | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
-| 3. First UI         | Planned, not started                   | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
+| 3. First UI         | Planned, handoff ready, not started    | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
 | 4. Projects         | Not planned yet                        | Spec §15                                                              |
 | 5. Breadth          | Not planned yet                        | Spec §15                                                              |
 
@@ -50,7 +50,9 @@ session building Stage 2 owns this subsection.
 2. Stage 2: work through its [deferred items](open-items.md#stage-2) and the
    [open questions](open-items.md#open-questions) it depends on.
 3. Merge sunpar/quarry#2 once CI is green and the Codex review is clear.
-4. Stage 3: start from its plan and its [deferred items](open-items.md#stage-3).
+4. Stage 3: start from the
+   [Stage 3 handoff](superpowers/handoffs/2026-10-08-quarry-stage3-handoff.md),
+   which points at the plan and its [deferred items](open-items.md#stage-3).
 
 ## Resuming
 
