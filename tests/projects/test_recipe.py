@@ -88,6 +88,6 @@ def test_unknown_dataset_and_unproduced_reads() -> None:
         recipe_steps(steps, "nope")
 
 
-def test_label_keeps_every_line_break_out_of_the_code() -> None:
-    steps = [step(0, "df = a()", writes=["df"], prompt="load\rimport os\nnow")]
-    assert raw_recipe(steps) == "# step 1: load import os now\ndf = a()\n"
+def test_label_keeps_every_line_break_and_unprintable_out_of_the_code() -> None:
+    steps = [step(0, "df = a()", writes=["df"], prompt="load\rimport os\nnow\x00")]
+    assert raw_recipe(steps) == "# step 1: load import os now\\u0000\ndf = a()\n"

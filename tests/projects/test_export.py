@@ -89,6 +89,7 @@ def test_notebook_validates_and_runs(tmp_path: Path) -> None:
     namespace = run_code_cells(doc)
     assert isinstance(namespace["prices_1"], pl.DataFrame)
     assert len({c["id"] for c in doc["cells"]}) == len(doc["cells"])
+    assert notebook(store.get("momentum"), store) == doc  # an export is reproducible
     assert json.loads(notebook_json(store.get("momentum"), store))["nbformat"] == 4
 
 
@@ -140,14 +141,16 @@ def test_a_query_whose_import_would_rebind_a_saved_dataset_is_not_rendered(
 
 def test_an_unrendered_query_stays_a_comment_whatever_its_error_says(tmp_path: Path) -> None:
     store = project_with_saved_items(tmp_path)
-    hostile = {"dataset": "prices", "x\rimport sys; sys.exit(3)\n": 1}
+    hostile = {"dataset": "prices", "x\rimport sys; sys.exit(3)\n\x00\u202e": 1}
     store.write_view(
         "momentum", store.get("momentum").views[0], source=VIEW_SOURCE, state={}, queries=[hostile]
     )
     doc = notebook(store.get("momentum"), store)
     code = doc["cells"][-2]["source"]
     assert "# query 1 could not be rendered:" in code
-    run_code_cells(doc)  # the key's line breaks would have run the rest of it as code
+    assert "\\u0000\\u202e" in code and "\x00" not in code
+    # The key's line breaks would have run the rest of it as code, and a NUL stops it compiling.
+    run_code_cells(doc)
 
 
 def test_dataset_script_has_a_header_and_the_recipe(tmp_path: Path) -> None:
@@ -175,7 +178,7 @@ def test_dataset_script_keeps_free_text_in_its_comments(tmp_path: Path) -> None:
         .datasets[0]
         .model_copy(
             update={
-                "description": "two\rlines",
+                "description": "two\rlines\x00",
                 "validated": False,
                 "validation_error": "rows differ\nraise SystemExit(3)",
             }
@@ -183,6 +186,48 @@ def test_dataset_script_keeps_free_text_in_its_comments(tmp_path: Path) -> None:
     )
     store.write_dataset("momentum", saved, recipe=RECIPE, raw=RECIPE)
     script = dataset_script(store.get("momentum"), store, "prices")
-    assert script.startswith("# prices: two lines\n")
+    assert script.startswith("# prices: two lines\\u0000\n")
     assert "# Not validated: rows differ raise SystemExit(3)\n" in script
     exec(script, {})  # the test executes exported code on purpose
+
+
+def test_a_recipe_runs_before_the_saved_dataset_it_rebinds(tmp_path: Path) -> None:
+    store = project_with_saved_items(tmp_path)
+    load = "import polars as pl\nprices = pl.DataFrame({'ts': ['a', 'b'], 'px': [1.0, 2.0]})\n"
+    # Each raw recipe replays the load: returns' would reset prices to both rows.
+    filtered = load + "prices = prices.filter(pl.col('px') > 1)\n"
+    store.write_dataset(
+        "momentum", store.get("momentum").datasets[0], recipe=filtered, raw=filtered
+    )
+    save_another_dataset(store, "returns", load + "returns = prices.select(pl.col('px') * 10)\n")
+    doc = notebook(store.get("momentum"), store)
+    headings = [c["source"].split("\n")[0] for c in doc["cells"] if c["cell_type"] == "markdown"]
+    assert headings[1:4] == ["## returns", "## prices", "## View: table"]
+    namespace = run_code_cells(doc)
+    prices, returns, result = namespace["prices"], namespace["returns"], namespace["prices_1"]
+    assert isinstance(prices, pl.DataFrame) and prices.height == 1
+    assert isinstance(returns, pl.DataFrame) and returns["px"].to_list() == [10.0, 20.0]
+    assert isinstance(result, pl.DataFrame) and result.height == 1
+
+
+def test_recipes_in_a_cycle_keep_saved_order_and_say_what_they_rebind(tmp_path: Path) -> None:
+    store = project_with_saved_items(tmp_path)
+    save_another_dataset(store, "left", "left = 1\nright = 2\n")
+    save_another_dataset(store, "right", "right = 2\nleft = 1\n")
+    save_another_dataset(store, "zeta", "left = (\n")  # does not parse, so constrains nothing
+    doc = notebook(store.get("momentum"), store)
+    code = [c["source"] for c in doc["cells"] if c["cell_type"] == "code"][:4]
+    # Saved order throughout: left's binding of right is replaced by right's own recipe.
+    assert code[0] == "left = 1\nright = 2\n" and code[1] == RECIPE
+    assert code[2].startswith("# This recipe also assigns left, which an earlier cell loaded")
+    assert code[2].endswith("\nright = 2\nleft = 1\n") and code[3] == "left = (\n"
+
+
+def test_the_view_source_fence_outlasts_its_backticks(tmp_path: Path) -> None:
+    store = project_with_saved_items(tmp_path)
+    source = "export default function V() { return '````' }"
+    store.write_view(
+        "momentum", store.get("momentum").views[0], source=source, state={}, queries=[]
+    )
+    fence = notebook(store.get("momentum"), store)["cells"][-1]["source"]
+    assert fence == f"`````tsx\n{source}\n`````\n"

@@ -845,11 +845,25 @@ them.
   `from datetime import date`, would rebind a saved dataset stays a
   `# query N could not be rendered` comment naming it, as "To code" refuses one.
   Free text in an exported comment, such as a description, a validation error
-  or a pydantic message quoting a raw JSON key, is joined onto one line, so a
-  line break cannot run the rest as code. The plan named results with no check
-  and put the multi-line pydantic message into a comment. Cost if wrong: such a
-  query is missing from the export until the dataset is renamed, and a view's
-  result numbers depend on the views that sort before it.
+  or a pydantic message quoting a raw JSON key, goes through `py_comment`, which
+  `raw_recipe` shares: line breaks become spaces and anything else unprintable
+  is escaped, so a line break cannot run the rest as code, a NUL cannot stop the
+  cell compiling, and a bidi control cannot disguise it. The plan named results
+  with no check and put the multi-line pydantic message into a comment. Cost if
+  wrong: such a query is missing from the export until the dataset is renamed,
+  and a view's result numbers depend on the views that sort before it.
+- **Exported recipes run in dependency order**: a raw recipe replays its
+  upstream steps, so the recipe of `returns`, derived before a later step
+  filtered `prices`, also rebinds `prices` to the unfiltered frame. The notebook
+  therefore runs a recipe that assigns another saved dataset, by
+  `analyze(recipe).stores`, before that dataset's own recipe, and keeps saved
+  order wherever nothing constrains it; each dataset's heading moves with its
+  recipe, and every dataset still precedes every view. Recipes that assign each
+  other, directly or around a cycle, keep saved order among themselves, and a
+  recipe that runs after a saved dataset it assigns opens with a comment naming
+  it. A recipe that does not parse constrains nothing. The plan emitted recipes
+  in saved order. Cost if wrong: datasets no longer appear in name order, and a
+  cycle's warning asks the researcher to sort it out.
 
 ## Packaging and CI
 

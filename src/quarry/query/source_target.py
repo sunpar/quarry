@@ -216,6 +216,13 @@ def py_literal(value: object) -> str:
             raise TypeError(f"cannot render a {type(value).__name__} as a Python literal")
 
 
+def py_comment(text: str) -> str:
+    """Render `text` as one comment line, its line breaks as spaces and the rest of what is
+    unprintable escaped: a line break would end the comment and run what follows as code, a NUL
+    would stop the source compiling, and a bidi control would make it read differently."""
+    return "# " + "".join(map(_escape_unprintable, " ".join(text.splitlines())))
+
+
 def _chain_source(
     spec: QuerySpec,
     *,

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from quarry.agent.fake import FakeProvider
+from tests.projects.test_export import project_with_saved_items, save_another_dataset
 from tests.server.test_app import PRICES, TIDY, end, make_client, py, view_turn, wait_idle
 from tests.server.test_recall import saved_project
 
@@ -64,12 +65,25 @@ def test_export_routes(tmp_path: Path) -> None:
     client, _ = saved_project(tmp_path, "live")
     nb = client.get("/projects/p/export.ipynb")
     assert nb.status_code == 200
-    assert nb.headers["content-disposition"] == 'attachment; filename="p.ipynb"'
+    assert nb.headers["content-disposition"] == (
+        "attachment; filename=\"p.ipynb\"; filename*=UTF-8''p.ipynb"
+    )
     assert nb.json()["nbformat"] == 4 and any(c["cell_type"] == "code" for c in nb.json()["cells"])
     script = client.get("/projects/p/datasets/prices/recipe.py")
     assert script.status_code == 200 and script.headers["content-type"].startswith("text/x-python")
-    assert script.headers["content-disposition"] == 'attachment; filename="prices.py"'
+    assert script.headers["content-disposition"] == (
+        "attachment; filename=\"prices.py\"; filename*=UTF-8''prices.py"
+    )
     assert "prices = " in script.text
     assert client.get("/projects/p/datasets/nope/recipe.py").status_code == 404
     assert client.get("/projects/nope/export.ipynb").status_code == 404
     assert client.get("/projects/nope/datasets/prices/recipe.py").status_code == 404
+
+
+def test_a_non_ascii_dataset_name_downloads_under_both_filename_forms(tmp_path: Path) -> None:
+    save_another_dataset(project_with_saved_items(tmp_path), "数据", "数据 = 1\n")
+    script = make_client(tmp_path, []).get("/projects/momentum/datasets/数据/recipe.py")
+    assert script.status_code == 200 and script.text.endswith("数据 = 1\n")
+    assert script.headers["content-disposition"] == (
+        "attachment; filename=\"__.py\"; filename*=UTF-8''%E6%95%B0%E6%8D%AE.py"
+    )
