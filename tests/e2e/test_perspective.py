@@ -10,8 +10,10 @@ from tests.e2e.test_ui import end, open_session, py, write
 
 MIXED = (
     "from datetime import date, datetime\nfrom decimal import Decimal\n"
+    "from zoneinfo import ZoneInfo\nny = ZoneInfo('America/New_York')\n"
     "df = pl.DataFrame({'d': [date(2024, 1, 2), date(2024, 1, 3)], "
     "'ts': [datetime(2024, 1, 2, 9), datetime(2024, 1, 3, 9)], "
+    "'zoned': [datetime(2024, 1, 2, 9, tzinfo=ny), datetime(2024, 7, 3, 9, tzinfo=ny)], "
     "'px': pl.Series([Decimal('1.50'), Decimal('2.25')], dtype=pl.Decimal(38, 2)), "
     "'sym': pl.Series(['A', 'B'], dtype=pl.Categorical), 's': ['x', 'y']})\n"
 )
@@ -42,8 +44,9 @@ def test_perspective_mounts_in_the_sandbox(
     expect(frame.get_by_test_id("rows")).to_have_text("2", timeout=60_000)
     expect(frame.locator("perspective-viewer")).to_be_visible(timeout=60_000)
     # The datagrid plugin renders one header cell per column once the table is loaded.
-    header = frame.locator("perspective-viewer regular-table th", has_text="px")
-    expect(header).to_be_visible(timeout=60_000)
+    for column in ("px", "zoned"):
+        header = frame.locator("perspective-viewer regular-table th", has_text=column)
+        expect(header).to_be_visible(timeout=60_000)
     blocked = [e for e in errors if "Content Security Policy" in e or "CORS" in e]
     assert not blocked, blocked
 
