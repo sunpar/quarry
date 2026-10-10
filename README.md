@@ -93,10 +93,10 @@ uv run quarry serve --port 8765          # terminal 1
 cd web && QUARRY_PORT=8765 npm run dev    # terminal 2, open http://localhost:5173/#token=<token>
 ```
 
-Vite proxies `/sessions`, `/projects` and `/healthz` to the Python server.
-`npm run check`, `npm test`, and `npm run build` must pass before a commit; the
-Playwright tests under `tests/e2e` run only when `src/quarry/static/index.html`
-exists. They need a browser, installed once with
+Vite proxies `/sessions`, `/projects`, `/libraries`, `/libs` and `/healthz` to
+the Python server. `npm run check`, `npm test`, and `npm run build` must pass
+before a commit; the Playwright tests under `tests/e2e` run only when
+`src/quarry/static/index.html` exists. They need a browser, installed once with
 `uv run playwright install chromium`; without it they error whenever a build
 exists.
 
@@ -127,3 +127,43 @@ with `project.json` (name and canvas layout), `datasets/<name>/` and
 [design spec](docs/superpowers/specs/2026-10-08-quarry-design.md#project) lists
 every file. Everything is plain text except pinned parquet. Files are
 owner-only, so `chmod` a project before sharing it in place.
+
+### Export
+
+"Export notebook" on a project page downloads `<slug>.ipynb`: each saved
+dataset's recipe, then each saved view's queries as Python and its TSX.
+"Download recipe" beside a saved dataset downloads its `recipe.py`. The command
+line writes the same notebook and needs no running server:
+
+```bash
+quarry projects list --root ~/.quarry                       # slug, name, last update
+quarry projects export momentum --root ~/.quarry            # writes ./momentum.ipynb
+quarry projects export momentum --out ~/notebooks/mom.ipynb
+```
+
+An exported view's queries render without the dataset's schema, which only a
+live session has, and the cell says so; "To code" under the view in a session
+renders them exactly.
+
+## Libraries
+
+Highcharts Stock and SciChart.js are licensed, so Quarry never bundles them.
+Install the package yourself, then name its folder and your key in
+`config.toml`:
+
+```toml
+[libraries]
+highcharts_license = "your_highcharts_license_key"
+highcharts_path = "/path/to/node_modules/highcharts"
+scichart_license = "your_scichart_license_key"
+scichart_path = "/path/to/node_modules/scichart"
+```
+
+A library is enabled only when its key and path are both set and the path holds
+its entry file, `highstock.js` or `index.min.mjs`; a key without a usable path
+logs one warning at startup. The server then serves that folder under
+`/libs/<id>/` to any origin, so each `*_path` must be the library's package
+folder itself, never a broad folder such as `~` or `~/Downloads`. A relative
+path resolves under the root. `GET /libraries` reports each library's status,
+and the agent's library guide lists only the enabled ones. Restart the server
+after installing or moving a package.

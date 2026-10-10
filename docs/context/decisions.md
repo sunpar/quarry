@@ -89,8 +89,18 @@ them.
 - **Generated code stays plain Python**: to-code output needs only `pl`, the
   dataset and the standard library, so it runs in a notebook, as spec §2 and §5
   require. Only Quarry's own projection converts INTERVAL output, since `.pl()`
-  and `pl.from_arrow` both fail. Kept after review; cost: to-code on interval
-  output fails loudly until Stage 5.
+  and `pl.from_arrow` both fail: given `relation_projection`, the importable
+  projection the kernel reads the relation through, relation source starts from
+  `rel.project(...)`, so INTERVAL and UNION columns arrive as text, as views see
+  them.
+- **Generated identifiers are ASCII**: `to_source` takes a dataset or result
+  name only when it is `[A-Za-z_][A-Za-z0-9_]*` and not a keyword. Python folds
+  identifiers to NFKC when it parses them, so `ｔrades` passed `isidentifier()`
+  and ran as `trades`; the ASCII rule makes an NFKC check unnecessary.
+- **`to_source` raises only `QueryError`**: a bad identifier, a clashing name
+  and a literal the column's dtype cannot take all raise `QueryError`, and a
+  filter literal's error names the column and the value. They had raised
+  `ValueError` or `TypeError`, which callers did not expect.
 - **Clashing names are rejected**: relation to-code needs a result name other
   than the dataset's, because the view drop runs through the dataset afterwards.
   A polars dataset named `date`, `datetime` or `ZoneInfo` is rejected when a
@@ -168,6 +178,17 @@ them.
 - **Kernel output is inherited, not piped**: the kernel writes to the server's
   stdout and stderr. C-level output from user code goes to those file
   descriptors, and an undrained pipe would block the kernel once full.
+- **"To code" renders in the kernel**: the `to_code` RPC renders each spec with
+  `to_source` against its dataset's live schema, so literals coerce as
+  `to_polars` coerces them, and a relation through its importable projection.
+  Each result is `<dataset>_<n>`, n being the spec's position, with the suffix
+  raised past every name the namespace binds, every spec's dataset and the names
+  chosen before it, because the output runs as a step and the plan's bare names
+  overwrote a researcher's `df_1`. A generated import (`date`, `datetime`,
+  `ZoneInfo`) that would rebind a dataset anywhere in the joined code is a
+  `QueryError`, since the import binds the name for every later block. Cost: a
+  `df_1_2` style name when `df_1` is taken, and a 400 for datasets with those
+  names.
 
 ## Interrupts
 
@@ -210,8 +231,8 @@ them.
 
 - **Module level only**: function, lambda and comprehension scopes contribute
   only their free names as reads, never stores, and a `del` of a plain name is
-  neither. A false write of a common name like `df` would put wrong steps into saved
-  recipes.
+  neither. A false write of a common name like `df` would put wrong steps into
+  saved recipes.
 - **Syntactic stores count as writes**: a successful step writes every dataset
   name it stores, plus names newly bound or rebound to another object. polars
   in-place methods return the same object (`df.extend(...) is df`, probed), so
@@ -263,7 +284,7 @@ them.
   too, as decimal strings such as `"900"`, so every sum over integers of up to
   64 bits arrives as a string. A 128-bit sum keeps its integer type and arrives
   as a number. Float64 would silently change `Decimal("9007199254740993")` while
-  the schema still said Decimal. The arrow format keeps native decimals.
+  the schema still said Decimal. The arrow format casts them to Float64.
 - **Non-finite floats are null**: inf, -inf and NaN become JSON null at any
   depth, which keeps each column's JSON type uniform. The arrow format keeps
   them, and the Stage 3 renderer may choose sentinels.
@@ -271,6 +292,15 @@ them.
   datetimes get an ISO `T`, and dates outside chrono's range become null. polars
   `write_json` panicked on Binary and on DuckDB's `'infinity'`, a common
   end-of-validity marker.
+- **Arrow is a display transport**: `format: "arrow"` answers with an Arrow IPC
+  stream, not a file, written at `CompatLevel.oldest()` after `for_viewer` casts
+  each column to a type Perspective's reader takes: primitives, `string`,
+  `date32`, `timestamp` and `bool`. Decimal and 128-bit integers become Float64,
+  since pyarrow cannot read polars' Int128; Categorical, Enum and Time become
+  strings, Duration polars' own text such as `1d 2h`, Binary base64 and nested
+  values JSON strings; and `large_string` is narrowed to `string`. Cost:
+  decimals and large integers can lose precision in Arrow, so JSON rows stay the
+  exact form.
 - **INTERVAL and UNION become text**: one helper projects these columns, at any
   depth, as VARCHAR before `.pl()` and reports them as String. `.pl()` rejects
   INTERVAL, nested INTERVAL panics, and polars' environment-variable import path
@@ -582,13 +612,14 @@ them.
   so one numeric column met both an `x` and a `y` role.
 - **A saved component gets a folder of its own**: `POST /components` creates
   `<root>/components/<id>/` exclusively, 0700, and answers 409 when a folder of
-  that name exists. The library skips a folder whose manifest is invalid or
-  names another id, so the check against the library alone had let a save
-  replace files a researcher wrote. It writes `component.tsx`, then
-  `manifest.json`: the library lists a component only once both exist, so a
-  crash between them leaves nothing listed. Cost: that crash leaves a folder
-  that refuses the id until it is removed. The id pattern ends in `\Z`, not the
-  plan's `$`, which in Python also matches before a trailing newline.
+  that name exists. The library skips a folder whose manifest is invalid and
+  lists one whose manifest names another id under that id, so the check against
+  the library alone had let a save replace files a researcher wrote. It writes
+  `component.tsx`, then `manifest.json`: the library lists a component only once
+  both exist, so a crash between them leaves nothing listed. Cost: that crash,
+  or any failed write after the folder exists, leaves a folder that refuses the
+  id until it is removed. The id pattern ends in `\Z`, not the plan's `$`, which
+  in Python also matches before a trailing newline.
 - **Licensed library status lives in `quarry/libraries.py`**: `LibraryStatus`
   and `licensed_libraries` import only the config and pydantic, because
   `enabled_libraries` in `quarry.agent` needs them and `quarry.server` already
@@ -597,10 +628,18 @@ them.
   `/libs/<id>`, serves the same list from `GET /libraries`, and logs one warning
   for each library with a key but no usable install, naming the setting, never
   the key. The plan logged inside the status check, which warned twice at
-  startup and again on every request. Cost: an install added after startup
-  needs a restart. The mount serves every file under `*_path` to any origin, so
-  the path must be the library's package folder itself, never a broad folder
-  such as `~` or `~/Downloads`; there is no guard in code.
+  startup and again on every request. Cost: an install added after startup needs
+  a restart. The mount serves every file under `*_path` to any origin, so the
+  path must be the library's package folder itself, never a broad folder such as
+  `~` or `~/Downloads`; there is no guard in code.
+- **Licensed libraries come from the researcher's install, key and all**:
+  Highcharts and SciChart are never bundled or listed in `web/package.json`; the
+  server serves the installed package under `/libs/<id>/` once both its key and
+  its path are set and the entry file exists. An enabled status carries the key
+  to the host through `GET /libraries`, behind the bearer token, and the host
+  passes SciChart's into the frame's `mount`, since SciChart takes it at load
+  time. The key is never logged, and `LibraryStatus` leaves it out of its
+  `repr`. Cost: whoever holds the server's token can read both keys.
 - **The library guide follows the installed packages**: every import a section
   names resolves through the runtime's module table, checked against the
   installed exports. TanStack Table v9 sorts only with `createSortedRowModel`
@@ -624,11 +663,21 @@ them.
   meets the plan's later Step 2b, which names `/assets/`, `/runtime.html` and
   `/libs/`: the mount-level wrapper covers those and every other static file, so
   no second middleware is needed.
-- **A generated view can still navigate itself**: the sandbox blocks fetch,
-  forms, popups and top navigation, but `location.href = ...` inside the frame
-  is not covered by `connect-src`, so "the bridge is the only path out" (spec
-  §12) is defence in depth, not a guarantee. The kernel already has the network.
-  Detecting a navigation is an [open item](../open-items.md#stage-5).
+- **The frame may fetch from the Quarry server, and only there**: the runtime
+  CSP is
+  `default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; worker-src blob:; style-src 'self' 'unsafe-inline'; img-src data: blob:; font-src 'self'; connect-src 'self'`,
+  since Perspective fetches its wasm and starts its engine from a Blob URL.
+  `'self'` is the server's origin. That opens nothing the bridge did not already
+  mediate: every API route needs the bearer token, which the frame never holds,
+  and API routes send no CORS header, so the opaque-origin frame can neither
+  authenticate nor read an answer. What it can read, the static files and
+  `/libs/`, is open to any page anyway. Spec §9 and §12 carry the amendment.
+- **A generated view can still navigate itself**: the sandbox blocks forms,
+  popups and top navigation, but `location.href = ...` inside the frame is not
+  covered by `connect-src`, so the bridge being the only path to data (spec §12)
+  is defence in depth, not a guarantee. The kernel already has the network.
+  Detecting a navigation, which would also keep the next `mount` from reaching
+  the new page, is [deferred](../open-items.md#any-time).
 - **The token stays in the URL fragment and in memory**: the host reads
   `#token=` once into state, never stores it, and writes the active session id
   back as `#token=...&session=...` with `replaceState` so a reload keeps both. A
@@ -692,7 +741,8 @@ them.
   `onLoad` handler is wired on the iframe element itself and remembered, so a
   frame that loaded before the bridge existed mounts as soon as the effect runs.
   A `ready` that arrives after `load` mounts a second time, which the runtime
-  tolerates.
+  tolerates; the double mount is a
+  [known problem](../open-items.md#known-problems).
 - **A repair step keeps the researcher's prompt**: the view source and browser
   error go only to the agent; the persisted step shows "Fix the view so it
   mounts." The plan stored the composed text as the step prompt, which put a
@@ -811,9 +861,8 @@ them.
   save's `updated_at` touch cannot drop a canvas write made at the same moment.
   A slug, view name or session id from a request joins its directory through
   `child`, which accepts one path segment only, so a body field cannot reach
-  another directory's files.
-  Cost if wrong: a researcher must `chmod` a project to share it in place, and
-  the fsyncs add a little save latency.
+  another directory's files. Cost if wrong: a researcher must `chmod` a project
+  to share it in place, and the fsyncs add a little save latency.
 - **Projects list by name, then slug**: `ProjectStore.list` sorts by lowercased
   name with the slug breaking ties, since "Momentum" and "momentum" share a
   lowercased name and `iterdir` order is arbitrary. The plan sorted by name
@@ -894,6 +943,13 @@ them.
   written for v1, is not installed. `react-resizable` is pinned to `^3.2.0`, the
   range the grid depends on, since a bare install added 4.0.2 as a second copy.
   Cost if wrong: moving to `react-resizable` 4 waits on the grid.
+- **The notebook is built by hand and validated only in tests**:
+  `quarry.projects.export` writes nbformat 4.5 JSON itself, with cell ids,
+  `kernelspec` and `language_info`, and `nbformat` is a dev dependency that the
+  export tests validate against. The wheel then needs no Jupyter package. Saved
+  queries render without a schema, since only dtype strings are on disk; the
+  cell's first comment says so. Cost if wrong: a format change goes unnoticed
+  until a test validates it.
 - **Export names results across the whole notebook**: a view's queries assign
   `<dataset>_<n>`, n being the query's position in its view, through
   `result_names` in `quarry.query.source_target`, which "To code" uses too. The
@@ -902,8 +958,8 @@ them.
   validation keeps its number. A query whose generated import, such as
   `from datetime import date`, would rebind a saved dataset stays a
   `# query N could not be rendered` comment naming it, as "To code" refuses one.
-  Free text in an exported comment, such as a description, a validation error
-  or a pydantic message quoting a raw JSON key, goes through `py_comment`, which
+  Free text in an exported comment, such as a description, a validation error or
+  a pydantic message quoting a raw JSON key, goes through `py_comment`, which
   `raw_recipe` shares: line breaks become spaces and anything else unprintable
   is escaped, so a line break cannot run the rest as code, a NUL cannot stop the
   cell compiling, and a bidi control cannot disguise it. The plan named results
@@ -918,10 +974,10 @@ them.
   order wherever nothing constrains it; each dataset's heading moves with its
   recipe, and every dataset still precedes every view. Recipes in a cycle, which
   assign each other directly or around it, run in saved order among themselves,
-  even when a recipe outside the cycle must run before one of them, and a
-  recipe that runs after a saved dataset it assigns opens with a comment naming
-  it. A recipe that does not parse constrains nothing. The plan emitted recipes
-  in saved order. Cost if wrong: datasets no longer appear in name order, and a
+  even when a recipe outside the cycle must run before one of them, and a recipe
+  that runs after a saved dataset it assigns opens with a comment naming it. A
+  recipe that does not parse constrains nothing. The plan emitted recipes in
+  saved order. Cost if wrong: datasets no longer appear in name order, and a
   cycle's warning asks the researcher to sort it out.
 
 ## Views
@@ -934,16 +990,16 @@ them.
   pivot built-in keeps in view state for "to code". Filters `==`, `!=`, `<`,
   `<=`, `>` and `>=` become `eq`, `ne`, `lt`, `le`, `gt` and `ge`; `in` and
   `not in` become `in` and `not_in`; `contains` and `begins with` become
-  `contains` and `starts_with`; `is null` and `is not null` become `is_null`
-  and `not_null`. Any other operator, such as `ends with` or `is true`, is
-  dropped. Under `group_by`, each other column becomes one `Agg`: `sum`, `mean`,
-  `min`, `max`, `count`, `median`, `first` and `last` keep their names, `avg`
-  becomes `mean`, `high` becomes `max` and `low` becomes `min`; any other
-  aggregate is dropped. `stddev` is dropped too, though the spec has `std`:
-  Perspective's is the population figure (1.5 for 1 and 4) and the kernel's the
-  sample one (2.12), so "to code" would print different numbers. A column with
-  no aggregate set takes Perspective's default, which the saved config leaves
-  out (`aggregates` stays `{}`; the defaults go only into the copy passed to
+  `contains` and `starts_with`; `is null` and `is not null` become `is_null` and
+  `not_null`. Any other operator, such as `ends with` or `is true`, is dropped.
+  Under `group_by`, each other column becomes one `Agg`: `sum`, `mean`, `min`,
+  `max`, `count`, `median`, `first` and `last` keep their names, `avg` becomes
+  `mean`, `high` becomes `max` and `low` becomes `min`; any other aggregate is
+  dropped. `stddev` is dropped too, though the spec has `std`: Perspective's is
+  the population figure (1.5 for 1 and 4) and the kernel's the sample one
+  (2.12), so "to code" would print different numbers. A column with no aggregate
+  set takes Perspective's default, which the saved config leaves out
+  (`aggregates` stays `{}`; the defaults go only into the copy passed to
   `table.view()`): `sum` for a numeric dtype, matched as the other built-ins
   match it (`/^(Int|UInt|Float|Decimal)/`, and Decimal and 128-bit integers
   reach Perspective as floats), and `count` for everything else; Perspective
@@ -963,26 +1019,26 @@ them.
   carry over; `col asc`, `desc abs`, `none` and the other directions are
   dropped.
 - **Filter terms are typed as the viewer means them**: the dtypes come from the
-  arrow result's schema, which holds the dtypes from before the arrow casts.
-  The viewer writes every `in` list as strings, so items become numbers on
-  numeric columns (an Int column drops an item that is not a whole number,
-  since the engine's `stoll` would truncate it) and booleans as the engine reads
-  them (`"true"` is true, anything else false). A Date term stays a
-  `YYYY-MM-DD` string, and epoch milliseconds become their UTC day, as the
-  engine's `gmtime` reads them; any other Date string is dropped. A Datetime
-  term is epoch milliseconds (`str_to_utc_posix`), which becomes a naive UTC ISO
-  string: a naive column holds UTC wall clocks and the kernel reads a naive
-  string on a zoned column as UTC. A Datetime string term is dropped, since the
-  kernel reads an offset by time unit and the engine by its own parser. `in` on
-  a Decimal column is dropped: polars `is_in` refuses Float64 items there.
-- **Filters the spec cannot carry are listed**: a filter with no term yet,
-  which is what dropping a column on the filter bar creates, and an `in` list
-  that is missing, empty or holds a null are listed and left out. Neither the
-  viewer (`drag_drop_update.rs`) nor the engine (`fill_fterm`) removes a
-  null-term filter, and the engine applies one (`==` matches no row, `!=` every
-  row), so these are listed rather than skipped silently. They do not count
-  toward `filter_op: "or"`, which the spec's list of filters cannot say: under
-  "or", two or more remaining filters are all dropped, listed once as
+  arrow result's schema, which holds the dtypes from before the arrow casts. The
+  viewer writes every `in` list as strings, so items become numbers on numeric
+  columns (an Int column drops an item that is not a whole number, since the
+  engine's `stoll` would truncate it) and booleans as the engine reads them
+  (`"true"` is true, anything else false). A Date term stays a `YYYY-MM-DD`
+  string, and epoch milliseconds become their UTC day, as the engine's `gmtime`
+  reads them; any other Date string is dropped. A Datetime term is epoch
+  milliseconds (`str_to_utc_posix`), which becomes a naive UTC ISO string: a
+  naive column holds UTC wall clocks and the kernel reads a naive string on a
+  zoned column as UTC. A Datetime string term is dropped, since the kernel reads
+  an offset by time unit and the engine by its own parser. `in` on a Decimal
+  column is dropped: polars `is_in` refuses Float64 items there.
+- **Filters the spec cannot carry are listed**: a filter with no term yet, which
+  is what dropping a column on the filter bar creates, and an `in` list that is
+  missing, empty or holds a null are listed and left out. Neither the viewer
+  (`drag_drop_update.rs`) nor the engine (`fill_fterm`) removes a null-term
+  filter, and the engine applies one (`==` matches no row, `!=` every row), so
+  these are listed rather than skipped silently. They do not count toward
+  `filter_op: "or"`, which the spec's list of filters cannot say: under "or",
+  two or more remaining filters are all dropped, listed once as
   `filter_op "or"`, and a lone filter maps as under "and".
 - **The pivot shows 50,000 rows and probes the mapped spec**: Perspective shows
   up to 50,000 rows; the probe query with `limit: 1` is how the kernel validates
@@ -990,11 +1046,11 @@ them.
   probe repeats the arrow query, so no spec mapped without dtypes is recorded. A
   probe the kernel refuses shows its error above the viewer.
 - **The viewer restores a changed `config` only after its first load**: the
-  plan's effect restored on mount, before any table was loaded, racing the
-  load. The load path restores the latest config itself and records it, as it
-  records each config the viewer saves, so neither that config nor the viewer's
-  own echo is restored a second time. A viewer unmounted while its table loads
-  restores nothing.
+  plan's effect restored on mount, before any table was loaded, racing the load.
+  The load path restores the latest config itself and records it, as it records
+  each config the viewer saves, so neither that config nor the viewer's own echo
+  is restored a second time. A viewer unmounted while its table loads restores
+  nothing.
 - **The saved config is a `JsonObject` in view state**: Perspective's types
   allow `undefined` values, which `useViewState`'s `Json` bound refuses, so the
   pivot casts at the boundary, as the plan allowed.
@@ -1037,47 +1093,47 @@ them.
 
 - **No invented zeros**: the bar and line, scatter, heatmap and large series
   built-ins read values with the time series' `parseValue`, never `Number()`,
-  which turns `null` into 0. A null aggregate stays `null`, so Recharts leaves
-  a gap; a scatter point whose x or y is not finite is dropped; a null or
-  non-numeric heatmap cell is NaN, which Plotly leaves blank; a large series
-  row whose time or value is not finite is dropped.
+  which turns `null` into 0. A null aggregate stays `null`, so Recharts leaves a
+  gap; a scatter point whose x or y is not finite is dropped; a null or
+  non-numeric heatmap cell is NaN, which Plotly leaves blank; a large series row
+  whose time or value is not finite is dropped.
 - **The large series plots UTC epoch milliseconds**: points are
   `[epochMs, value]` pairs read with the time series' `parseTime`, so a naive
   datetime is UTC, and the option sets `useUTC: true`. Given strings, ECharts
   reads a naive datetime as browser-local time, which shifts it around DST
-  changes. The plan's `large: true` and `largeThreshold` are gone: ECharts
-  line series have no large mode (`LineSeriesOption` has no `large`), so
+  changes. The plan's `large: true` and `largeThreshold` are gone: ECharts line
+  series have no large mode (`LineSeriesOption` has no `large`), so
   `sampling: "lttb"` and `showSymbol: false` are what keep 50,000 points fast.
-- **No two roles share a column, and no pick hides the pickers**: a saved
-  column counts only while the live schema offers it, so a stale choice falls
-  back to the default instead of failing the query. Roles resolve in an order
-  that always leaves the next one a column, and each picker offers only the
-  columns still free, compared ignoring case as the kernel compares names. In
-  the scatter, y skips x and the color column skips both. The heatmap resolves
-  the value first, then the row and column keys from the rest, and the column
-  skips the row, since a column pivoted against itself is only a diagonal. The
-  bar and line chart resolves the value first and skips `<value>_<fn>`, the
-  aggregate's name, as a category; with no other column left it groups by a
-  numeric one, then by the value itself, which the kernel accepts, because the
-  manifest's `any` role matches all-numeric datasets.
+- **No two roles share a column, and no pick hides the pickers**: a saved column
+  counts only while the live schema offers it, so a stale choice falls back to
+  the default instead of failing the query. Roles resolve in an order that
+  always leaves the next one a column, and each picker offers only the columns
+  still free, compared ignoring case as the kernel compares names. In the
+  scatter, y skips x and the color column skips both. The heatmap resolves the
+  value first, then the row and column keys from the rest, and the column skips
+  the row, since a column pivoted against itself is only a diagonal. The bar and
+  line chart resolves the value first and skips `<value>_<fn>`, the aggregate's
+  name, as a category; with no other column left it groups by a numeric one,
+  then by the value itself, which the kernel accepts, because the manifest's
+  `any` role matches all-numeric datasets.
 - **The heatmap never defaults to a numeric key**: the pivot runs eagerly and
   makes one column per distinct value of its column key, which `row_cap` and
-  `limit` do not bound, so a float key made a grid thousands of columns wide
-  on open. Only non-numeric columns are default keys. Numeric ones stay in the
-  Row and Column pickers as a deliberate choice; until a key is picked the
-  picker shows blank, a note asks for it, and only the `{dataset, limit: 1}`
+  `limit` do not bound, so a float key made a grid thousands of columns wide on
+  open. Only non-numeric columns are default keys. Numeric ones stay in the Row
+  and Column pickers as a deliberate choice; until a key is picked the picker
+  shows blank, a note asks for it, and only the `{dataset, limit: 1}`
   placeholder query runs.
 - **The scatter colors by at most 30 values**: each color value is its own
-  `scattergl` trace, and Plotly stalls on thousands. Past 30 distinct values
-  the points draw as one series with a note saying so; there is no numeric
+  `scattergl` trace, and Plotly stalls on thousands. Past 30 distinct values the
+  points draw as one series with a note saying so; there is no numeric
   colorscale.
-- **Truncation banners give no total**: `row_count` counts the rows returned
-  and `truncated` is set only when the server's row cap cut them, so each of
-  these built-ins shows "Showing the first N rows." when the result fills its
-  limit or the cap cut it. The pivot's banner said "of {rowCount} rows", which
-  repeated its own count, and fired only on the cap; it now reads the same way.
-- **The bar and line chart names its series as the kernel does**: the
-  aggregate column is `<value>_<fn>`, `Agg.name` without an alias.
+- **Truncation banners give no total**: `row_count` counts the rows returned and
+  `truncated` is set only when the server's row cap cut them, so each of these
+  built-ins shows "Showing the first N rows." when the result fills its limit or
+  the cap cut it. The pivot's banner said "of {rowCount} rows", which repeated
+  its own count, and fired only on the cap; it now reads the same way.
+- **The bar and line chart names its series as the kernel does**: the aggregate
+  column is `<value>_<fn>`, `Agg.name` without an alias.
 
 ## Packaging and CI
 
@@ -1100,7 +1156,7 @@ them.
 - **Tests are annotated**: ruff's ANN rules apply to tests as well as `src`,
   where the plan had a per-file ignore.
 - **Plotly's peer resolves to the dist build**: `web/package.json` overrides
-  `plotly.js` with `npm:plotly.js-dist-min@4.1.2`, so react-plotly.js's peer
-  no longer installs the full 98 MB source package and its 211 lock entries,
-  which nothing imports. The runtime uses `react-plotly.js/factory` with the
-  dist build either way.
+  `plotly.js` with `npm:plotly.js-dist-min@4.1.2`, so react-plotly.js's peer no
+  longer installs the full 98 MB source package and its 211 lock entries, which
+  nothing imports. The runtime uses `react-plotly.js/factory` with the dist
+  build either way.

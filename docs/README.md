@@ -14,9 +14,9 @@ results, the next experiment, a live debugging hypothesis.
 
 ## Backlog
 
-| File                           | Holds                                                      | Update                                                                                                                         |
-| ------------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| [open-items.md](open-items.md) | Known problems, deferred work by stage, and open questions | When an item is found, deferred or resolved. Delete resolved items, and move an answered question into decisions as a decision |
+| File                           | Holds                                             | Update                                                                                                                         |
+| ------------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| [open-items.md](open-items.md) | Known problems, deferred work, and open questions | When an item is found, deferred or resolved. Delete resolved items, and move an answered question into decisions as a decision |
 
 ## Permanent context
 

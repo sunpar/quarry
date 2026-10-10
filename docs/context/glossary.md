@@ -59,13 +59,23 @@ Terms as Quarry's code and docs use them. Section numbers point into the
   `to_sql` returns DuckDB SQL, and `to_source` returns Python source text (§7).
 - **Slice**: the rows a query returns. It is the only dataset content that
   reaches the browser.
-- **To code**: turning a view's current specs into an editable Python step
-  through `to_source` (§9, Stage 5).
+- **To code**: turning a view's latest snapshot into an editable Python step.
+  The kernel's `to_code` renders each spec through `to_source` against the
+  dataset's live schema, and the host runs the result as a manual step (§9).
 - **View**: one mounted TSX component on one step (§5, Stage 3).
-- **State snapshot**: a view's state at one moment, with the specs the view
-  issued in that state. It makes to-code deterministic (§5).
+- **State snapshot**: a view's state at one moment, with the specs its mounted
+  `useQuery` hooks held then. It makes to-code deterministic (§5).
+- **Probe query**: a one-row query a view issues only so that a spec it shows
+  through other means is recorded: the pivot built-in probes the spec its
+  Perspective config maps to, so the kernel validates it and lineage sees it.
 - **Component**: a reusable TSX template with a manifest and no data attached
   (§5).
+- **Generated component**: a view the agent wrote that the researcher saved with
+  "Save to library": `<root>/components/<id>/` with `origin: "generated"` and
+  schema requirements taken from the dataset it was written against.
+- **Licensed library**: Highcharts Stock or SciChart, which Quarry never
+  bundles. The server serves the researcher's own install under `/libs/<id>/`
+  only when its license key and install path are both configured (§11).
 
 ## Server and agent
 
