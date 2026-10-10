@@ -630,9 +630,9 @@ them.
   id until it is removed. The id pattern ends in `\Z`, not the plan's `$`, which
   in Python also matches before a trailing newline, and the id reaches the path
   through `child`. A save that names only one of `session_id` and `dataset`
-  answers 422, since a half binding had saved `requires: []`, and only the
-  session lookup answers 404: a `KeyError` from deeper in had read as "no such
-  session".
+  answers 422, since a half binding had saved `requires: []`, and "no such
+  session" (404) comes only from the session lookup: a `KeyError` from deeper in
+  had read as one. A missing dataset is its own 404.
 - **Licensed library status lives in `quarry/libraries.py`**: `LibraryStatus`
   and `licensed_libraries` import only the config and pydantic, because
   `enabled_libraries` in `quarry.agent` needs them and `quarry.server` already
@@ -1024,8 +1024,9 @@ them.
   cycle's warning asks the researcher to sort it out.
 - **Download names survive any project or dataset name**: `Content-Disposition`
   carries an ASCII `filename` and an RFC 6266 `filename*=UTF-8''...`, built from
-  the project's slug. Starlette encodes headers as latin-1, so a dataset named
-  `数据` had answered 500.
+  the project's slug for a notebook and the dataset's name for a recipe.
+  Starlette encodes headers as latin-1, so a recipe for a dataset named `数据`
+  had answered 500.
 
 ## Views
 
