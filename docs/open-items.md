@@ -67,7 +67,11 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **Exported queries render without a schema**: a notebook renders each saved
   view query with `to_source` and no `schema=`, since only dtype strings are on
   disk. Numbers render as given and sums plainly, so `ret in [0]` on a float
-  column fails loudly when the cell runs, and an Int64 sum can wrap silently.
+  column fails loudly when the cell runs, and an Int64 sum can wrap silently. No
+  `relation_projection` either, since that needs the live relation, so a
+  relation query whose result holds an INTERVAL or UNION column, which `.pl()`
+  cannot import, or that names a repeated column by the `_1` name views see,
+  fails loudly when the cell runs.
 - **Interrupts stop only the kernel's DuckDB connection**: DuckDB workers for a
   relation on a researcher's own `duckdb.connect()` can keep running after an
   interrupt. Silent: they hold CPU and delay that connection's next query.
@@ -153,6 +157,15 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **Pivot width is unbounded**: a pivot makes one column per distinct value of
   its `columns` key, which neither `row_cap` nor `limit` bounds, so a heatmap of
   dates by ticker over 5,000 tickers is 5,000 columns wide. A silent cost.
+- **Large series draws only the start of a long series**: the large-series
+  built-in asks for 500,000 rows sorted by time, but the default `row_cap` of
+  50,000 cuts the answer to its first 50,000, so a longer series ends early. The
+  view says "Showing the first 50,000 rows"; raising `data.row_cap` draws more.
+- **Other local users can read the licensed libraries**: `/libs/` serves the
+  configured Highcharts and SciChart files without the token, since the
+  opaque-origin frame loads them, so on a shared machine any account that can
+  reach the loopback port can copy them while the server runs. Silent. This is
+  the Stage 3 static design; the keys stay behind the token.
 
 ## Deferred work
 
