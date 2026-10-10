@@ -965,3 +965,18 @@ def test_attribute_mutation_is_a_write() -> None:
     result = ex.execute("df.columns = ['b']")
     assert result.writes == ["df"] and result.reads == ["df"]
     assert result.datasets[0].schema_[0].name == "b"
+
+
+@pytest.mark.parametrize(
+    "sql",
+    ["SELECT * FROM a JOIN b USING (k)", "SELECT * FROM a ASOF JOIN b USING (k, t)"],
+    ids=["using", "asof"],
+)
+def test_sql_join_names_both_tables(sql: str) -> None:
+    # Binding these fails on tables DuckDB cannot see, losing every read; parsing names both.
+    conn = duckdb.connect()
+    ex = make(conn)
+    ex.execute("a = pl.DataFrame({'k': [1], 't': [1]})\nb = pl.DataFrame({'k': [1], 't': [0]})")
+    ex.execute("_conn.register('a', a)\n_conn.register('b', b)")
+    result = ex.execute(f"j = _conn.sql({sql!r}).pl()")
+    assert result.status == "ok" and result.reads == ["a", "b"]

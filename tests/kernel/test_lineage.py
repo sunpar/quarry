@@ -299,3 +299,9 @@ def test_mutation_through_every_assignment_target_is_a_store() -> None:
     names = analyze(code)
     assert names.stores == {"a", "b", "c", "d", "e", "f", "g", "h"}
     assert {"k", "call"} <= names.loads
+
+
+def test_deleting_an_attribute_or_item_at_module_level_is_a_store() -> None:
+    names = analyze("del df['col']\ndel obj.attr\ndel gone")
+    assert names.stores == {"df", "obj"}
+    assert {"df", "obj"} <= names.loads and "gone" not in names.loads

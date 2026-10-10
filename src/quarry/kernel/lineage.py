@@ -4,8 +4,8 @@ Only bindings in module scope are the step's stores. Function, lambda, and compr
 contribute only their free names as loads. A class body contributes every name it reads, because
 class-level names are looked up at run time and can fall through to the module. The body of an
 `except ... as name` handler binds in its enclosing scope, but `name` there is the exception, so
-loading it is not a read. Assigning to an attribute or subscript in module scope (`df.x = ...`)
-changes the object its root name holds, so it stores that name too.
+loading it is not a read. Assigning to or deleting an attribute or subscript in module scope
+(`df.x = ...`, `del df[k]`) changes the object its root name holds, so it stores that name too.
 """
 
 from __future__ import annotations
@@ -111,11 +111,11 @@ class _ScopeVisitor(ast.NodeVisitor):
         # A `del` target leaves the namespace: it is neither read nor written.
 
     def visit_Attribute(self, node: ast.Attribute | ast.Subscript) -> None:
-        # A target's outermost attribute or subscript is its only Store link, so this one handler
-        # sees every assignment form: plain, augmented, annotated, unpacked, `for` and `with`.
-        # At module level `df.columns = ...` changes the object `df` holds, a store of `df`; in
-        # a function `df` stays a free name the function reads.
-        if isinstance(node.ctx, ast.Store) and self._scope.kind == "module":
+        # A target's outermost attribute or subscript is its only Store or Del link, so this one
+        # handler sees every form: plain, augmented, annotated, unpacked, `for`, `with`, `del`.
+        # At module level `df.columns = ...` or `del df["c"]` changes the object `df` holds, a
+        # store of `df`; in a function `df` stays a free name the function reads.
+        if isinstance(node.ctx, ast.Store | ast.Del) and self._scope.kind == "module":
             root = _root_name(node)
             if root is not None:
                 self._scope.bound.add(root)

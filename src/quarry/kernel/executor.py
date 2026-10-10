@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import io
+import json
 import time
 import traceback
 import uuid
@@ -308,18 +309,20 @@ class Executor:
         return "ok", None, names, prior
 
     def _sql_table_reads(self, literals: frozenset[str], before: set[str]) -> set[str]:
-        """Datasets among the tables DuckDB's binder finds in `literals`; binding runs nothing.
+        """Datasets among the base tables DuckDB's parser finds in `literals`.
 
-        A literal it cannot bind (a missing parquet glob, a syntax error, several statements)
-        adds nothing. Each binds on a cursor, which shares the database but not the kernel
-        connection's temp views: there a frame `register`ed under its name would resolve and
-        drop out, while on the cursor it binds to a placeholder that keeps the name.
+        Parsing binds nothing and reads no files, so `a JOIN b USING (k)` names both tables even
+        where binding, which cannot see their columns, fails. A literal that is not SELECT
+        statements (PIVOT, CREATE TABLE AS) or does not parse serializes to an error with no
+        statements, so it adds nothing; so does one nested deeper than `json.loads` recurses.
         """
         found: set[str] = set()
         for sql in literals:
+            # A cursor leaves `_conn` holding any result the step has yet to fetch (probed).
             # Suppressing first also covers `cursor()`: a step may have closed `_conn`.
-            with contextlib.suppress(duckdb.Error), self._conn.cursor() as cursor:
-                found |= cursor.get_table_names(sql)
+            with contextlib.suppress(duckdb.Error, RecursionError), self._conn.cursor() as cur:
+                rows = cur.execute("SELECT json_serialize_sql(?)", [sql]).fetchall()
+                found |= _base_tables(json.loads(rows[0][0]))
         return found & before
 
     def _describe_write(self, name: str) -> tuple[DatasetMeta, ExecError | None]:
@@ -400,6 +403,22 @@ def _written(
     after = dataset_names(namespace)
     rebound = {name for name in after & before.keys() if not before[name](namespace[name])}
     return sorted({*dataset_writes(stored, set(before), after), *rebound})
+
+
+def _base_tables(tree: object) -> set[str]:
+    """The `table_name` of every BASE_TABLE node in a `json_serialize_sql` tree, walked with a
+    stack: the tree nests as deep as the SQL does."""
+    found: set[str] = set()
+    pending = [tree]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, dict):
+            if node.get("type") == "BASE_TABLE":
+                found.add(node["table_name"])
+            pending.extend(node.values())
+        elif isinstance(node, list):
+            pending.extend(node)
+    return found
 
 
 def _newly_bound(
