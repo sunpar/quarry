@@ -1,0 +1,10 @@
+{
+  "id": "pivot",
+  "name": "Pivot",
+  "description": "Perspective viewer: drag columns to group, split, filter and sort; the result maps to a query spec for to code.",
+  "tags": ["pivot", "explore", "group", "filter", "perspective"],
+  "contract_version": 1,
+  "schema": { "requires": [] },
+  "origin": "builtin",
+  "created_at": "2026-10-09T00:00:00Z"
+}

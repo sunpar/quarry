@@ -33,6 +33,8 @@ export default defineConfig({
       },
     ],
   },
+  // As in vite.config.ts: built-ins are read as `?raw` source from outside web/.
+  server: { fs: { allow: [path.resolve(root, "..")] } },
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],

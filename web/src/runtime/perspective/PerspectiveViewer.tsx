@@ -23,6 +23,9 @@ export function PerspectiveViewer({
   const viewer = useRef<HTMLPerspectiveViewerElement | null>(null);
   const latest = useRef({ config, onConfig });
   latest.current = { config, onConfig };
+  // The config the viewer last restored or saved, so its own echo is not restored again.
+  const applied = useRef("");
+  const loaded = useRef(false);
 
   // The custom element owns its DOM; React only creates and removes it.
   useEffect(() => {
@@ -35,7 +38,10 @@ export function PerspectiveViewer({
     el.replaceChildren(node);
     viewer.current = node;
     const onUpdate = () => {
-      void node.save().then((saved) => latest.current.onConfig?.(saved));
+      void node.save().then((saved) => {
+        applied.current = JSON.stringify(saved);
+        latest.current.onConfig?.(saved);
+      });
     };
     node.addEventListener("perspective-config-update", onUpdate);
     return () => {
@@ -60,8 +66,12 @@ export function PerspectiveViewer({
       }
       table = next;
       await node.load(next);
-      if (latest.current.config !== undefined)
-        await node.restore(latest.current.config);
+      if (cancelled) return;
+      loaded.current = true;
+      const current = latest.current.config;
+      if (current === undefined) return;
+      applied.current = JSON.stringify(current);
+      await node.restore(current);
     })();
     return () => {
       cancelled = true;
@@ -69,6 +79,16 @@ export function PerspectiveViewer({
       void table?.delete({ lazy: true });
     };
   }, [arrow]);
+
+  // Before the first load, the load path restores whatever config is latest by then.
+  useEffect(() => {
+    const node = viewer.current;
+    if (node === null || config === undefined || !loaded.current) return;
+    const key = JSON.stringify(config);
+    if (key === applied.current) return;
+    applied.current = key;
+    void node.restore(config);
+  }, [config]);
 
   return <div ref={host} className={className ?? "h-full w-full"} />;
 }
