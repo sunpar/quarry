@@ -646,11 +646,19 @@ them.
 - **A dead kernel locks the prompt**: the server keeps a dead kernel dead until
   restart, so a prompt would only add a failed step. `replay_needed` alone
   leaves the prompt open.
-- **Snapshots record the queries a view used**: the cache notes every query a
-  render asks for, served from cache or not, so a sort toggled back still
-  appears in the next snapshot. Each state change starts a fresh window, so a
-  snapshot carries only the queries of the state it records. Schemas come from
-  the live kernel, as queries do, not from the step that wrote the dataset.
+- **Snapshots record the queries a view holds**: each mounted `useQuery` hook
+  holds its spec, counted per spec, from a layout effect until it unmounts or
+  its spec changes, and a snapshot carries the held specs. When they differ from
+  the last report, the runtime schedules the same debounced report a state
+  change does, so a view reports its queries on mount and again when a late
+  schema replaces a placeholder. Stage 3 recorded every spec a render asked for
+  and Stage 5 flushed once 300 ms after mount, so a placeholder such as
+  `{dataset, limit: 1}` reached "To code" beside the real query, or alone when
+  the schema came later. A restored state's queries are not reported, since that
+  state is a snapshot already on record and a report would append a copy and fan
+  `shared:` keys out again, and a replaced view reports nothing as its hooks let
+  go. Schemas come from the live kernel, as queries do, not from the step that
+  wrote the dataset.
 - **Mounted views refetch when kernel data may change**: the host sends
   `refresh` when a step finishes or the kernel's pid changes. The view's cache
   marks every answer stale and keeps showing it until the refetch lands, so a

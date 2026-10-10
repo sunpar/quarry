@@ -48,14 +48,15 @@ export function createRuntime(
   };
 
   const mount = async (message: Extract<HostToRuntime, { type: "mount" }>) => {
-    const bridge = new RuntimeBridge(message.viewId, post);
+    // A replaced view's hooks let go as it unmounts; only the mounted view reports.
+    const bridge = new RuntimeBridge(message.viewId, post, () => {
+      if (mounted === m) store.queriesChanged();
+    });
     const store = new ViewStateStore(
       message.initialState,
       (s) => bridge.stateChanged(s),
       300,
     );
-    // Runs before React re-renders, so the next snapshot carries only the new state's queries.
-    store.subscribe(() => bridge.resetUsage());
     const cache = new RequestCache(bridge);
     const m: Mounted = { bridge, store, cache };
     mounted = m;
@@ -65,10 +66,6 @@ export function createRuntime(
       const component = await loadComponent(message.source, table);
       if (mounted !== m) return;
       render(m, cache, component, message.datasets);
-      // One report after the first render so an untouched view still records its queries.
-      setTimeout(() => {
-        if (mounted === m) store.flush();
-      }, 300);
     } catch (error) {
       if (mounted !== m) return;
       const e = toError(error);

@@ -25,4 +25,23 @@ describe("ViewStateStore", () => {
     expect(store.get("x")).toBe("y");
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it("reports changed queries, except those a restored state brings", () => {
+    vi.useFakeTimers();
+    const onChange = vi.fn();
+    const store = new ViewStateStore({ a: 1 }, onChange, 300);
+    store.queriesChanged();
+    vi.advanceTimersByTime(300);
+    expect(onChange).toHaveBeenCalledWith({ a: 1 });
+    store.replace({ a: 2 });
+    store.queriesChanged();
+    vi.advanceTimersByTime(300);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    store.set("a", 3);
+    store.queriesChanged();
+    vi.advanceTimersByTime(300);
+    expect(onChange).toHaveBeenCalledTimes(2);
+    expect(onChange).toHaveBeenLastCalledWith({ a: 3 });
+    vi.useRealTimers();
+  });
 });

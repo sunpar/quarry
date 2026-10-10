@@ -1,5 +1,5 @@
 import { act, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { RuntimeToHost } from "@/shared/bridge-types";
 import { licensed } from "./libs/registry";
 import type { ModuleTable } from "./loader";
@@ -20,14 +20,6 @@ function setup() {
   const runtime = createRuntime((m) => sent.push(m), root, table);
   return { runtime, sent };
 }
-
-const QUERY_VIEW = `
-  import { useQuery, useViewState } from "@quarry/hooks";
-  export default function V() {
-    const [n, setN] = useViewState("n", 1);
-    useQuery({ dataset: "df", limit: n });
-    return <button onClick={() => setN(n + 1)}>more</button>;
-  }`;
 
 describe("runtime mount", () => {
   it("posts ready, mounts a component with datasets, and restores state", async () => {
@@ -55,68 +47,6 @@ describe("runtime mount", () => {
       runtime.handle({ type: "restore", viewId: "v1", state: { n: 7 } });
     });
     await waitFor(() => expect(screen.getByText("df:7")).toBeTruthy());
-  });
-
-  it("snapshots carry only the queries of the state they record", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    try {
-      const { runtime, sent } = setup();
-      await act(async () => {
-        runtime.handle({
-          type: "mount",
-          viewId: "v9",
-          source: QUERY_VIEW,
-          initialState: {},
-          datasets: ["df"],
-        });
-      });
-      await vi.waitFor(() => expect(screen.getByText("more")).toBeTruthy());
-      await act(async () => {
-        screen.getByText("more").click();
-      });
-      await act(async () => {
-        vi.runAllTimers();
-      });
-      const change = sent.find((m) => m.type === "stateChanged");
-      expect(change).toMatchObject({
-        state: { n: 2 },
-        queries: [{ dataset: "df", limit: 2 }],
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("reports the mount-time state and queries once, unprompted", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    try {
-      const { runtime, sent } = setup();
-      await act(async () => {
-        runtime.handle({
-          type: "mount",
-          viewId: "v1",
-          source: QUERY_VIEW,
-          initialState: { n: 5 },
-          datasets: ["df"],
-        });
-      });
-      // The view has rendered once it has asked for its data.
-      await vi.waitFor(() =>
-        expect(sent.some((m) => m.type === "query")).toBe(true),
-      );
-      await act(async () => {
-        vi.runAllTimers();
-      });
-      const reported = sent.filter((m) => m.type === "stateChanged");
-      expect(reported).toHaveLength(1);
-      expect(reported[0]).toMatchObject({
-        viewId: "v1",
-        state: { n: 5 },
-        queries: [{ dataset: "df", limit: 5 }],
-      });
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it("posts error when the component throws during render", async () => {

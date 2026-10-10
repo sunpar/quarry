@@ -103,31 +103,45 @@ describe("hooks", () => {
     expect(screen.getByTestId("arrow").textContent).toBe("0,1,2");
   });
 
-  it("records a query served from cache for the next state change", async () => {
-    const { bridge, cache, sent } = harness();
-    const spec = { dataset: "df" };
-    cache.ensureQuery(spec);
-    const msg = sent.find((m) => m.type === "query");
-    if (msg?.type !== "query") throw new Error("expected query");
-    bridge.handle({
-      type: "queryResult",
-      viewId: "v1",
-      id: msg.id,
-      ok: true,
-      result: {
-        schema: [],
-        rows: [],
-        arrow_base64: null,
-        row_count: 0,
-        truncated: false,
-      },
-    });
-    await Promise.resolve();
+  it("a snapshot carries the specs its mounted hooks hold", () => {
+    const { bridge, sent, wrap } = harness();
+    const Held = ({ dataset }: { dataset: string }) => {
+      useQuery({ dataset });
+      return null;
+    };
+    const { rerender } = render(
+      wrap(
+        <>
+          <Held key="a1" dataset="a" />
+          <Held key="a2" dataset="a" />
+          <Held key="b" dataset="b" />
+        </>,
+      ),
+    );
     bridge.stateChanged({});
-    expect(cache.ensureQuery(spec).status).toBe("success");
+    // Held, not merely rendered: a report with no render between still carries both.
+    bridge.stateChanged({});
+    // One of the two hooks holding `a` unmounts; the other still holds it.
+    rerender(
+      wrap(
+        <>
+          <Held key="a1" dataset="a" />
+          <Held key="b" dataset="b" />
+        </>,
+      ),
+    );
+    bridge.stateChanged({});
+    rerender(wrap(<Held key="b" dataset="b" />));
     bridge.stateChanged({});
     const changes = sent.filter((m) => m.type === "stateChanged");
-    expect(changes.at(-1)).toMatchObject({ queries: [spec] });
+    expect(
+      changes.map((m) => (m.type === "stateChanged" ? m.queries : [])),
+    ).toEqual([
+      [{ dataset: "a" }, { dataset: "b" }],
+      [{ dataset: "a" }, { dataset: "b" }],
+      [{ dataset: "a" }, { dataset: "b" }],
+      [{ dataset: "b" }],
+    ]);
   });
 
   it("refresh refetches every cached answer and keeps it shown meanwhile", async () => {

@@ -36,7 +36,6 @@ export class RequestCache {
   }
 
   ensureQuery(spec: QuerySpec): QueryState {
-    this.bridge.useQuery(spec);
     const key = JSON.stringify(spec);
     const known = this.queries.get(key);
     if (known !== undefined && !this.stale.delete(`q:${key}`)) return known;
