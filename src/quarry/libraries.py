@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Final, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from quarry.config import QuarryConfig
 
@@ -23,7 +23,7 @@ class LibraryStatus(BaseModel):
     enabled: bool
     reason: str | None = None
     # Sent to the browser, which hands it to the library at load time; never logged.
-    license: str | None = None
+    license: str | None = Field(default=None, repr=False)
     entry: str | None = None
 
 

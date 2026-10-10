@@ -650,6 +650,9 @@ scichart_license = ""         # enables SciChart.js when set, with:
 scichart_path = ""            # path to a locally installed scichart npm package
 ```
 
+Each `*_path` is served whole to any origin, so it must be the package folder
+itself, never a broad folder such as `~` or `~/Downloads`.
+
 ## 12. Security
 
 - Server binds `127.0.0.1` only.

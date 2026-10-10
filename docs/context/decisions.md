@@ -587,7 +587,9 @@ them.
   for each library with a key but no usable install, naming the setting, never
   the key. The plan logged inside the status check, which warned twice at
   startup and again on every request. Cost: an install added after startup
-  needs a restart.
+  needs a restart. The mount serves every file under `*_path` to any origin, so
+  the path must be the library's package folder itself, never a broad folder
+  such as `~` or `~/Downloads`; there is no guard in code.
 
 ## First UI
 

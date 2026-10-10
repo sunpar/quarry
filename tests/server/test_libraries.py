@@ -51,6 +51,14 @@ def test_missing_path_is_reported_and_disabled(tmp_path: Path) -> None:
     assert status.enabled is False and "does not exist" in (status.reason or "")
 
 
+def test_path_without_entry_file_is_reported_and_disabled(tmp_path: Path) -> None:
+    install = fake_package(tmp_path, "scichart", "README.md")
+    config = config_with(tmp_path, scichart_license="k", scichart_path=install)
+    status = next(s for s in licensed_libraries(config) if s.id == "scichart")
+    assert status.enabled is False and status.license is None
+    assert status.reason == f"scichart_path {install} does not exist or lacks index.min.mjs"
+
+
 def test_enabled_library_is_mounted_with_cors_and_listed(tmp_path: Path) -> None:
     hc = fake_package(tmp_path, "highcharts", "highstock.js")
     sc = fake_package(tmp_path, "scichart", "index.min.mjs")
@@ -61,6 +69,7 @@ def test_enabled_library_is_mounted_with_cors_and_listed(tmp_path: Path) -> None
         scichart_license="k2",
         scichart_path=sc,
     )
+    assert "k1" not in repr(licensed_libraries(config))
     with make_client(tmp_path, [], config=config) as client:
         listed = {s["id"]: s for s in client.get("/libraries").json()}
         assert listed["highcharts"] == {
