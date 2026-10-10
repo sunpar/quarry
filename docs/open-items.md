@@ -135,10 +135,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   `load` when `ready` was missed, and again when a late `ready` arrives. The
   second mount rebuilds the view with a fresh store and cache, so it transpiles
   and queries twice and drops any state set in between. Silent.
-- **The transpile check and the runtime transform differ**:
-  `web/tools/transpile-check.ts` runs Sucrase without `keepUnusedImports`, which
-  the runtime loader sets, so the two can treat a source with an inline `type`
-  import differently. Silent.
 - **Perspective dates outside years 1 to 9999**: a Date or Datetime filter term
   beyond them maps to a `+010000-...` ISO string, which the kernel cannot parse,
   so the pivot's probe query and "To code" fail. Loud.
