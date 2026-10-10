@@ -578,6 +578,16 @@ them.
   crash between them leaves nothing listed. Cost: that crash leaves a folder
   that refuses the id until it is removed. The id pattern ends in `\Z`, not the
   plan's `$`, which in Python also matches before a trailing newline.
+- **Licensed library status lives in `quarry/libraries.py`**: `LibraryStatus`
+  and `licensed_libraries` import only the config and pydantic, because
+  `enabled_libraries` in `quarry.agent` needs them and `quarry.server` already
+  imports `quarry.agent`. The plan put them in `quarry.server.libraries`.
+  `create_app` computes the statuses once: it mounts each enabled library at
+  `/libs/<id>`, serves the same list from `GET /libraries`, and logs one warning
+  for each library with a key but no usable install, naming the setting, never
+  the key. The plan logged inside the status check, which warned twice at
+  startup and again on every request. Cost: an install added after startup
+  needs a restart.
 
 ## First UI
 

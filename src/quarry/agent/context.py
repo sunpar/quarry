@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from quarry.config import QuarryConfig
 from quarry.data.parquet import PartitionLayout
 from quarry.kernel.datasets import DatasetMeta
+from quarry.libraries import licensed_libraries
 from quarry.server.models import Step
 
 GUIDE_PATH: Final = Path(__file__).parent / "guide.md"
@@ -79,12 +80,8 @@ def runtime_libraries(static_dir: Path) -> list[str] | None:
 
 
 def enabled_libraries(config: QuarryConfig, available: list[str] | None = None) -> list[str]:
-    extra: list[str] = []
-    if config.libraries.highcharts_license:
-        extra.append("highcharts")
-    if config.libraries.scichart_license:
-        extra.append("scichart")
-    wanted = [*ALWAYS_ON, *extra]
+    licensed = [s.id for s in licensed_libraries(config) if s.enabled]
+    wanted = [*ALWAYS_ON, *licensed]
     if available is None:
         return wanted
     return [lib for lib in wanted if lib in available]

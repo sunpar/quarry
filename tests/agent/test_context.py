@@ -21,7 +21,14 @@ def test_estimate_tokens() -> None:
 def test_enabled_libraries(tmp_path: Path) -> None:
     base = enabled_libraries(QuarryConfig(root=tmp_path))
     assert "plotly" in base and "highcharts" not in base
-    cfg = QuarryConfig.model_validate({"root": tmp_path, "libraries": {"highcharts_license": "k"}})
+    key_only = {"highcharts_license": "k"}
+    cfg = QuarryConfig.model_validate({"root": tmp_path, "libraries": key_only})
+    assert "highcharts" not in enabled_libraries(cfg)
+    install = tmp_path / "highcharts"
+    install.mkdir()
+    (install / "highstock.js").write_text("// stub")
+    libraries = {**key_only, "highcharts_path": str(install)}
+    cfg = QuarryConfig.model_validate({"root": tmp_path, "libraries": libraries})
     assert "highcharts" in enabled_libraries(cfg)
 
 

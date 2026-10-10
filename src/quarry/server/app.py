@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -21,6 +22,7 @@ from quarry.config import QuarryConfig
 from quarry.kernel.client import KernelDead, RpcFailure
 from quarry.kernel.datasets import DatasetMeta
 from quarry.kernel.executor import QueryResult
+from quarry.libraries import LibraryStatus, library_settings, licensed_libraries
 from quarry.projects.store import ProjectStore
 from quarry.query.spec import Json, QueryError, QuerySpec
 from quarry.server.component_routes import register_component_routes
@@ -40,6 +42,8 @@ from quarry.server.service import (
 )
 from quarry.server.store import SessionStore
 
+log = logging.getLogger(__name__)
+
 
 class SnapshotRequest(BaseModel):
     state: dict[str, Json] = Field(default_factory=dict)
@@ -58,6 +62,7 @@ def create_app(
     static_dir: Path | None = None,
 ) -> FastAPI:
     static = static_dir or Path(__file__).parent.parent / "static"
+    licensed = licensed_libraries(config)
     researcher_root = config.root / "components"
     roots = [builtin_root(), researcher_root]
     if config.libraries.team_components is not None:
@@ -116,6 +121,10 @@ def create_app(
     @api.get("/sessions")
     def list_sessions() -> list[SessionMeta]:
         return service.list()
+
+    @api.get("/libraries")
+    def libraries() -> list[LibraryStatus]:
+        return licensed
 
     @api.get("/sessions/{session_id}")
     def get_session(session_id: str) -> Session:
@@ -211,6 +220,16 @@ def create_app(
         sessions=service,
     )
     app.include_router(api)
+    # Before "/", since Starlette tries mounts in order. Like the bundle's own files, a
+    # library's modules and wasm are fetched by the sandboxed frame with Origin: null.
+    for status in licensed:
+        key, path = library_settings(status.id, config)
+        if status.enabled:
+            package = CORSMiddleware(StaticFiles(directory=path), allow_origins=["*"])
+            app.mount(f"/libs/{status.id}", package, name=f"lib-{status.id}")
+        elif key:
+            # The reason names the setting at fault, never the key.
+            log.warning("%s has a license key but is disabled: %s", status.id, status.reason)
     if (static / "index.html").exists():
         # The sandboxed view frame has an opaque origin, so its module scripts, CSS and fonts
         # are fetched in CORS mode and need this header. The API router sends no CORS header.
