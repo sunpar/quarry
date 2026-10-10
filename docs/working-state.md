@@ -86,7 +86,9 @@ review left is under [known problems](open-items.md#known-problems). Codex was
 out of review credits, so two whole-PR `@claude` reviews stood in for it; both
 came back with nothing to block on, the second covering the built-ins, the
 Perspective mapping and the host dialogs the first had skipped. The pull request
-merged on 2026-10-10.
+merged on 2026-10-10. How the stage was run (models, reviews, the long commit
+subjects kept, the merge record pushed straight to `main`) is under
+[build process](context/decisions.md#build-process).
 
 ## Latest verification
 
@@ -101,6 +103,8 @@ tests) and `npm run build` passed. CI passed on sunpar/quarry#9 at `6eb8d19`.
 
 1. Pick the next work from [open-items.md](open-items.md), starting with its
    known problems.
+2. Once Codex has review credits again (from 2026-10-15), run the Codex review
+   of Stages 4 and 5 that [Any time](open-items.md#any-time) lists.
 
 ## Resuming
 
