@@ -1,3 +1,4 @@
+import copy
 import json
 from collections.abc import Mapping
 from pathlib import Path
@@ -92,7 +93,8 @@ def run_code_cells(doc: Mapping[str, Json]) -> dict[str, object]:
 def test_notebook_validates_and_runs(tmp_path: Path) -> None:
     store = project_with_saved_items(tmp_path)
     doc = notebook(store.get("momentum"), store)
-    nbformat.validate(doc)
+    # A copy: validate repairs what it can in place, such as a repeated cell id.
+    nbformat.validate(copy.deepcopy(doc))
     cells = [(c.kind, c.source) for c in cells_of(doc)]
     expected = [
         ("markdown", "# Momentum\n\na study"),
