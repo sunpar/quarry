@@ -81,8 +81,8 @@ and these docs. Its calls are under [views](context/decisions.md#views) and in
 the other sections the plan touched, the modules are in the
 [code map](context/code-map.md), and what it closed is gone from
 [open-items.md](open-items.md). What it deferred is under
-[Any time](open-items.md#any-time), and the task reviews' findings left for the
-final review are [known problems](open-items.md#known-problems).
+[Any time](open-items.md#any-time), and what the task reviews and the final
+review left is under [known problems](open-items.md#known-problems).
 
 ## Latest verification
 

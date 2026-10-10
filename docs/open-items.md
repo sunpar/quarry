@@ -70,8 +70,7 @@ Decisions already made are in [decisions.md](context/decisions.md).
   column fails loudly when the cell runs, and an Int64 sum can wrap silently. No
   `relation_projection` either, since that needs the live relation, so a
   relation query whose result holds an INTERVAL or UNION column, which `.pl()`
-  cannot import, or that names a repeated column by the `_1` name views see,
-  fails loudly when the cell runs.
+  cannot import, fails loudly when the cell runs.
 - **Interrupts stop only the kernel's DuckDB connection**: DuckDB workers for a
   relation on a researcher's own `duckdb.connect()` can keep running after an
   interrupt. Silent: they hold CPU and delay that connection's next query.
