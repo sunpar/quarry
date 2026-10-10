@@ -1,5 +1,5 @@
 import type { ViewerConfigUpdate } from "@finos/perspective-viewer";
-import type { Agg, Filter, QuerySpec, Sort } from "@/shared/api-types";
+import type { Agg, Column, Filter, QuerySpec, Sort } from "@/shared/api-types";
 
 const OPS: Record<string, Filter["op"]> = {
   "==": "eq",
@@ -16,27 +16,37 @@ const OPS: Record<string, Filter["op"]> = {
   "is not null": "not_null",
 };
 
+// No `stddev`: Perspective's is the population figure, the kernel's `std` the sample one.
 const AGGS: Record<string, Agg["fn"]> = {
   sum: "sum",
   avg: "mean",
+  mean: "mean",
   min: "min",
+  low: "min",
   max: "max",
+  high: "max",
   count: "count",
   median: "median",
-  stddev: "std",
   first: "first",
   last: "last",
 };
+
+// Perspective sums integers and floats by default; Decimal and Int128 arrive as floats.
+const NUMERIC = /^(Int|UInt|Float|Decimal)/;
 
 export interface MappedSpec {
   spec: QuerySpec;
   dropped: string[];
 }
 
-/** Perspective's saved config as a query spec; what the spec cannot say is listed in `dropped`. */
+/**
+ * Perspective's saved config as a query spec; what the spec cannot say is listed in `dropped`.
+ * `schema` picks each column's default aggregate as Perspective does; unknown columns count.
+ */
 export function perspectiveToSpec(
   dataset: string,
   config: ViewerConfigUpdate,
+  schema: Column[] = [],
 ): MappedSpec {
   const dropped: string[] = [];
   const expressions = new Set(Object.keys(config.expressions ?? {}));
@@ -44,8 +54,12 @@ export function perspectiveToSpec(
   const columns = (config.columns ?? []).filter(
     (c): c is string => c !== null && !expressions.has(c),
   );
+  // Under "or", one filter reads the same as under "and"; more cannot join the spec's AND list.
+  const given = config.filter ?? [];
+  const anyOf = config.filter_op === "or" && given.length > 1;
+  if (anyOf) dropped.push('filter_op "or"');
   const filters: Filter[] = [];
-  for (const [col, op, term] of config.filter ?? []) {
+  for (const [col, op, term] of anyOf ? [] : given) {
     const mapped = OPS[op];
     if (mapped === undefined || expressions.has(col)) {
       dropped.push(`filter ${col} "${op}"`);
@@ -72,8 +86,10 @@ export function perspectiveToSpec(
   const aggs: Agg[] = [];
   for (const col of columns) {
     if (groupBy.includes(col)) continue;
-    const raw = config.aggregates?.[col] ?? "count";
-    const name = typeof raw === "string" ? raw : raw[0];
+    const dtype = schema.find((c) => c.name === col)?.dtype ?? "";
+    const chosen =
+      config.aggregates?.[col] ?? (NUMERIC.test(dtype) ? "sum" : "count");
+    const name = typeof chosen === "string" ? chosen : chosen[0];
     const fn = AGGS[name];
     if (fn === undefined) dropped.push(`aggregate ${col} "${name}"`);
     else aggs.push({ col, fn });

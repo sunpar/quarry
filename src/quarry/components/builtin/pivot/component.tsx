@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useQuery, useViewState } from "@quarry/hooks";
+import { useDatasetSchema, useQuery, useViewState } from "@quarry/hooks";
 import {
   PerspectiveViewer,
   perspectiveToSpec,
@@ -23,9 +23,11 @@ export default function Pivot({ datasets }: Props) {
   const config = stored as ViewerConfigUpdate | null;
   const [dropped, setDropped] = useViewState<string[]>("dropped", []);
   const data = useQuery({ dataset, format: "arrow", limit: ROWS });
+  // Default aggregates follow the column types, as Perspective's do.
+  const schema = useDatasetSchema(dataset);
   const mapped = useMemo(
-    () => perspectiveToSpec(dataset, config ?? {}),
-    [dataset, config],
+    () => perspectiveToSpec(dataset, config ?? {}, schema ?? []),
+    [dataset, config, schema],
   );
   // One-row probe: the kernel validates the mapped spec and it is recorded for "to code".
   const probe = useQuery({ ...mapped.spec, limit: 1 });
@@ -41,7 +43,7 @@ export default function Pivot({ datasets }: Props) {
 
   const onConfig = (next: ViewerConfigUpdate) => {
     setConfig(next as JsonObject);
-    const nextDropped = perspectiveToSpec(dataset, next).dropped;
+    const nextDropped = perspectiveToSpec(dataset, next, schema ?? []).dropped;
     if (nextDropped.join("\n") !== dropped.join("\n")) setDropped(nextDropped);
   };
 

@@ -909,12 +909,23 @@ them.
   `eq`, `ne`, `lt`, `le`, `gt` and `ge`; `in` and `not in` with an array term
   become `in` and `not_in`; `contains` and `begins with` become `contains` and
   `starts_with`; `is null` and `is not null` become `is_null` and `not_null`.
-  Any other operator, such as `ends with` or `is true`, is dropped. Only `asc`
-  and `desc` sorts carry over; `col asc`, `desc abs`, `none` and the other
+  Any other operator, such as `ends with` or `is true`, is dropped. Perspective
+  can join its filters with `filter_op: "or"`, which the spec's list of filters
+  cannot say: under "or", two or more filters are all dropped, listed once as
+  `filter_op "or"`, and a lone filter maps as under "and". Only `asc` and
+  `desc` sorts carry over; `col asc`, `desc abs`, `none` and the other
   directions are dropped. Under `group_by`, each other column becomes one `Agg`:
-  `sum`, `min`, `max`, `count`, `median`, `first` and `last` keep their names,
-  `avg` becomes `mean`, `stddev` becomes `std`, a column with no aggregate set
-  counts, and any other aggregate is dropped. Exactly one `split_by` with
+  `sum`, `mean`, `min`, `max`, `count`, `median`, `first` and `last` keep their
+  names, `avg` becomes `mean`, `high` becomes `max` and `low` becomes `min`; any
+  other aggregate is dropped. `stddev` is dropped too, though the spec has
+  `std`: Perspective's is the population figure (1.5 for 1 and 4) and the
+  kernel's the sample one (2.12), so "to code" would print different numbers. A
+  column with no aggregate set takes Perspective's default, which the engine's
+  view config leaves out (`aggregates` stays `{}`): `sum` for a numeric dtype,
+  matched as the other built-ins match it (`/^(Int|UInt|Float|Decimal)/`, and
+  Decimal and 128-bit integers reach Perspective as floats), and `count` for
+  everything else; Perspective 3.8.0 counts Boolean, Date and Datetime columns
+  too. A column missing from the live schema counts. Exactly one `split_by` with
   exactly one aggregated column becomes a `pivot` indexed by the group keys; two
   or more `split_by`, or a split over several aggregated columns, drops the
   split and keeps the grouping. When every column is a group key, the spec

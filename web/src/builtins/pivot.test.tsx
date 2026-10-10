@@ -1,16 +1,18 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { QueryHookResult } from "@/runtime/hooks";
+import type { Column } from "@/shared/api-types";
 
 const query = vi.fn<(spec: unknown) => QueryHookResult>();
 const state = new Map<string, unknown>();
+let schema: Column[] | null = null;
 vi.mock("@quarry/hooks", () => ({
   useQuery: (spec: unknown) => query(spec),
   useViewState: <T,>(key: string, initial: T) => [
     (state.get(key) as T | undefined) ?? initial,
     (next: T) => state.set(key, next),
   ],
-  useDatasetSchema: () => null,
+  useDatasetSchema: () => schema,
 }));
 vi.mock("@quarry/perspective", async () => ({
   PerspectiveViewer: () => <div data-testid="viewer" />,
@@ -59,5 +61,22 @@ describe("pivot built-in", () => {
     expect(
       screen.getByText(/to code will leave out: expression e/i),
     ).toBeTruthy();
+  });
+
+  it("picks default aggregates from the live schema", () => {
+    state.set("perspective", { group_by: ["a"], columns: ["a", "b"] });
+    schema = [{ name: "b", dtype: "Float64" }];
+    query.mockReturnValue(success);
+    try {
+      render(<Pivot datasets={["df"]} />);
+    } finally {
+      schema = null;
+    }
+    expect(query).toHaveBeenLastCalledWith({
+      dataset: "df",
+      group_by: ["a"],
+      aggs: [{ col: "b", fn: "sum" }],
+      limit: 1,
+    });
   });
 });

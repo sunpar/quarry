@@ -107,11 +107,13 @@ describe("perspectiveToSpec", () => {
     Object.entries({
       sum: "sum",
       avg: "mean",
+      mean: "mean",
       min: "min",
+      low: "min",
       max: "max",
+      high: "max",
       count: "count",
       median: "median",
-      stddev: "std",
       first: "first",
       last: "last",
     }),
@@ -122,6 +124,35 @@ describe("perspectiveToSpec", () => {
       aggregates: { v: aggregate },
     });
     expect(spec.aggs).toEqual([{ col: "v", fn }]);
+  });
+
+  it("drops stddev, which Perspective takes over the population", () => {
+    const { spec, dropped } = perspectiveToSpec("t", {
+      group_by: ["k"],
+      columns: ["v"],
+      aggregates: { v: "stddev" },
+    });
+    expect(spec.aggs).toEqual([{ col: "k", fn: "count" }]);
+    expect(dropped).toEqual(['aggregate v "stddev"']);
+  });
+
+  it("drops every filter under or, but not a lone one", () => {
+    const either = perspectiveToSpec("t", {
+      filter_op: "or",
+      filter: [
+        ["a", ">", 1],
+        ["b", "ends with", "x"],
+      ],
+      sort: [["a", "asc"]],
+    });
+    expect(either.spec).toEqual({ dataset: "t", sort: [{ col: "a" }] });
+    expect(either.dropped).toEqual(['filter_op "or"']);
+    const lone = perspectiveToSpec("t", {
+      filter_op: "or",
+      filter: [["a", ">", 1]],
+    });
+    expect(lone.spec.filters).toEqual([{ col: "a", op: "gt", value: 1 }]);
+    expect(lone.dropped).toEqual([]);
   });
 
   it("leaves expression columns out of select, filters and sorts", () => {
@@ -149,5 +180,25 @@ describe("perspectiveToSpec", () => {
       columns: ["v"],
     });
     expect(spec.aggs).toEqual([{ col: "v", fn: "count" }]);
+  });
+
+  it("sums numeric columns by default, as Perspective does", () => {
+    const { spec } = perspectiveToSpec(
+      "t",
+      { group_by: ["k"], columns: ["i", "p", "d", "s", "gone"] },
+      [
+        { name: "i", dtype: "Int64" },
+        { name: "p", dtype: "Decimal(38, 2)" },
+        { name: "d", dtype: "Date" },
+        { name: "s", dtype: "String" },
+      ],
+    );
+    expect(spec.aggs).toEqual([
+      { col: "i", fn: "sum" },
+      { col: "p", fn: "sum" },
+      { col: "d", fn: "count" },
+      { col: "s", fn: "count" },
+      { col: "gone", fn: "count" },
+    ]);
   });
 });
