@@ -38,7 +38,9 @@ def test_save_component_writes_manifest_and_lists_it(tmp_path: Path) -> None:
         assert (tmp_path / "components" / "my-view" / "component.tsx").read_text() == SOURCE
         listed = client.get("/components").json()
         assert "my-view" in {m["id"] for m in listed}
-        assert client.post("/components", json=body).status_code == 409
+        again = client.post("/components", json={**body, "source": "export default 1;\n"})
+        assert again.status_code == 409
+        assert (tmp_path / "components" / "my-view" / "component.tsx").read_text() == SOURCE
         assert client.post("/components", json={**body, "id": "data-table"}).status_code == 409
         assert not (tmp_path / "components" / "data-table").exists()
         assert client.post("/components", json={**body, "id": "Bad Id"}).status_code == 400
@@ -48,6 +50,37 @@ def test_save_component_writes_manifest_and_lists_it(tmp_path: Path) -> None:
         unknown = client.post("/components", json={**body, "id": "nosess", "session_id": "nope"})
         assert unknown.status_code == 404
         assert not (tmp_path / "components" / "nosess").exists()
+
+
+# A folder the library skips: a misspelled key, or an id that is not the folder's name.
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        '{"id": "hand", "name": "Hand", "description": "", "tagz": [], '
+        '"origin": "generated", "created_at": ""}',
+        '{"id": "other", "name": "Hand", "description": "", '
+        '"origin": "generated", "created_at": ""}',
+    ],
+)
+def test_save_component_leaves_an_existing_folder_alone(tmp_path: Path, manifest: str) -> None:
+    folder = tmp_path / "components" / "hand"
+    folder.mkdir(parents=True)
+    (folder / "manifest.json").write_text(manifest)
+    (folder / "component.tsx").write_text("export default function Mine() { return null }")
+    before = {p.name: p.read_bytes() for p in folder.iterdir()}
+    with make_client(tmp_path, []) as client:
+        saved = client.post("/components", json={"id": "hand", "name": "Hand", "source": SOURCE})
+        assert saved.status_code == 409, saved.text
+        assert "folder" in saved.json()["detail"]
+    assert {p.name: p.read_bytes() for p in folder.iterdir()} == before
+
+
+def test_save_component_needs_session_and_dataset_together(tmp_path: Path) -> None:
+    with make_client(tmp_path, []) as client:
+        body = {"id": "half", "name": "Half", "source": SOURCE}
+        assert client.post("/components", json={**body, "session_id": "s"}).status_code == 422
+        assert client.post("/components", json={**body, "dataset": "df"}).status_code == 422
+    assert not (tmp_path / "components" / "half").exists()
 
 
 @pytest.mark.skipif(

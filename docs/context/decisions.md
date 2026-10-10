@@ -569,11 +569,15 @@ them.
   it has enough columns of each dtype for all its typed roles together, and
   enough left over for its `any` roles. Each requirement had been checked alone,
   so one numeric column met both an `x` and a `y` role.
-- **A saved component's manifest is written last**: `POST /components` writes
-  `component.tsx`, then `manifest.json`, into a new 0700 directory. The library
-  lists a component only once both files exist, so a crash between them leaves
-  nothing listed. The id pattern ends in `\Z`, not the plan's `$`, which in
-  Python also matches before a trailing newline.
+- **A saved component gets a folder of its own**: `POST /components` creates
+  `<root>/components/<id>/` exclusively, 0700, and answers 409 when a folder of
+  that name exists. The library skips a folder whose manifest is invalid or
+  names another id, so the check against the library alone had let a save
+  replace files a researcher wrote. It writes `component.tsx`, then
+  `manifest.json`: the library lists a component only once both exist, so a
+  crash between them leaves nothing listed. Cost: that crash leaves a folder
+  that refuses the id until it is removed. The id pattern ends in `\Z`, not the
+  plan's `$`, which in Python also matches before a trailing newline.
 
 ## First UI
 

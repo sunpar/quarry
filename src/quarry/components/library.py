@@ -121,10 +121,13 @@ def requirements_for(meta: DatasetMeta) -> list[SchemaRequirement]:
 
 
 def write_component(root: Path, manifest: ComponentManifest, source: str) -> Path:
-    """Write `manifest` and `source` under `root/<id>/`, returning that directory. The library
-    lists a component once both files exist, so the manifest goes last."""
+    """Write `manifest` and `source` into a new `root/<id>/`, returning that directory. A folder
+    already there is a FileExistsError: the library skips one with a bad manifest, so it may
+    hold files a researcher wrote. The library lists a component once both files exist, so
+    the manifest goes last."""
+    root.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
     target = child(root, manifest.id)
-    target.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
+    target.mkdir(mode=PRIVATE_DIR)
     write_atomic(target / "component.tsx", source)
     write_atomic(target / "manifest.json", manifest.model_dump_json(by_alias=True, indent=2))
     return target

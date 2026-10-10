@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from quarry.agent.transpile import Transpiler
 from quarry.components.library import (
@@ -30,6 +30,12 @@ class SaveComponentRequest(BaseModel):
     # The dataset the view was written against; its dtype classes become the schema requirement.
     session_id: str | None = None
     dataset: str | None = None
+
+    @model_validator(mode="after")
+    def _check_dataset(self) -> SaveComponentRequest:
+        if (self.session_id is None) != (self.dataset is None):
+            raise ValueError("session_id and dataset are set together or not at all")
+        return self
 
 
 def register_component_routes(
@@ -57,9 +63,9 @@ def register_component_routes(
         if body.session_id is not None and body.dataset is not None:
             try:
                 sessions.get(body.session_id)  # KeyError before a kernel is spawned for a bad id
-                listed = sessions.datasets(body.session_id)
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail="no such session") from exc
+            listed = sessions.datasets(body.session_id)
             meta = next((d for d in listed if d.name == body.dataset), None)
             if meta is None:
                 raise HTTPException(status_code=404, detail=f"no dataset {body.dataset!r}")
@@ -73,5 +79,10 @@ def register_component_routes(
             origin="generated",
             created_at=now_iso(),
         )
-        write_component(researcher_root, manifest, body.source)
+        try:
+            write_component(researcher_root, manifest, body.source)
+        except FileExistsError as exc:
+            raise HTTPException(
+                status_code=409, detail=f"a component folder named {body.id!r} already exists"
+            ) from exc
         return manifest
