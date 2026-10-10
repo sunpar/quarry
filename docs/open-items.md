@@ -127,10 +127,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **Prompt-step tracebacks land in the message**: a prompt step's error puts the
   traceback in `error.message` and leaves `traceback` empty, while manual steps
   fill `traceback`. Silent.
-- **A lone surrogate in a SQL literal fails a step after it ran**: lineage
-  parses `sql_local("SELECT '\ud800'")` once the code has run, and the
-  `RuntimeError` that raises is not among the errors the parse suppresses, so
-  `execute` raises and the step's result is lost. Loud.
 - **A view can still send rows out over WebRTC or DNS**: no CSP directive covers
   a peer connection's ICE traffic or a DNS prefetch, so a generated view can put
   rows in a STUN host name or a prefetched name despite the runtime CSP and the

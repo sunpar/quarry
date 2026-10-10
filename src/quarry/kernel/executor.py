@@ -315,13 +315,17 @@ class Executor:
         Parsing binds nothing and reads no files, so `a JOIN b USING (k)` names both tables even
         where binding, which cannot see their columns, fails. A literal that is not SELECT
         statements (PIVOT, CREATE TABLE AS) or does not parse serializes to an error with no
-        statements, so it adds nothing; so does one nested deeper than `json.loads` recurses.
+        statements, so it adds nothing; so does one nested deeper than `json.loads` recurses, and
+        one holding a lone surrogate, which pybind11 refuses with a `RuntimeError`.
         """
         found: set[str] = set()
         for sql in literals:
             # A cursor leaves `_conn` holding any result the step has yet to fetch (probed).
             # Suppressing first also covers `cursor()`: a step may have closed `_conn`.
-            with contextlib.suppress(duckdb.Error, RecursionError), self._conn.cursor() as cur:
+            with (
+                contextlib.suppress(duckdb.Error, RecursionError, RuntimeError),
+                self._conn.cursor() as cur,
+            ):
                 rows = cur.execute("SELECT json_serialize_sql(?)", [sql]).fetchall()
                 found |= _base_tables(json.loads(rows[0][0]))
         return found & before

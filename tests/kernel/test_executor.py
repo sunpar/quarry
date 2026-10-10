@@ -966,6 +966,13 @@ def test_sql_local_table_names_are_reads() -> None:
     assert bad.status == "ok" and bad.reads == []
 
 
+def test_a_literal_duckdb_cannot_take_still_returns_the_step() -> None:
+    # The step's parser makes a lone surrogate of the escape, which pybind11 cannot pass on.
+    code = r"""y = pl.DataFrame({"a": [1]}) if True else _conn.sql("SELECT '\ud800'")"""
+    result = make().execute(code)
+    assert result.status == "ok" and result.writes == ["y"] and result.reads == []
+
+
 def test_attribute_mutation_is_a_write() -> None:
     ex = make()
     ex.execute("df = pl.DataFrame({'a': [1]})")
