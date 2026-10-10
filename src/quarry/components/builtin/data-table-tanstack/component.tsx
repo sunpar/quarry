@@ -23,6 +23,8 @@ const features = tableFeatures({
 });
 const helper = createColumnHelper<typeof features, Row>();
 const isNumeric = (dtype: string) => /^(Int|UInt|Float|Decimal)/.test(dtype);
+// One empty list for loading and error renders, so `columns` keeps its identity.
+const NONE: never[] = [];
 
 export default function DataTableTanstack({ datasets }: Props) {
   const dataset = datasets[0] ?? "";
@@ -39,8 +41,8 @@ export default function DataTableTanstack({ datasets }: Props) {
     limit,
     ...(sort === null ? {} : { sort: [{ col: sort.col, desc: sort.desc }] }),
   });
-  const rows = result.status === "success" ? result.rows : [];
-  const schema = result.status === "success" ? result.schema : [];
+  const rows = result.status === "success" ? result.rows : NONE;
+  const schema = result.status === "success" ? result.schema : NONE;
   const columns = useMemo(
     () =>
       helper.columns(

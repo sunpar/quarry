@@ -50,24 +50,24 @@ describe("data-table-tanstack built-in", () => {
 
   it("sends a saved sort to the query and cycles it from ascending to descending to none", () => {
     query.mockReturnValue(prices);
-    saved.sort = { col: "px", desc: false };
-    const { unmount } = render(<DataTableTanstack datasets={["df"]} />);
-    expect(query).toHaveBeenLastCalledWith({
-      dataset: "df",
-      limit: 500,
-      sort: [{ col: "px", desc: false }],
-    });
-    fireEvent.click(screen.getByRole("columnheader", { name: /px/ }));
-    expect(setSort).toHaveBeenLastCalledWith({ col: "px", desc: true });
-    unmount();
-    saved.sort = { col: "px", desc: true };
     try {
+      saved.sort = { col: "px", desc: false };
+      const { unmount } = render(<DataTableTanstack datasets={["df"]} />);
+      expect(query).toHaveBeenLastCalledWith({
+        dataset: "df",
+        limit: 500,
+        sort: [{ col: "px", desc: false }],
+      });
+      fireEvent.click(screen.getByRole("columnheader", { name: /px/ }));
+      expect(setSort).toHaveBeenLastCalledWith({ col: "px", desc: true });
+      unmount();
+      saved.sort = { col: "px", desc: true };
       render(<DataTableTanstack datasets={["df"]} />);
+      fireEvent.click(screen.getByRole("columnheader", { name: /px/ }));
+      expect(setSort).toHaveBeenLastCalledWith(null);
     } finally {
       delete saved.sort;
     }
-    fireEvent.click(screen.getByRole("columnheader", { name: /px/ }));
-    expect(setSort).toHaveBeenLastCalledWith(null);
   });
 
   it("drops a saved sort on a column the live schema lacks", () => {

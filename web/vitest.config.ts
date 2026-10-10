@@ -1,6 +1,9 @@
 import path from "node:path";
 import { defineConfig } from "vitest/config";
 
+// The naive-datetime tests need a non-UTC zone, or reading them as local time would pass.
+process.env.TZ = "America/New_York";
+
 const root = import.meta.dirname;
 
 export default defineConfig({
