@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   CanvasCard,
   Project,
+  QuerySpec,
   RecallRequest,
   SaveDatasetRequest,
   SaveViewRequest,
@@ -10,6 +11,7 @@ import type {
   Step,
   StepRequest,
 } from "@/shared/api-types";
+import type { SaveComponentRequest } from "@/shared/component-types";
 import type { ApiClient } from "./client";
 import { useApi } from "./context";
 import { keys } from "./keys";
@@ -68,6 +70,22 @@ export function useSubmitPrompt(id: string) {
   });
 }
 
+export function useSubmitManual(id: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (code: string) => api.postManualStep(id, code),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.session(id) }),
+  });
+}
+
+export function useToCode(sessionId: string) {
+  const api = useApi();
+  return useMutation({
+    mutationFn: (queries: QuerySpec[]) => api.toCode(sessionId, queries),
+  });
+}
+
 export function useInterrupt(id: string) {
   const api = useApi();
   return useMutation({ mutationFn: () => api.interrupt(id) });
@@ -123,6 +141,23 @@ export function useLibraries() {
     staleTime: Infinity,
     // Views wait for this answer before they mount, so a failure must not hold them in retries.
     retry: false,
+  });
+}
+
+export function useComponents() {
+  const api = useApi();
+  return useQuery({
+    queryKey: keys.components(),
+    queryFn: () => api.listComponents(),
+  });
+}
+
+export function useSaveComponent() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: SaveComponentRequest) => api.saveComponent(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.components() }),
   });
 }
 

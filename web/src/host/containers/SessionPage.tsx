@@ -96,6 +96,11 @@ function SessionColumn({ id }: { id: string }) {
   const steps = session.data?.steps ?? [];
   const running = sessionRunning(session.data) || submit.isPending;
   const status = useSessionStatus(id, running);
+  // A save or restart holds the session too; a prompt sent then would get a 409. Only a hold
+  // with no running step counts: the poll slows once a step ends, so its last answer may
+  // still name that step. The poll stays keyed on `running`, not on its own answer.
+  const held = status.data?.busy === true && status.data.running_step === null;
+  const busy = running || held;
   const version = dataVersion(steps, status.data?.kernel.pid);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -158,7 +163,7 @@ function SessionColumn({ id }: { id: string }) {
         </div>
       </div>
       <PromptBox
-        running={running}
+        running={busy}
         kernelDead={status.data?.kernel.status === "dead"}
         onSubmit={(prompt) => submit.mutateAsync({ prompt })}
         onStop={() => interrupt.mutate()}

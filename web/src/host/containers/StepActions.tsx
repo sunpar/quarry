@@ -1,16 +1,25 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import type { Step } from "@/shared/api-types";
+import type { Step, View } from "@/shared/api-types";
+import { ApiError } from "../api/client";
 import { useApi } from "../api/context";
 import {
   projectQuery,
   useProjects,
+  useSaveComponent,
   useSaveDataset,
   useSaveView,
   useSetCanvas,
+  useSubmitManual,
+  useToCode,
 } from "../api/hooks";
+import {
+  SaveComponentDialog,
+  type ComponentChoice,
+} from "../components/SaveComponentDialog";
 import { SaveDialog, type SaveChoice } from "../components/SaveDialog";
+import { ToCodeDrawer, toCodeSource } from "../components/ToCodeDrawer";
 
 interface StepActionsProps {
   sessionId: string;
@@ -38,6 +47,16 @@ export function StepActions({
   const saving =
     saveDataset.isPending || saveView.isPending || setCanvas.isPending;
   const onError = (e: Error) => onDone(e.message);
+  const codeInput = toCodeSource(step.view?.snapshots.at(-1));
+  const toCodeRequest = useToCode(sessionId);
+  const submitManual = useSubmitManual(sessionId);
+  const [toCode, setToCode] = useState<{
+    code: string;
+    dropped: string[];
+  } | null>(null);
+  const saveComponent = useSaveComponent();
+  const [toLibrary, setToLibrary] = useState<View | null>(null);
+  const refusal = saveComponent.error;
 
   // The project itself, not the list, holds the canvas this pin extends.
   const pinCard = async (slug: string, view: string) => {
@@ -90,8 +109,27 @@ export function StepActions({
     setPending(null);
   };
 
+  const onSaveComponent = (choice: ComponentChoice, view: View) => {
+    // The server takes both or neither, so a view without datasets binds nothing.
+    const bound = view.datasets[0] ?? null;
+    saveComponent.mutate(
+      {
+        ...choice,
+        source: view.source,
+        session_id: bound === null ? null : sessionId,
+        dataset: bound,
+      },
+      {
+        onSuccess: (manifest) => {
+          setToLibrary(null);
+          onDone(`Saved ${manifest.id} to your library`);
+        },
+      },
+    );
+  };
+
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       {dataset !== undefined && (
         <Button
           variant="ghost"
@@ -121,7 +159,65 @@ export function StepActions({
           >
             Pin to canvas
           </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            disabled={codeInput.queries.length === 0 || toCodeRequest.isPending}
+            onClick={() =>
+              toCodeRequest.mutate(codeInput.queries, {
+                onSuccess: ({ code }) => {
+                  submitManual.reset();
+                  setToCode({ code, dropped: codeInput.dropped });
+                },
+                onError,
+              })
+            }
+          >
+            To code
+          </Button>
+          {step.view.component_id === "inline" && (
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() => setToLibrary(step.view)}
+            >
+              Save to library
+            </Button>
+          )}
         </>
+      )}
+      {toCode !== null && (
+        <ToCodeDrawer
+          open
+          code={toCode.code}
+          dropped={toCode.dropped}
+          pending={submitManual.isPending}
+          error={submitManual.error?.message ?? null}
+          onChange={(code) => setToCode({ ...toCode, code })}
+          onRun={() =>
+            submitManual.mutate(toCode.code, {
+              onSuccess: () => setToCode(null),
+            })
+          }
+          onClose={() => setToCode(null)}
+        />
+      )}
+      {toLibrary !== null && (
+        <SaveComponentDialog
+          open
+          defaultId={`step-${step.index + 1}-view`}
+          pending={saveComponent.isPending}
+          error={
+            refusal instanceof ApiError
+              ? refusal.detail
+              : (refusal?.message ?? null)
+          }
+          onClose={() => {
+            saveComponent.reset();
+            setToLibrary(null);
+          }}
+          onSave={(choice) => onSaveComponent(choice, toLibrary)}
+        />
       )}
       {pending !== null && (
         <SaveDialog

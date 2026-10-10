@@ -18,6 +18,11 @@ import type {
   Step,
   StepRequest,
 } from "@/shared/api-types";
+import type {
+  ComponentManifest,
+  SaveComponentRequest,
+  ToCodeResponse,
+} from "@/shared/component-types";
 import type { JsonObject } from "@/shared/json";
 import type { LibraryStatus } from "@/shared/library-types";
 
@@ -127,6 +132,28 @@ export class ApiClient {
 
   libraries(): Promise<LibraryStatus[]> {
     return this.request("GET", "/libraries");
+  }
+
+  toCode(sessionId: string, queries: QuerySpec[]): Promise<ToCodeResponse> {
+    return this.request("POST", `/sessions/${sessionId}/to-code`, { queries });
+  }
+
+  listComponents(): Promise<ComponentManifest[]> {
+    return this.request("GET", "/components");
+  }
+
+  saveComponent(body: SaveComponentRequest): Promise<ComponentManifest> {
+    return this.request("POST", "/components", body);
+  }
+
+  /** Raw GET with the token, for file downloads. */
+  async fetchBlob(path: string): Promise<Blob> {
+    const response = await this.fetchImpl(path, {
+      headers: { authorization: `Bearer ${this.token}` },
+    });
+    if (!response.ok)
+      throw new ApiError(response.status, await readDetail(response));
+    return response.blob();
   }
 
   private async request<T>(

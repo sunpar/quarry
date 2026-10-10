@@ -22,6 +22,8 @@ export default function Pivot({ datasets }: Props) {
   );
   const config = stored as ViewerConfigUpdate | null;
   const [dropped, setDropped] = useViewState<string[]>("dropped", []);
+  // The probe's spec without its `limit`, which to code renders in place of the queries.
+  const [, setSpec] = useViewState<JsonObject | null>("spec", null);
   const source = { dataset, format: "arrow" as const, limit: ROWS };
   const data = useQuery(source);
   // Dtypes from before the arrow casts type filter terms and default aggregates.
@@ -47,8 +49,10 @@ export default function Pivot({ datasets }: Props) {
 
   const onConfig = (next: ViewerConfigUpdate) => {
     setConfig(next as JsonObject);
-    const nextDropped = perspectiveToSpec(dataset, next, data.schema).dropped;
-    if (nextDropped.join("\n") !== dropped.join("\n")) setDropped(nextDropped);
+    const nextMapped = perspectiveToSpec(dataset, next, data.schema);
+    setSpec(nextMapped.spec as unknown as JsonObject);
+    if (nextMapped.dropped.join("\n") !== dropped.join("\n"))
+      setDropped(nextMapped.dropped);
   };
 
   // `truncated` means only that the server's row cap cut the rows; a full page may be cut too.

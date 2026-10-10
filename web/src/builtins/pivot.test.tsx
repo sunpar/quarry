@@ -97,13 +97,20 @@ describe("pivot built-in", () => {
     expect(screen.getByText("Showing the first 7 rows.")).toBeTruthy();
   });
 
-  it("saves the viewer's layout and what to code will leave out", () => {
+  it("saves the viewer's layout, its mapped spec and what to code will leave out", () => {
     state.delete("perspective");
     state.delete("dropped");
+    state.delete("spec");
     query.mockReturnValue(success);
     render(<Pivot datasets={["df"]} />);
     fireEvent.click(screen.getByTestId("viewer"));
     expect(state.get("perspective")).toEqual(saved);
     expect(state.get("dropped")).toEqual(["expression e"]);
+    // The probe's spec without its `limit`, so to code renders the whole result.
+    expect(state.get("spec")).toEqual({
+      dataset: "df",
+      group_by: ["a"],
+      aggs: [{ col: "b", fn: "sum" }],
+    });
   });
 });

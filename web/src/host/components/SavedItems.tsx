@@ -1,12 +1,14 @@
 import { Badge } from "@/components/ui/badge";
 import type { Project } from "@/shared/api-types";
+import { DownloadButton } from "./DownloadButton";
 import { ValidationBadge } from "./ValidationBadge";
 
 interface SavedItemsProps {
   project: Project;
+  onDownloadRecipe: (dataset: string) => Promise<void>;
 }
 
-export function SavedItems({ project }: SavedItemsProps) {
+export function SavedItems({ project, onDownloadRecipe }: SavedItemsProps) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
       <div className="flex max-w-[944px] flex-col gap-8">
@@ -33,6 +35,12 @@ export function SavedItems({ project }: SavedItemsProps) {
                   ) : (
                     <ValidationBadge error={d.validation_error} />
                   )}
+                  <DownloadButton
+                    label={`Download recipe ${d.name}`}
+                    onDownload={() => onDownloadRecipe(d.name)}
+                  >
+                    Download recipe
+                  </DownloadButton>
                 </div>
                 {!d.validated && (
                   <p className="text-xs text-muted-foreground">

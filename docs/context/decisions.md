@@ -979,6 +979,12 @@ them.
 - **The saved config is a `JsonObject` in view state**: Perspective's types
   allow `undefined` values, which `useViewState`'s `Json` bound refuses, so the
   pivot casts at the boundary, as the plan allowed.
+- **To code renders the pivot's mapped spec, not its recorded queries**: the
+  pivot also keeps the mapped spec, without `limit`, under `spec` in view state,
+  written beside `dropped`, and "To code" renders `[spec]` when the latest
+  snapshot holds one; its recorded queries are the 50,000-row arrow load and the
+  one-row probe, which would render as `.head(1)`. Other views render their
+  recorded queries, and a saved view's export still does.
 
 ### TanStack table and OHLC
 
