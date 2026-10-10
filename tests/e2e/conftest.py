@@ -23,6 +23,7 @@ TOKEN = "e2e-token"
 class RunningServer:
     base_url: str
     token: str
+    provider: FakeProvider
 
 
 def _free_port() -> int:
@@ -57,7 +58,7 @@ def serve(tmp_path: Path) -> Iterator[Callable[[list[AssistantTurn]], RunningSer
                 raise RuntimeError("server did not start")
             time.sleep(0.05)
         servers.append(server)
-        return RunningServer(base_url=f"http://127.0.0.1:{port}", token=TOKEN)
+        return RunningServer(base_url=f"http://127.0.0.1:{port}", token=TOKEN, provider=provider)
 
     yield start
     for server in servers:
