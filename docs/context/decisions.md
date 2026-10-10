@@ -92,7 +92,8 @@ them.
   and `pl.from_arrow` both fail: given `relation_projection`, the importable
   projection the kernel reads the relation through, relation source starts from
   `rel.project(...)`, so INTERVAL and UNION columns arrive as text, as views see
-  them.
+  them. An export is the exception: its recipes are step code, so it
+  [rebuilds the kernel namespace](#projects) through `quarry`.
 - **Generated identifiers are ASCII**: `to_source` takes a dataset or result
   name only when it is `[A-Za-z_][A-Za-z0-9_]*` and not a keyword. Python folds
   identifiers to NFKC when it parses them, so `ｔrades` passed `isidentifier()`
@@ -955,6 +956,18 @@ them.
   queries render without a schema, since only dtype strings are on disk; the
   cell's first comment says so. Cost if wrong: a format change goes unnoticed
   until a test validates it.
+- **Exports rebuild the kernel namespace**: a recipe is step code, so it calls
+  the kernel's preloads (`pl`, `duckdb`, `pq`, `sql`, `sql_local`, `loaders`)
+  without importing them, and an export without them failed on its first cell.
+  The notebook's first code cell, and the script's first lines after its header,
+  import `load_config` and `build_namespace` from `quarry` and bind the
+  namespace built for the export's Quarry root, written in as an absolute path,
+  with DuckDB spilling under a new `tempfile.mkdtemp()` directory. An export
+  therefore needs `quarry` importable, in a Jupyter kernel too. The cells stay
+  the plain Python the spec's goals (§1) promise, and only this setup leans on
+  Quarry; "To code" output needs none of it. Cost if wrong: an export moved to
+  another machine needs that root's `config.toml` and `loaders.toml` there, or
+  an edit to the path, and the file names where the root lives.
 - **Export names results across the whole notebook**: a view's queries assign
   `<dataset>_<n>`, n being the query's position in its view, through
   `result_names` in `quarry.query.source_target`, which "To code" uses too. The

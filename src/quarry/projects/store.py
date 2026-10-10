@@ -49,6 +49,7 @@ def _read_all(directory: Path, model: type[M]) -> list[M]:
 
 class ProjectStore:
     def __init__(self, root: Path) -> None:
+        self.root = root
         self._dir = root / "projects"
         # Routes run on a thread pool: every read-modify-write of project.json, and the slug
         # choice in create, happens under this lock so a save's touch cannot drop a canvas write.

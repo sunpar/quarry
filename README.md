@@ -141,6 +141,13 @@ quarry projects export momentum --root ~/.quarry            # writes ./momentum.
 quarry projects export momentum --out ~/notebooks/mom.ipynb
 ```
 
+The notebook's first code cell, and the recipe's first lines after its header,
+rebuild a session's preloads (`pl`, `duckdb`, `pq`, `sql`, `sql_local`,
+`loaders`) for the Quarry root the export names, so run an export where `quarry`
+is importable, such as a Jupyter kernel in Quarry's environment. On another
+machine it needs that root's `config.toml` and `loaders.toml`, or an edit to the
+path.
+
 An exported view's queries render without the dataset's schema, which only a
 live session has, and the cell says so; "To code" under the view in a session
 renders them exactly.

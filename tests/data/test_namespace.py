@@ -12,30 +12,19 @@ from quarry.data.namespace import build_namespace, configure_connection
 from quarry.kernel.datasets import dataset_names
 from quarry.kernel.executor import Executor
 from quarry.query import Filter, QuerySpec
+from tests.fixtures import kept_default_connection, setting
 
 # Every namespace shares DuckDB's default connection, so names here are unique per test.
-# The settings an uncapped build_namespace changes on it.
-SETTINGS = ("python_scan_all_frames", "TimeZone", "temp_directory")
 UTC_ROWS = (
     "SELECT * FROM (VALUES (1, TIMESTAMPTZ '2024-01-01 00:00:00+00'), "
     "(2, TIMESTAMPTZ '2024-01-01 03:00:00+00'), (3, TIMESTAMPTZ '2024-01-01 06:00:00+00')) t(n, ts)"
 )
 
 
-def setting(conn: duckdb.DuckDBPyConnection, name: str) -> object:
-    row = conn.sql(f"SELECT current_setting('{name}')").fetchone()
-    assert row is not None
-    return row[0]
-
-
 @pytest.fixture(autouse=True)
 def default_connection_restored() -> Iterator[None]:
-    """build_namespace configures the default connection, which the whole session shares."""
-    conn = duckdb.default_connection()
-    saved = {name: setting(conn, name) for name in SETTINGS}
-    yield
-    for name, value in saved.items():
-        conn.execute(f"SET {name} = ?", [value])
+    with kept_default_connection():
+        yield
 
 
 def test_connection_spills_under_the_temp_dir(tmp_path: Path) -> None:

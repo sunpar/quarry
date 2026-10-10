@@ -1,20 +1,35 @@
 import copy
 import json
-from collections.abc import Mapping
+import os
+import subprocess
+import sys
+import tempfile
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import NamedTuple
 
 import nbformat
 import polars as pl
+import pytest
 
 from quarry.kernel.datasets import Column
 from quarry.projects.export import dataset_script, notebook, notebook_json
 from quarry.projects.models import SavedDatasetMeta, SavedViewMeta
 from quarry.projects.store import ProjectStore
 from quarry.query import Json
+from tests.fixtures import kept_default_connection
 
-RECIPE = "import polars as pl\nprices = pl.DataFrame({'ts': ['2024-01-02'], 'px': [1.0]})\n"
+RECIPE = "prices = pl.DataFrame({'ts': ['2024-01-02'], 'px': [1.0]})\n"
 VIEW_SOURCE = "export default function V() { return null }"
+SETUP = "# Rebuilds Quarry's kernel namespace"
+
+
+@pytest.fixture(autouse=True)
+def namespace_contained(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """The setup cell configures DuckDB's default connection and makes a temp directory."""
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    with kept_default_connection():
+        yield
 
 
 def project_with_saved_items(root: Path) -> ProjectStore:
@@ -98,8 +113,9 @@ def test_notebook_validates_and_runs(tmp_path: Path) -> None:
     cells = [(c.kind, c.source) for c in cells_of(doc)]
     expected = [
         ("markdown", "# Momentum\n\na study"),
+        ("code", SETUP),
         ("markdown", "## prices\n\nclosing prices"),
-        ("code", "import polars as pl"),
+        ("code", "prices = pl.DataFrame"),
         ("markdown", "## View: table\n\nthe table"),
         ("code", "# Rendered from"),
         ("markdown", "```tsx\nexport default"),
@@ -107,7 +123,8 @@ def test_notebook_validates_and_runs(tmp_path: Path) -> None:
     assert len(cells) == len(expected)
     for (kind, source), (want_kind, prefix) in zip(cells, expected, strict=True):
         assert kind == want_kind and source.startswith(prefix), (kind, source[:40])
-    code = cells_of(doc)[4].source
+    assert f"load_config(Path({str(tmp_path)!r}))" in cells[1][1]
+    code = cells_of(doc)[5].source
     assert code.startswith("# Rendered from the saved view's queries without a schema")
     assert "prices_1 = (" in code and "# query 2 could not be rendered:" in code
     namespace = run_code_cells(doc)
@@ -121,7 +138,7 @@ def test_notebook_validates_and_runs(tmp_path: Path) -> None:
 def test_a_result_name_never_overwrites_a_saved_dataset(tmp_path: Path) -> None:
     store = project_with_saved_items(tmp_path)
     save_another_dataset(
-        store, "prices_1", "import polars as pl\nprices_1 = pl.DataFrame({'a': [9]})\n"
+        store, "prices_1", "prices_1 = sql_local('SELECT 9 AS a FROM prices').pl()\n"
     )
     table = store.get("momentum").views[0]
     store.write_view(
@@ -132,7 +149,7 @@ def test_a_result_name_never_overwrites_a_saved_dataset(tmp_path: Path) -> None:
         queries=[{"dataset": "prices", "limit": 1}],
     )
     doc = notebook(store.get("momentum"), store)
-    code = sources(doc, "code")
+    code = sources(doc, "code")[1:]  # after the setup
     # chart sorts before table: its query skips the saved prices_1, and table's skips chart's too.
     assert "prices_2 = (" in code[2] and "prices_3 = (" in code[3]
     namespace = run_code_cells(doc)
@@ -185,10 +202,18 @@ def test_dataset_script_has_a_header_and_the_recipe(tmp_path: Path) -> None:
     store = project_with_saved_items(tmp_path)
     script = dataset_script(store.get("momentum"), store, "prices")
     assert script.startswith("# prices: closing prices\n# Saved from Quarry project Momentum")
-    assert script.endswith(RECIPE)
-    namespace: dict[str, object] = {}
-    exec(script, namespace)  # the test executes exported code on purpose
-    assert isinstance(namespace["prices"], pl.DataFrame)
+    assert f"\n\n{SETUP}" in script and script.endswith(f"\n\n{RECIPE}")
+    path = tmp_path / "prices.py"
+    path.write_text(script + "print(prices.height)\n")
+    # A fresh interpreter; -I keeps the working directory and PYTHONPATH off sys.path.
+    ran = subprocess.run(
+        [sys.executable, "-I", str(path)],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "TMPDIR": str(tmp_path)},
+        check=False,
+    )
+    assert (ran.returncode, ran.stdout) == (0, "1\n"), ran.stderr
 
 
 def test_pinned_dataset_script_mentions_the_parquet(tmp_path: Path) -> None:
@@ -244,7 +269,7 @@ def test_recipes_in_a_cycle_keep_saved_order_and_say_what_they_rebind(tmp_path: 
     save_another_dataset(store, "right", "right = 2\nleft = 1\n")
     save_another_dataset(store, "zeta", "left = (\n")  # does not parse, so constrains nothing
     doc = notebook(store.get("momentum"), store)
-    code = sources(doc, "code")[:4]
+    code = sources(doc, "code")[1:5]
     # Saved order throughout: left's binding of right is replaced by right's own recipe.
     assert code[0] == "left = 1\nright = 2\n" and code[1] == RECIPE
     assert code[2].startswith("# This recipe also assigns left, which an earlier cell loaded")
@@ -272,6 +297,6 @@ def test_a_cycle_keeps_saved_order_when_an_outside_recipe_assigns_a_member(
     headings = [source.split("\n")[0] for source in sources(doc, "markdown")]
     # xray runs before alpha, which it assigns; alpha still runs before beta, as saved.
     assert headings[1:5] == ["## prices", "## xray", "## alpha", "## beta"]
-    code = sources(doc, "code")
+    code = sources(doc, "code")[1:]
     assert code[3].startswith("# This recipe also assigns alpha, which an earlier cell loaded")
     assert not any(source.startswith("# This recipe") for source in code[:3])

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
+from pathlib import Path
 
 from pydantic import ValidationError
 
@@ -22,10 +23,11 @@ NO_SCHEMA_NOTE = (
 
 
 def notebook(project: Project, store: ProjectStore) -> dict[str, Json]:
-    """An nbformat 4.5 document: every saved dataset, then every saved view."""
+    """An nbformat 4.5 document: the setup, every saved dataset, then every saved view."""
     slug = project.meta.slug
     cells: list[dict[str, Json]] = [
-        _markdown(f"# {project.meta.name}\n\n{project.meta.description}".rstrip() + "\n")
+        _markdown(f"# {project.meta.name}\n\n{project.meta.description}".rstrip() + "\n"),
+        _code(_setup(store.root)),
     ]
     names = [d.name for d in project.datasets]
     recipes = [store.read_recipe(slug, name) for name in names]
@@ -57,7 +59,7 @@ def notebook_json(project: Project, store: ProjectStore) -> str:
 
 
 def dataset_script(project: Project, store: ProjectStore, name: str) -> str:
-    """The recipe as a standalone script; a pinned dataset also notes its parquet file."""
+    """The setup, then the recipe, as a standalone script; a pinned dataset notes its parquet."""
     saved = next((d for d in project.datasets if d.name == name), None)
     if saved is None:
         raise KeyError(name)
@@ -70,7 +72,24 @@ def dataset_script(project: Project, store: ProjectStore, name: str) -> str:
         lines.append(py_comment(f"Pinned copy: {name} = pl.read_parquet({str(path)!r})"))
     if not saved.validated:
         lines.append(py_comment(f"Not validated: {saved.validation_error}"))
-    return "\n".join(lines) + "\n\n" + store.read_recipe(project.meta.slug, name)
+    setup = _setup(store.root)
+    return "\n".join(lines) + "\n\n" + setup + "\n" + store.read_recipe(project.meta.slug, name)
+
+
+def _setup(root: Path) -> str:
+    """Code binding the kernel's preloads, which recipes and queries use without an import."""
+    namespace = (
+        f"build_namespace(load_config(Path({str(root.absolute())!r})), Path(tempfile.mkdtemp()))"
+    )
+    return (
+        "# Rebuilds Quarry's kernel namespace (pl, duckdb, pq, sql, sql_local, loaders); needs"
+        " quarry importable.\n"
+        "import tempfile\n"
+        "from pathlib import Path\n\n"
+        "from quarry.config import load_config\n"
+        "from quarry.data.namespace import build_namespace\n\n"
+        f"globals().update({namespace})\n"
+    )
 
 
 def _recipe_order(names: list[str], recipes: list[str]) -> list[tuple[int, list[str]]]:
