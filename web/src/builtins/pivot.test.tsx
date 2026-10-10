@@ -1,31 +1,36 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { QueryHookResult } from "@/runtime/hooks";
-import type { Column } from "@/shared/api-types";
 
 const query = vi.fn<(spec: unknown) => QueryHookResult>();
 const state = new Map<string, unknown>();
-let schema: Column[] | null = null;
 vi.mock("@quarry/hooks", () => ({
   useQuery: (spec: unknown) => query(spec),
   useViewState: <T,>(key: string, initial: T) => [
     (state.get(key) as T | undefined) ?? initial,
     (next: T) => state.set(key, next),
   ],
-  useDatasetSchema: () => schema,
 }));
+// The stub saves one layout when clicked, as the real viewer does after a drag.
+const saved = { group_by: ["a"], columns: ["b"], expressions: { e: "1" } };
 vi.mock("@quarry/perspective", async () => ({
-  PerspectiveViewer: () => <div data-testid="viewer" />,
+  PerspectiveViewer: ({ onConfig }: { onConfig: (next: object) => void }) => (
+    <button data-testid="viewer" onClick={() => onConfig(saved)} />
+  ),
   perspectiveToSpec: (await import("@/runtime/perspective/toSpec"))
     .perspectiveToSpec,
 }));
 
 import Pivot from "@builtin/pivot/component";
 
+const source = { dataset: "df", format: "arrow", limit: 50000 };
 const success: QueryHookResult = {
   status: "success",
   rows: [],
-  schema: [{ name: "a", dtype: "Int64" }],
+  schema: [
+    { name: "a", dtype: "Int64" },
+    { name: "b", dtype: "Float64" },
+  ],
   rowCount: 3,
   truncated: false,
   arrow: new ArrayBuffer(8),
@@ -40,11 +45,7 @@ describe("pivot built-in", () => {
     });
     query.mockReturnValue(success);
     render(<Pivot datasets={["df"]} />);
-    expect(query).toHaveBeenCalledWith({
-      dataset: "df",
-      format: "arrow",
-      limit: 50000,
-    });
+    expect(query).toHaveBeenCalledWith(source);
     expect(query).toHaveBeenCalledWith({
       dataset: "df",
       group_by: ["a"],
@@ -63,20 +64,34 @@ describe("pivot built-in", () => {
     ).toBeTruthy();
   });
 
-  it("picks default aggregates from the live schema", () => {
+  it("picks default aggregates from the arrow result's schema", () => {
     state.set("perspective", { group_by: ["a"], columns: ["a", "b"] });
-    schema = [{ name: "b", dtype: "Float64" }];
     query.mockReturnValue(success);
-    try {
-      render(<Pivot datasets={["df"]} />);
-    } finally {
-      schema = null;
-    }
+    render(<Pivot datasets={["df"]} />);
     expect(query).toHaveBeenLastCalledWith({
       dataset: "df",
       group_by: ["a"],
       aggs: [{ col: "b", fn: "sum" }],
       limit: 1,
     });
+  });
+
+  it("asks only for the arrow query until its rows arrive", () => {
+    state.set("perspective", { group_by: ["a"], columns: ["a", "b"] });
+    query.mockClear();
+    query.mockReturnValue({ status: "loading" });
+    render(<Pivot datasets={["df"]} />);
+    expect(query).toHaveBeenCalled();
+    for (const [spec] of query.mock.calls) expect(spec).toEqual(source);
+  });
+
+  it("saves the viewer's layout and what to code will leave out", () => {
+    state.delete("perspective");
+    state.delete("dropped");
+    query.mockReturnValue(success);
+    render(<Pivot datasets={["df"]} />);
+    fireEvent.click(screen.getByTestId("viewer"));
+    expect(state.get("perspective")).toEqual(saved);
+    expect(state.get("dropped")).toEqual(["expression e"]);
   });
 });

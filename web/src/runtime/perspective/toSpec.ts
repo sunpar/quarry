@@ -1,20 +1,6 @@
 import type { ViewerConfigUpdate } from "@finos/perspective-viewer";
-import type { Agg, Column, Filter, QuerySpec, Sort } from "@/shared/api-types";
-
-const OPS: Record<string, Filter["op"]> = {
-  "==": "eq",
-  "!=": "ne",
-  "<": "lt",
-  "<=": "le",
-  ">": "gt",
-  ">=": "ge",
-  in: "in",
-  "not in": "not_in",
-  contains: "contains",
-  "begins with": "starts_with",
-  "is null": "is_null",
-  "is not null": "not_null",
-};
+import type { Agg, Column, QuerySpec, Sort } from "@/shared/api-types";
+import { mapFilters } from "./filters";
 
 // No `stddev`: Perspective's is the population figure, the kernel's `std` the sample one.
 const AGGS: Record<string, Agg["fn"]> = {
@@ -41,7 +27,7 @@ export interface MappedSpec {
 
 /**
  * Perspective's saved config as a query spec; what the spec cannot say is listed in `dropped`.
- * `schema` picks each column's default aggregate as Perspective does; unknown columns count.
+ * `schema` types filter terms and picks default aggregates as Perspective does.
  */
 export function perspectiveToSpec(
   dataset: string,
@@ -54,65 +40,79 @@ export function perspectiveToSpec(
   const columns = (config.columns ?? []).filter(
     (c): c is string => c !== null && !expressions.has(c),
   );
-  // Under "or", one filter reads the same as under "and"; more cannot join the spec's AND list.
-  const given = config.filter ?? [];
-  const anyOf = config.filter_op === "or" && given.length > 1;
-  if (anyOf) dropped.push('filter_op "or"');
-  const filters: Filter[] = [];
-  for (const [col, op, term] of anyOf ? [] : given) {
-    const mapped = OPS[op];
-    if (mapped === undefined || expressions.has(col)) {
-      dropped.push(`filter ${col} "${op}"`);
-      continue;
+  const dtypes = new Map(schema.map((c) => [c.name, c.dtype]));
+  const spec: QuerySpec = { dataset };
+  const filters = mapFilters(config, expressions, dtypes, dropped);
+  if (filters.length > 0) spec.filters = filters;
+  const groupBy = keys(config.group_by, "group_by", expressions, dropped);
+  const splitBy = keys(config.split_by, "split_by", expressions, dropped);
+  // Sorts run on the output, so each names an output column or is dropped.
+  let output = (col: string): string | undefined =>
+    expressions.has(col) ? undefined : col;
+  if (groupBy.length === 0) {
+    if (splitBy.length > 0) dropped.push(`split_by ${splitBy.join(", ")}`);
+    if (columns.length > 0) spec.select = columns;
+  } else {
+    const aggs: Agg[] = [];
+    for (const col of columns) {
+      if (groupBy.includes(col)) continue;
+      const dtype = dtypes.get(col) ?? "";
+      const chosen =
+        config.aggregates?.[col] ?? (NUMERIC.test(dtype) ? "sum" : "count");
+      const name = typeof chosen === "string" ? chosen : chosen[0];
+      const fn = AGGS[name];
+      if (fn === undefined) dropped.push(`aggregate ${col} "${name}"`);
+      else aggs.push({ col, fn });
     }
-    if (mapped === "is_null" || mapped === "not_null")
-      filters.push({ col, op: mapped });
-    else filters.push({ col, op: mapped, value: term });
+    const single = splitBy[0];
+    const first = aggs[0];
+    if (
+      splitBy.length === 1 &&
+      single !== undefined &&
+      aggs.length === 1 &&
+      first !== undefined
+    ) {
+      spec.pivot = {
+        index: groupBy,
+        columns: single,
+        values: first.col,
+        agg: first.fn,
+      };
+      output = (col) => (groupBy.includes(col) ? col : undefined);
+    } else {
+      if (splitBy.length > 0) dropped.push(`split_by ${splitBy.join(", ")}`);
+      spec.group_by = groupBy;
+      spec.aggs =
+        aggs.length > 0 ? aggs : [{ col: groupBy[0] ?? "", fn: "count" }];
+      // Grouped columns are named as the kernel names them (`Agg.name`).
+      output = (col) => {
+        if (groupBy.includes(col)) return col;
+        const agg = aggs.find((a) => a.col === col);
+        return agg === undefined ? undefined : `${agg.col}_${agg.fn}`;
+      };
+    }
   }
   const sort: Sort[] = [];
   for (const [col, dir] of config.sort ?? []) {
-    if ((dir === "asc" || dir === "desc") && !expressions.has(col))
-      sort.push(dir === "desc" ? { col, desc: true } : { col });
+    const name = output(col);
+    if ((dir === "asc" || dir === "desc") && name !== undefined)
+      sort.push(dir === "desc" ? { col: name, desc: true } : { col: name });
     else dropped.push(`sort ${col} "${dir}"`);
   }
-  const spec: QuerySpec = { dataset };
-  if (filters.length > 0) spec.filters = filters;
   if (sort.length > 0) spec.sort = sort;
-  const groupBy = config.group_by ?? [];
-  if (groupBy.length === 0) {
-    if (columns.length > 0) spec.select = columns;
-    return { spec, dropped };
-  }
-  const aggs: Agg[] = [];
-  for (const col of columns) {
-    if (groupBy.includes(col)) continue;
-    const dtype = schema.find((c) => c.name === col)?.dtype ?? "";
-    const chosen =
-      config.aggregates?.[col] ?? (NUMERIC.test(dtype) ? "sum" : "count");
-    const name = typeof chosen === "string" ? chosen : chosen[0];
-    const fn = AGGS[name];
-    if (fn === undefined) dropped.push(`aggregate ${col} "${name}"`);
-    else aggs.push({ col, fn });
-  }
-  const splitBy = config.split_by ?? [];
-  const single = splitBy[0];
-  const first = aggs[0];
-  if (
-    splitBy.length === 1 &&
-    single !== undefined &&
-    aggs.length === 1 &&
-    first !== undefined
-  ) {
-    spec.pivot = {
-      index: groupBy,
-      columns: single,
-      values: first.col,
-      agg: first.fn,
-    };
-    return { spec, dropped };
-  }
-  if (splitBy.length > 0) dropped.push(`split_by ${splitBy.join(", ")}`);
-  spec.group_by = groupBy;
-  spec.aggs = aggs.length > 0 ? aggs : [{ col: groupBy[0] ?? "", fn: "count" }];
   return { spec, dropped };
+}
+
+/** Group or split keys the dataset has; an expression key is listed instead. */
+function keys(
+  given: string[] | undefined,
+  role: string,
+  expressions: Set<string>,
+  dropped: string[],
+): string[] {
+  const kept: string[] = [];
+  for (const col of given ?? [])
+    if (expressions.has(col)) dropped.push(`${role} ${col}`);
+    else kept.push(col);
+  return kept;
 }

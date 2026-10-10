@@ -21,6 +21,8 @@ describe("built-ins under the runtime's transform", () => {
     "%s imports only modules the runtime serves",
     (_path, source) => {
       const { names } = transpile(source);
+      // Every built-in renders JSX, so an empty scan means the scan is broken.
+      expect(names).toContain("react/jsx-runtime");
       expect(names.filter((name) => !Object.hasOwn(MODULES, name))).toEqual([]);
     },
   );

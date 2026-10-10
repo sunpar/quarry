@@ -80,31 +80,6 @@ describe("perspectiveToSpec", () => {
 
   it.each(
     Object.entries({
-      "==": "eq",
-      "!=": "ne",
-      "<": "lt",
-      "<=": "le",
-      ">": "gt",
-      ">=": "ge",
-      in: "in",
-      "not in": "not_in",
-      contains: "contains",
-      "begins with": "starts_with",
-    }),
-  )("maps the %s filter to %s", (op, mapped) => {
-    const { spec } = perspectiveToSpec("t", { filter: [["a", op, 1]] });
-    expect(spec.filters).toEqual([{ col: "a", op: mapped, value: 1 }]);
-  });
-
-  it("maps a not-null filter without a value", () => {
-    const { spec } = perspectiveToSpec("t", {
-      filter: [["a", "is not null", null]],
-    });
-    expect(spec.filters).toEqual([{ col: "a", op: "not_null" }]);
-  });
-
-  it.each(
-    Object.entries({
       sum: "sum",
       avg: "mean",
       mean: "mean",
@@ -134,25 +109,6 @@ describe("perspectiveToSpec", () => {
     });
     expect(spec.aggs).toEqual([{ col: "k", fn: "count" }]);
     expect(dropped).toEqual(['aggregate v "stddev"']);
-  });
-
-  it("drops every filter under or, but not a lone one", () => {
-    const either = perspectiveToSpec("t", {
-      filter_op: "or",
-      filter: [
-        ["a", ">", 1],
-        ["b", "ends with", "x"],
-      ],
-      sort: [["a", "asc"]],
-    });
-    expect(either.spec).toEqual({ dataset: "t", sort: [{ col: "a" }] });
-    expect(either.dropped).toEqual(['filter_op "or"']);
-    const lone = perspectiveToSpec("t", {
-      filter_op: "or",
-      filter: [["a", ">", 1]],
-    });
-    expect(lone.spec.filters).toEqual([{ col: "a", op: "gt", value: 1 }]);
-    expect(lone.dropped).toEqual([]);
   });
 
   it("leaves expression columns out of select, filters and sorts", () => {
@@ -200,5 +156,65 @@ describe("perspectiveToSpec", () => {
       { col: "s", fn: "count" },
       { col: "gone", fn: "count" },
     ]);
+  });
+
+  it("sorts a grouped view by its keys and aggregated outputs only", () => {
+    const { spec, dropped } = perspectiveToSpec("t", {
+      group_by: ["k"],
+      columns: ["v", "w"],
+      aggregates: { v: "sum", w: "distinct count" },
+      sort: [
+        ["v", "desc"],
+        ["k", "asc"],
+        ["w", "asc"],
+        ["x", "asc"],
+      ],
+    });
+    expect(spec.sort).toEqual([{ col: "v_sum", desc: true }, { col: "k" }]);
+    expect(dropped).toEqual([
+      'aggregate w "distinct count"',
+      'sort w "asc"',
+      'sort x "asc"',
+    ]);
+  });
+
+  it("sorts a pivot by its index keys only", () => {
+    const { spec, dropped } = perspectiveToSpec("t", {
+      group_by: ["k"],
+      split_by: ["c"],
+      columns: ["v"],
+      aggregates: { v: "sum" },
+      sort: [
+        ["k", "desc"],
+        ["v", "asc"],
+      ],
+    });
+    expect(spec.sort).toEqual([{ col: "k", desc: true }]);
+    expect(dropped).toEqual(['sort v "asc"']);
+  });
+
+  it("lists a split_by without group_by", () => {
+    const { spec, dropped } = perspectiveToSpec("t", {
+      columns: ["a"],
+      split_by: ["c"],
+    });
+    expect(spec).toEqual({ dataset: "t", select: ["a"] });
+    expect(dropped).toEqual(["split_by c"]);
+  });
+
+  it("leaves expression columns out of group_by and split_by", () => {
+    const { spec, dropped } = perspectiveToSpec("t", {
+      group_by: ["e", "k"],
+      split_by: ["e"],
+      columns: ["v"],
+      aggregates: { v: "sum" },
+      expressions: { e: '"v" * 2' },
+    });
+    expect(spec).toEqual({
+      dataset: "t",
+      group_by: ["k"],
+      aggs: [{ col: "v", fn: "sum" }],
+    });
+    expect(dropped).toEqual(["expression e", "group_by e", "split_by e"]);
   });
 });

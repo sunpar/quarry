@@ -903,39 +903,66 @@ them.
 ### Perspective
 
 - **Perspective's config maps to a query spec, and the mapping is lossy**:
-  `perspectiveToSpec` turns the viewer's saved config into a `QuerySpec` and
-  lists what the spec cannot say in `dropped`, which the pivot built-in keeps in
-  view state for "to code". Filters `==`, `!=`, `<`, `<=`, `>` and `>=` become
-  `eq`, `ne`, `lt`, `le`, `gt` and `ge`; `in` and `not in` with an array term
-  become `in` and `not_in`; `contains` and `begins with` become `contains` and
-  `starts_with`; `is null` and `is not null` become `is_null` and `not_null`.
-  Any other operator, such as `ends with` or `is true`, is dropped. Perspective
-  can join its filters with `filter_op: "or"`, which the spec's list of filters
-  cannot say: under "or", two or more filters are all dropped, listed once as
-  `filter_op "or"`, and a lone filter maps as under "and". Only `asc` and
-  `desc` sorts carry over; `col asc`, `desc abs`, `none` and the other
-  directions are dropped. Under `group_by`, each other column becomes one `Agg`:
-  `sum`, `mean`, `min`, `max`, `count`, `median`, `first` and `last` keep their
-  names, `avg` becomes `mean`, `high` becomes `max` and `low` becomes `min`; any
-  other aggregate is dropped. `stddev` is dropped too, though the spec has
-  `std`: Perspective's is the population figure (1.5 for 1 and 4) and the
-  kernel's the sample one (2.12), so "to code" would print different numbers. A
-  column with no aggregate set takes Perspective's default, which the engine's
-  view config leaves out (`aggregates` stays `{}`): `sum` for a numeric dtype,
-  matched as the other built-ins match it (`/^(Int|UInt|Float|Decimal)/`, and
-  Decimal and 128-bit integers reach Perspective as floats), and `count` for
-  everything else; Perspective 3.8.0 counts Boolean, Date and Datetime columns
-  too. A column missing from the live schema counts. Exactly one `split_by` with
-  exactly one aggregated column becomes a `pivot` indexed by the group keys; two
-  or more `split_by`, or a split over several aggregated columns, drops the
-  split and keeps the grouping. When every column is a group key, the spec
-  counts the first key, since `group_by` needs an aggregate. Without `group_by`,
-  `columns` becomes `select`, skipping nulls and expression names. Expressions
-  are dropped, and so are filters and sorts on them.
+  `perspectiveToSpec` turns the viewer's saved config into a `QuerySpec` the
+  kernel accepts and lists what the spec cannot say in `dropped`, which the
+  pivot built-in keeps in view state for "to code". Filters `==`, `!=`, `<`,
+  `<=`, `>` and `>=` become `eq`, `ne`, `lt`, `le`, `gt` and `ge`; `in` and
+  `not in` become `in` and `not_in`; `contains` and `begins with` become
+  `contains` and `starts_with`; `is null` and `is not null` become `is_null`
+  and `not_null`. Any other operator, such as `ends with` or `is true`, is
+  dropped. Under `group_by`, each other column becomes one `Agg`: `sum`, `mean`,
+  `min`, `max`, `count`, `median`, `first` and `last` keep their names, `avg`
+  becomes `mean`, `high` becomes `max` and `low` becomes `min`; any other
+  aggregate is dropped. `stddev` is dropped too, though the spec has `std`:
+  Perspective's is the population figure (1.5 for 1 and 4) and the kernel's the
+  sample one (2.12), so "to code" would print different numbers. A column with
+  no aggregate set takes Perspective's default, which the saved config leaves
+  out (`aggregates` stays `{}`; the defaults go only into the copy passed to
+  `table.view()`): `sum` for a numeric dtype, matched as the other built-ins
+  match it (`/^(Int|UInt|Float|Decimal)/`, and Decimal and 128-bit integers
+  reach Perspective as floats), and `count` for everything else; Perspective
+  3.8.0 counts Boolean, Date and Datetime columns too. A column missing from the
+  schema counts. Exactly one `split_by` with exactly one aggregated column
+  becomes a `pivot` indexed by the group keys; two or more `split_by`, or a
+  split over several aggregated columns, drops the split and keeps the grouping.
+  When every column is a group key, the spec counts the first key, since
+  `group_by` needs an aggregate. Without `group_by`, `columns` becomes `select`,
+  skipping nulls and expression names, and any `split_by` is dropped.
+  Expressions are dropped, and so are filters, sorts, group keys and split keys
+  on them.
+- **Sorts name output columns**: sort and select run on the grouped output, so
+  under `group_by` a sort on an aggregated column becomes that aggregate's
+  output name (`v_sum`), a sort on a group key stays, and any other sort is
+  dropped. Under a pivot only sorts on index keys stay. Only `asc` and `desc`
+  carry over; `col asc`, `desc abs`, `none` and the other directions are
+  dropped.
+- **Filter terms are typed as the viewer means them**: the dtypes come from the
+  arrow result's schema, which holds the dtypes from before the arrow casts.
+  The viewer writes every `in` list as strings, so items become numbers on
+  numeric columns (an Int column drops an item that is not a whole number,
+  since the engine's `stoll` would truncate it) and booleans as the engine reads
+  them (`"true"` is true, anything else false). A Date term stays a
+  `YYYY-MM-DD` string, and epoch milliseconds become their UTC day, as the
+  engine's `gmtime` reads them; any other Date string is dropped. A Datetime
+  term is epoch milliseconds (`str_to_utc_posix`), which becomes a naive UTC ISO
+  string: a naive column holds UTC wall clocks and the kernel reads a naive
+  string on a zoned column as UTC. A Datetime string term is dropped, since the
+  kernel reads an offset by time unit and the engine by its own parser. `in` on
+  a Decimal column is dropped: polars `is_in` refuses Float64 items there.
+- **Filters the spec cannot carry are listed**: a filter with no term yet,
+  which is what dropping a column on the filter bar creates, and an `in` list
+  that is missing, empty or holds a null are listed and left out. Neither the
+  viewer (`drag_drop_update.rs`) nor the engine (`fill_fterm`) removes a
+  null-term filter, and the engine applies one (`==` matches no row, `!=` every
+  row), so these are listed rather than skipped silently. They do not count
+  toward `filter_op: "or"`, which the spec's list of filters cannot say: under
+  "or", two or more remaining filters are all dropped, listed once as
+  `filter_op "or"`, and a lone filter maps as under "and".
 - **The pivot shows 50,000 rows and probes the mapped spec**: Perspective shows
   up to 50,000 rows; the probe query with `limit: 1` is how the mapped spec
-  reaches lineage and to code. A probe the kernel refuses shows its error above
-  the viewer.
+  reaches lineage and to code. Until the arrow rows arrive the probe repeats
+  the arrow query, so no spec mapped without dtypes is recorded. A probe the
+  kernel refuses shows its error above the viewer.
 - **The viewer restores a changed `config` only after its first load**: the
   plan's effect restored on mount, before any table was loaded, racing the
   load. The load path restores the latest config itself and records it, as it

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useDatasetSchema, useQuery, useViewState } from "@quarry/hooks";
+import { useQuery, useViewState } from "@quarry/hooks";
 import {
   PerspectiveViewer,
   perspectiveToSpec,
@@ -22,15 +22,19 @@ export default function Pivot({ datasets }: Props) {
   );
   const config = stored as ViewerConfigUpdate | null;
   const [dropped, setDropped] = useViewState<string[]>("dropped", []);
-  const data = useQuery({ dataset, format: "arrow", limit: ROWS });
-  // Default aggregates follow the column types, as Perspective's do.
-  const schema = useDatasetSchema(dataset);
+  const source = { dataset, format: "arrow" as const, limit: ROWS };
+  const data = useQuery(source);
+  // Dtypes from before the arrow casts type filter terms and default aggregates.
+  const schema = data.status === "success" ? data.schema : null;
   const mapped = useMemo(
     () => perspectiveToSpec(dataset, config ?? {}, schema ?? []),
     [dataset, config, schema],
   );
   // One-row probe: the kernel validates the mapped spec and it is recorded for "to code".
-  const probe = useQuery({ ...mapped.spec, limit: 1 });
+  // Until the rows arrive it repeats the arrow query, so no untyped mapping is recorded.
+  const probe = useQuery(
+    schema === null ? source : { ...mapped.spec, limit: 1 },
+  );
 
   if (data.status === "loading")
     return <p className="p-4 text-sm text-muted-foreground">Loading</p>;
@@ -43,7 +47,7 @@ export default function Pivot({ datasets }: Props) {
 
   const onConfig = (next: ViewerConfigUpdate) => {
     setConfig(next as JsonObject);
-    const nextDropped = perspectiveToSpec(dataset, next, schema ?? []).dropped;
+    const nextDropped = perspectiveToSpec(dataset, next, data.schema).dropped;
     if (nextDropped.join("\n") !== dropped.join("\n")) setDropped(nextDropped);
   };
 
