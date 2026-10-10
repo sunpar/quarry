@@ -13,13 +13,14 @@ export function loadHighstock(): Promise<object> {
   const lib = licensed("highcharts");
   if (lib === null) return Promise.reject(notEnabled("highcharts"));
   loading ??= new Promise<object>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = lib.entry;
     // A failed load is forgotten, so the next view that imports Highcharts tries again.
     const fail = (error: Error) => {
+      script.remove();
       loading = null;
       reject(error);
     };
-    const script = document.createElement("script");
-    script.src = lib.entry;
     script.onload = () => {
       const global = window.Highcharts;
       if (global === undefined)

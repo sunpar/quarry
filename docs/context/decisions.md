@@ -740,10 +740,12 @@ them.
   `useLibraries` does not retry. A `ready` sent before then is covered by the
   frame's `load`. The plan mounted at once and remounted on a late answer, which
   would reset the view to its initial state. Cost: the app's first view waits
-  for one request.
+  for one request. Only SciChart's key goes into the frame, since Highcharts
+  reads none at runtime.
 - **Licensed loaders forget a failure**: `loadHighstock` and `loadScichart`
   cache their promise, but clear it when the load fails, so the next view that
   imports the library tries again instead of seeing the cached error.
+  `loadHighstock` also removes the failed `<script>`, so retries leave one tag.
 
 ## Projects
 

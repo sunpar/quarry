@@ -50,10 +50,11 @@ describe("loadHighstock", () => {
     const failed = loadHighstock();
     scripts()[0]?.dispatchEvent(new Event("error"));
     await expect(failed).rejects.toThrow(/could not load/);
+    expect(scripts()).toHaveLength(0);
     const retried = loadHighstock();
-    expect(scripts()).toHaveLength(2);
+    expect(scripts()).toHaveLength(1);
     window.Highcharts = { stockChart: () => ({}) };
-    scripts()[1]?.dispatchEvent(new Event("load"));
+    scripts()[0]?.dispatchEvent(new Event("load"));
     await expect(retried).resolves.toHaveProperty("default", window.Highcharts);
   });
 });

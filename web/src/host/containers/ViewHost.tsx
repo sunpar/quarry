@@ -144,8 +144,11 @@ export function ViewHost(props: ViewHostProps) {
   );
 }
 
+// Only SciChart reads its key in the frame, so Highcharts' key stays with the host.
 function toLicensed(statuses: LibraryStatus[]): LicensedLibrary[] {
   return statuses.flatMap(({ id, enabled, entry, license }) =>
-    enabled && entry !== null ? [{ id, entry, license }] : [],
+    enabled && entry !== null
+      ? [{ id, entry, license: id === "scichart" ? license : null }]
+      : [],
   );
 }
