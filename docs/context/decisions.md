@@ -295,11 +295,14 @@ them.
   end-of-validity marker.
 - **Arrow is a display transport**: `format: "arrow"` answers with an Arrow IPC
   stream, not a file, written at `CompatLevel.oldest()` after `for_viewer` casts
-  each column to a type Perspective's reader takes: primitives, `string`,
-  `date32`, `timestamp` and `bool`. Decimal and 128-bit integers become Float64,
-  since pyarrow cannot read polars' Int128; Categorical, Enum and Time become
-  strings, Duration polars' own text such as `1d 2h`, Binary base64 and nested
-  values JSON strings; and `large_string` is narrowed to `string`. Cost:
+  each column to a type Perspective's reader takes: signed integers, floats,
+  `string`, `date32`, `timestamp` and `bool`. Perspective reads every unsigned
+  width as signed, so 255 in a UInt8 came back as -1 and 4,000,000,000 in a
+  UInt32 as -294,967,296: UInt8, UInt16 and UInt32 become Int64, which holds
+  them exactly, and UInt64 becomes Float64, as Decimal and the 128-bit integers
+  do, since pyarrow cannot read polars' Int128; Categorical, Enum and Time
+  become strings, Duration polars' own text such as `1d 2h`, Binary base64 and
+  nested values JSON strings; and `large_string` is narrowed to `string`. Cost:
   decimals and large integers can lose precision in Arrow, so JSON rows stay the
   exact form.
 - **INTERVAL and UNION become text**: one helper projects these columns, at any

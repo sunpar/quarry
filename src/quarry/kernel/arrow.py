@@ -11,9 +11,11 @@ import pyarrow as pa
 def for_viewer(frame: pl.DataFrame) -> pl.DataFrame:
     """`frame` with every dtype Perspective rejects cast to one it reads.
 
-    Decimal and 128-bit integers become Float64 (lossy past 2**53; Arrow here is a display
-    transport). Categorical, Enum, Duration, Time and Binary become String. Nested columns
-    become one JSON string per row. Everything else passes through unchanged.
+    Perspective reads unsigned integers as signed, so 4,000,000,000 in a UInt32 reads back as
+    -294,967,296: UInt8, UInt16 and UInt32 become Int64. UInt64, Decimal and 128-bit integers
+    become Float64 (lossy past 2**53; Arrow here is a display transport). Categorical, Enum,
+    Duration, Time and Binary become String. Nested columns become one JSON string per row.
+    Everything else passes through unchanged.
     """
     # pl.nth, not pl.col: a column named like a regex (`^a.*$`) or `*` would select others.
     exprs = [
@@ -41,7 +43,9 @@ def arrow_ipc(frame: pl.DataFrame) -> bytes:
 
 
 def _viewer_expr(col: pl.Expr, dtype: pl.DataType) -> pl.Expr | None:
-    if isinstance(dtype, pl.Decimal | pl.Int128 | pl.UInt128):
+    if isinstance(dtype, pl.UInt8 | pl.UInt16 | pl.UInt32):
+        return col.cast(pl.Int64)
+    if isinstance(dtype, pl.UInt64 | pl.Decimal | pl.Int128 | pl.UInt128):
         return col.cast(pl.Float64)
     if isinstance(dtype, pl.Categorical | pl.Enum | pl.Time):
         return col.cast(pl.String)

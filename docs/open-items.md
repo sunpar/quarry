@@ -253,8 +253,6 @@ one up when a researcher needs it.
   `_wasm/scichart.wasm` and nothing else.
 - Export a single view with `quarry projects export`, and import a `.ipynb`.
   Neither is in the spec.
-- `UInt64` values above 2^63 reach Perspective as uint64. If its reader rejects
-  them in practice, cast to Float64 in `for_viewer`, with a test.
 - Keep the version in one place: `pyproject.toml` and `src/quarry/__init__.py`
   both hold it, and the test checks only its type.
 - Open `config.toml` once in `load_config`: it checks `exists()`, opens the
@@ -284,8 +282,8 @@ one up when a researcher needs it.
   needs converting, such as Binary to base64; otherwise it is a list of
   `{key, value}` entries, and integers above 2^53 are numbers JavaScript rounds.
   Options: keep these and parse by schema dtype, or send large integers as
-  strings. Arrow is no way out: it casts decimals and 128-bit integers to
-  Float64 for Perspective.
+  strings. Arrow is no way out: it casts decimals, UInt64 and 128-bit integers
+  to Float64 for Perspective.
 - **Naive timestamps and offset strings**: keep DuckDB 1.5.6's per-unit rule,
   where only nanosecond columns convert an offset to UTC, or pick one rule for
   every unit? The current rule follows DuckDB's cast, which an upgrade could

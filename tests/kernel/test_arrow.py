@@ -25,7 +25,10 @@ def mixed() -> pl.DataFrame:
             "l": [[1, 2], None],
             "st": [{"a": 1}, None],
             "big": pl.Series([1, None], dtype=pl.Int128),
-            "u": pl.Series([2**63, None], dtype=pl.UInt64),
+            "u8": pl.Series([255, None], dtype=pl.UInt8),
+            "u16": pl.Series([65535, None], dtype=pl.UInt16),
+            "u32": pl.Series([4_000_000_000, None], dtype=pl.UInt32),
+            "u64": pl.Series([2**63, None], dtype=pl.UInt64),
             "f": [1.5, float("nan")],
         }
     )
@@ -47,7 +50,10 @@ def test_for_viewer_casts_every_unsupported_dtype() -> None:
             "l": pl.String(),
             "st": pl.String(),
             "big": pl.Float64(),
-            "u": pl.UInt64(),
+            "u8": pl.Int64(),
+            "u16": pl.Int64(),
+            "u32": pl.Int64(),
+            "u64": pl.Float64(),
             "f": pl.Float64(),
         }
     )
@@ -55,6 +61,8 @@ def test_for_viewer_casts_every_unsupported_dtype() -> None:
     assert row["dec"] == 1.5 and row["cat"] == "x" and row["b"] == "AAE="
     assert json.loads(row["l"]) == [1, 2] and json.loads(row["st"]) == {"a": 1}
     assert row["t"] == "09:30:00"
+    # Perspective reads every unsigned width as signed: 255 came back as -1, 2**63 as -2**63.
+    assert (row["u8"], row["u16"], row["u32"], row["u64"]) == (255, 65535, 4_000_000_000, 2.0**63)
     assert "1d" in row["dur"]
     assert out.row(1, named=True)["l"] is None
 
