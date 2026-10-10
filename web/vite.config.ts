@@ -66,6 +66,7 @@ export default defineConfig({
       "/healthz": `http://127.0.0.1:${apiPort}`,
       "/libraries": `http://127.0.0.1:${apiPort}`,
       "/libs": `http://127.0.0.1:${apiPort}`,
+      "/components": `http://127.0.0.1:${apiPort}`,
     },
   },
   build: {

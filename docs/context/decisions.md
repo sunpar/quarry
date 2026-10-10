@@ -807,8 +807,8 @@ them.
   500 until the next refetch.
 - **The dev proxy forwards `/projects`**: `web/vite.config.ts` proxies it beside
   `/sessions` and `/healthz`. The plan added project routes without it, so
-  `npm run dev` answered 404. Stage 5 adds `/libraries` and `/libs` the same
-  way.
+  `npm run dev` answered 404. Stage 5 adds `/components`, `/libraries` and
+  `/libs` the same way.
 - **Views mount once the libraries answer is in**: `ViewHost` creates its bridge
   only after the first `GET /libraries` answer, success or error, and mounts
   once with the enabled licensed libraries; a failed answer mounts with none. It

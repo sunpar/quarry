@@ -93,12 +93,12 @@ uv run quarry serve --port 8765          # terminal 1
 cd web && QUARRY_PORT=8765 npm run dev    # terminal 2, open http://localhost:5173/#token=<token>
 ```
 
-Vite proxies `/sessions`, `/projects`, `/libraries`, `/libs` and `/healthz` to
-the Python server. `npm run check`, `npm test`, and `npm run build` must pass
-before a commit; the Playwright tests under `tests/e2e` run only when
-`src/quarry/static/index.html` exists. They need a browser, installed once with
-`uv run playwright install chromium`; without it they error whenever a build
-exists.
+Vite proxies `/sessions`, `/projects`, `/components`, `/libraries`, `/libs` and
+`/healthz` to the Python server. `npm run check`, `npm test`, and
+`npm run build` must pass before a commit; the Playwright tests under
+`tests/e2e` run only when `src/quarry/static/index.html` exists. They need a
+browser, installed once with `uv run playwright install chromium`; without it
+they error whenever a build exists.
 
 ## Projects (Stage 4)
 
