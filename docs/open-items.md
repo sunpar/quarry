@@ -158,10 +158,11 @@ Decisions already made are in [decisions.md](context/decisions.md).
   returns early on a query error, so when the kernel refuses a saved column
   choice, the pickers that could change it are gone. Loud, and the view stays on
   the error.
-- **"Save to library" fails under `npm run dev`**: `web/vite.config.ts` proxies
-  `/sessions`, `/projects`, `/libraries`, `/libs` and `/healthz`, but not
-  `/components`, so the dev server answers the save itself. Loud; production
-  builds are unaffected.
+- **The first browser test can time out on load**: in 1 of 5 local full runs,
+  the session's first Playwright test waited 30 s for the "New session" button
+  in `open_session` and failed, before any step ran; reruns passed. The cause is
+  unknown, perhaps a cold first page load. Loud: a red e2e run on that line
+  points here first.
 - **Pivot width is unbounded**: a pivot makes one column per distinct value of
   its `columns` key, which neither `row_cap` nor `limit` bounds, so a heatmap of
   dates by ticker over 5,000 tickers is 5,000 columns wide. A silent cost.

@@ -88,11 +88,11 @@ final review are [known problems](open-items.md#known-problems).
 
 `claude/quarry-stage5-breadth` after Task 13, locally on 2026-10-10: `pytest`
 passed 1058 tests and skipped 3 (the live provider and memory-cap tests),
-including the browser tests under `tests/e2e`. One of five full runs timed out
-waiting for "New session" in the first browser test and passed on rerun.
-`ruff check`, `ruff format --check` and `mypy src tests` were clean, and in
-`web/` `npm run check`, `npm test` (232 tests) and `npm run build` passed. CI
-has not run on the branch, since no pull request is open.
+including the browser tests under `tests/e2e`. One of five full runs hit the
+[first browser test timeout](open-items.md#known-problems). `ruff check`,
+`ruff format --check` and `mypy src tests` were clean, and in `web/`
+`npm run check`, `npm test` (232 tests) and `npm run build` passed. CI has not
+run on the branch, since no pull request is open.
 
 ## Next actions
 
