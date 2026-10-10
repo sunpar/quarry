@@ -62,7 +62,9 @@ Decisions already made are in [decisions.md](context/decisions.md).
   miss a source step.
 - **Lineage approximations**: a failed step's in-place mutation is not a write,
   while a successful step's store that never ran is one. Class bodies report
-  every name they load as a read. Silent; see
+  every name they load as a read, and a SQL literal's CTE named like a dataset
+  (`WITH df AS (...) SELECT * FROM df`) reads that dataset, since DuckDB's
+  parser does not resolve CTEs; both only add steps to a recipe. Silent; see
   [decisions](context/decisions.md#lineage).
 - **Exported queries render without a schema**: a notebook renders each saved
   view query with `to_source` and no `schema=`, since only dtype strings are on
