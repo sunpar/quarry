@@ -23,6 +23,7 @@ from quarry.kernel.datasets import DatasetMeta
 from quarry.kernel.executor import QueryResult
 from quarry.projects.store import ProjectStore
 from quarry.query.spec import Json, QueryError, QuerySpec
+from quarry.server.component_routes import register_component_routes
 from quarry.server.kernels import KernelManager, ReplayReport, SessionBusy
 from quarry.server.models import Session, SessionMeta, Step
 from quarry.server.project_routes import register_project_routes
@@ -57,16 +58,19 @@ def create_app(
     static_dir: Path | None = None,
 ) -> FastAPI:
     static = static_dir or Path(__file__).parent.parent / "static"
-    roots = [builtin_root(), config.root / "components"]
+    researcher_root = config.root / "components"
+    roots = [builtin_root(), researcher_root]
     if config.libraries.team_components is not None:
         roots.append(config.libraries.team_components)
+    library = ComponentLibrary(roots)
+    transpiler = default_transpiler(static)
     service = SessionService(
         config=config,
         store=SessionStore(config.root),
         kernels=KernelManager(config.root, threads=config.data.kernel_threads),
         provider_factory=provider_factory,
-        library=ComponentLibrary(roots),
-        transpiler=default_transpiler(static),
+        library=library,
+        transpiler=transpiler,
         libraries=enabled_libraries(config, runtime_libraries(static)),
     )
     projects = ProjectService(
@@ -199,6 +203,13 @@ def create_app(
         return JSONResponse(status_code=503, content={"detail": f"kernel is not running: {exc}"})
 
     register_project_routes(api, projects)
+    register_component_routes(
+        api,
+        library=library,
+        researcher_root=researcher_root,
+        transpiler=transpiler,
+        sessions=service,
+    )
     app.include_router(api)
     if (static / "index.html").exists():
         # The sandboxed view frame has an opaque origin, so its module scripts, CSS and fonts

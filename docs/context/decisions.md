@@ -569,6 +569,11 @@ them.
   it has enough columns of each dtype for all its typed roles together, and
   enough left over for its `any` roles. Each requirement had been checked alone,
   so one numeric column met both an `x` and a `y` role.
+- **A saved component's manifest is written last**: `POST /components` writes
+  `component.tsx`, then `manifest.json`, into a new 0700 directory. The library
+  lists a component only once both files exist, so a crash between them leaves
+  nothing listed. The id pattern ends in `\Z`, not the plan's `$`, which in
+  Python also matches before a trailing newline.
 
 ## First UI
 

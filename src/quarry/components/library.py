@@ -4,15 +4,24 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections import Counter
 from pathlib import Path
-from typing import Literal
+from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 from quarry.kernel.datasets import DatasetMeta
+from quarry.projects.files import PRIVATE_DIR, child, write_atomic
 
 DtypeClass = Literal["datetime", "numeric", "string", "other"]
+_TYPED: Final[tuple[Literal["datetime", "numeric", "string"], ...]] = (
+    "datetime",
+    "numeric",
+    "string",
+)
+# `\Z`, not `$`: `$` also matches before a trailing newline.
+COMPONENT_ID_RE: Final = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}\Z")
 
 log = logging.getLogger(__name__)
 
@@ -100,6 +109,25 @@ def satisfies(manifest: ComponentManifest, dataset: DatasetMeta) -> bool:
     if any(counts[dtype] < n for dtype, n in needed.items() if dtype != "any"):
         return False
     return len(dataset.schema_) >= needed.total()
+
+
+def requirements_for(meta: DatasetMeta) -> list[SchemaRequirement]:
+    """One requirement per dtype class the dataset has, so the library offers the component
+    to datasets shaped like the one it was written against."""
+    counts: Counter[str] = Counter(dtype_class(col.dtype) for col in meta.schema_)
+    return [
+        SchemaRequirement(role=cls, dtype=cls, min=counts[cls]) for cls in _TYPED if counts[cls] > 0
+    ]
+
+
+def write_component(root: Path, manifest: ComponentManifest, source: str) -> Path:
+    """Write `manifest` and `source` under `root/<id>/`, returning that directory. The library
+    lists a component once both files exist, so the manifest goes last."""
+    target = child(root, manifest.id)
+    target.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
+    write_atomic(target / "component.tsx", source)
+    write_atomic(target / "manifest.json", manifest.model_dump_json(by_alias=True, indent=2))
+    return target
 
 
 def dtype_class(dtype: str) -> DtypeClass:

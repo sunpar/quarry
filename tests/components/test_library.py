@@ -4,7 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from quarry.components.library import ComponentLibrary, ComponentManifest, dtype_class, satisfies
+from quarry.components import library
+from quarry.components.library import (
+    COMPONENT_ID_RE,
+    ComponentLibrary,
+    ComponentManifest,
+    dtype_class,
+    requirements_for,
+    satisfies,
+)
 from quarry.kernel.datasets import Column, DatasetMeta
 from tests.fixtures import chmodded, root_ignores_modes
 
@@ -161,3 +169,38 @@ def test_manifest_quarry_cannot_mount_is_skipped(
         entries = ComponentLibrary([tmp_path]).entries()
     assert [e.manifest.id for e in entries] == ["good"]
     assert "future" in caplog.text
+
+
+def test_requirements_for_lists_each_dtype_class_present() -> None:
+    reqs = requirements_for(
+        meta([("date", "Date"), ("ret", "Float64"), ("vol", "Int64"), ("f", "Boolean")])
+    )
+    assert [(r.role, r.dtype, r.min) for r in reqs] == [
+        ("datetime", "datetime", 1),
+        ("numeric", "numeric", 2),
+    ]
+    assert requirements_for(meta([])) == []
+
+
+def test_write_component_then_library_finds_it(tmp_path: Path) -> None:
+    manifest = ComponentManifest(
+        id="my-scatter",
+        name="My scatter",
+        description="",
+        tags=["scatter"],
+        origin="generated",
+        created_at="2026-10-09T00:00:00Z",
+    )
+    path = library.write_component(
+        tmp_path, manifest, "export default function V() { return null }"
+    )
+    assert path == tmp_path / "my-scatter"
+    entry = ComponentLibrary([tmp_path]).get("my-scatter")
+    assert entry is not None and entry.manifest.origin == "generated"
+    assert entry.source_path.read_text().startswith("export default")
+
+
+def test_component_id_pattern() -> None:
+    assert COMPONENT_ID_RE.match("ok-id-9")
+    assert COMPONENT_ID_RE.match("Bad") is None and COMPONENT_ID_RE.match("a/b") is None
+    assert COMPONENT_ID_RE.match("ok\n") is None
