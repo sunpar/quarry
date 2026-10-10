@@ -836,6 +836,20 @@ them.
   written for v1, is not installed. `react-resizable` is pinned to `^3.2.0`, the
   range the grid depends on, since a bare install added 4.0.2 as a second copy.
   Cost if wrong: moving to `react-resizable` 4 waits on the grid.
+- **Export names results across the whole notebook**: a view's queries assign
+  `<dataset>_<n>`, n being the query's position in its view, through
+  `result_names` in `quarry.query.source_target`, which "To code" uses too. The
+  suffix rises past every saved dataset and every name an earlier view took, so
+  no result overwrites what a later cell reads, and a query that fails
+  validation keeps its number. A query whose generated import, such as
+  `from datetime import date`, would rebind a saved dataset stays a
+  `# query N could not be rendered` comment naming it, as "To code" refuses one.
+  Free text in an exported comment, such as a description, a validation error
+  or a pydantic message quoting a raw JSON key, is joined onto one line, so a
+  line break cannot run the rest as code. The plan named results with no check
+  and put the multi-line pydantic message into a comment. Cost if wrong: such a
+  query is missing from the export until the dataset is renamed, and a view's
+  result numbers depend on the views that sort before it.
 
 ## Packaging and CI
 

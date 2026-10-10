@@ -1,4 +1,4 @@
-"""Project routes: create and list projects, save datasets and views, lay out the canvas."""
+"""Project routes: create, list and export projects, save datasets and views, lay out the canvas."""
 
 from __future__ import annotations
 
@@ -6,8 +6,10 @@ from collections.abc import Callable
 from typing import TypeVar
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 
+from quarry.projects.export import dataset_script, notebook
 from quarry.projects.models import (
     CanvasCard,
     Project,
@@ -68,6 +70,20 @@ def register_project_routes(api: APIRouter, projects: ProjectService) -> None:
     @api.put("/projects/{slug}/canvas")
     def set_canvas(slug: str, body: list[CanvasCard]) -> ProjectMeta:
         return _saving(lambda: projects.set_canvas(slug, body))
+
+    @api.get("/projects/{slug}/export.ipynb")
+    def export_notebook(slug: str) -> JSONResponse:
+        project = _found(lambda: projects.get(slug))
+        headers = {"Content-Disposition": f'attachment; filename="{slug}.ipynb"'}
+        return JSONResponse(notebook(project, projects.store), headers=headers)
+
+    @api.get("/projects/{slug}/datasets/{name}/recipe.py")
+    def export_recipe(slug: str, name: str) -> PlainTextResponse:
+        project = _found(lambda: projects.get(slug))
+        # The name is a saved dataset's before it reaches the header.
+        script = _found(lambda: dataset_script(project, projects.store, name))
+        headers = {"Content-Disposition": f'attachment; filename="{name}.py"'}
+        return PlainTextResponse(script, media_type="text/x-python", headers=headers)
 
 
 def _found(call: Callable[[], T]) -> T:

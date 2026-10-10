@@ -2,6 +2,7 @@ from pathlib import Path
 
 from quarry.agent.fake import FakeProvider
 from tests.server.test_app import PRICES, TIDY, end, make_client, py, view_turn, wait_idle
+from tests.server.test_recall import saved_project
 
 
 def test_project_crud_and_save_flow(tmp_path: Path) -> None:
@@ -57,3 +58,18 @@ def test_canvas_rejects_a_view_twice(tmp_path: Path) -> None:
     card = {"view": "table", "x": 0, "y": 0, "w": 6, "h": 8}
     assert client.put("/projects/p/canvas", json=[card, {**card, "y": 8}]).status_code == 400
     assert client.get("/projects/p").json()["meta"]["canvas"] == []
+
+
+def test_export_routes(tmp_path: Path) -> None:
+    client, _ = saved_project(tmp_path, "live")
+    nb = client.get("/projects/p/export.ipynb")
+    assert nb.status_code == 200
+    assert nb.headers["content-disposition"] == 'attachment; filename="p.ipynb"'
+    assert nb.json()["nbformat"] == 4 and any(c["cell_type"] == "code" for c in nb.json()["cells"])
+    script = client.get("/projects/p/datasets/prices/recipe.py")
+    assert script.status_code == 200 and script.headers["content-type"].startswith("text/x-python")
+    assert script.headers["content-disposition"] == 'attachment; filename="prices.py"'
+    assert "prices = " in script.text
+    assert client.get("/projects/p/datasets/nope/recipe.py").status_code == 404
+    assert client.get("/projects/nope/export.ipynb").status_code == 404
+    assert client.get("/projects/nope/datasets/prices/recipe.py").status_code == 404

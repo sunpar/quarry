@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import keyword
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Container, Mapping, Sequence
 from datetime import date, datetime
 from typing import Final
 from zoneinfo import ZoneInfo
@@ -147,6 +147,21 @@ def _render(
     drop_sql = py_literal(f"DROP VIEW {quote_ident(view)}")
     drop = f"# release the temporary view\n{spec.dataset}.query({py_literal(view)}, {drop_sql})"
     return f"try:\n{_indent(assign)}\nfinally:\n{_indent(drop)}\n"
+
+
+def result_names(queries: Sequence[tuple[int, str]], taken: Container[str]) -> list[str]:
+    """`<dataset>_<n>` for each `(n, dataset)`, n being the query's 1-based position in its list,
+    its suffix raised past every name in `taken`, any query's dataset, and the names chosen
+    before it, so no block overwrites what another reads."""
+    reserved = {dataset for _, dataset in queries}
+    names: list[str] = []
+    for n, dataset in queries:
+        suffix = n
+        while (name := f"{dataset}_{suffix}") in reserved or name in taken:
+            suffix += 1
+        reserved.add(name)
+        names.append(name)
+    return names
 
 
 def imported_names(spec: QuerySpec, backing: Backing, *, schema: Schema | None = None) -> list[str]:
