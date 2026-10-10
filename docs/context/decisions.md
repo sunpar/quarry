@@ -672,12 +672,17 @@ them.
   and API routes send no CORS header, so the opaque-origin frame can neither
   authenticate nor read an answer. What it can read, the static files and
   `/libs/`, is open to any page anyway. Spec §9 and §12 carry the amendment.
-- **A generated view can still navigate itself**: the sandbox blocks forms,
-  popups and top navigation, but `location.href = ...` inside the frame is not
-  covered by `connect-src`, so the bridge being the only path to data (spec §12)
-  is defence in depth, not a guarantee. The kernel already has the network.
-  Detecting a navigation, which would also keep the next `mount` from reaching
-  the new page, is [deferred](../open-items.md#any-time).
+- **The host page frames only its own origin**: the sandbox blocks forms, popups
+  and top navigation, but not `location.href = ...` inside the frame, which no
+  directive of the frame's own CSP covers. `web/index.html` therefore sets
+  `frame-src 'self'`, which Chromium checks on every navigation of the view
+  frame, the frame's own included, so a view cannot carry rows out in another
+  site's URL, and the next `mount`, which `HostBridge` must post to `"*"` since
+  the frame's origin is opaque, reaches only a Quarry page. A Playwright test
+  pins the refusal. The bridge being the only path to data (spec §12) is still
+  defence in depth, not a guarantee: WebRTC and DNS prefetch stay
+  [open](../open-items.md#known-problems), and the kernel already has the
+  network.
 - **The token stays in the URL fragment and in memory**: the host reads
   `#token=` once into state, never stores it, and writes the active session id
   back as `#token=...&session=...` with `replaceState` so a reload keeps both. A

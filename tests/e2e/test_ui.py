@@ -70,3 +70,30 @@ def test_refused_import_offers_fix(serve: Serve, page: Page) -> None:
     page.get_by_role("button", name="Fix this view").click()
     expect(page.get_by_text("fixed", exact=True)).to_be_visible(timeout=30_000)
     expect(page.get_by_text("Fix the view so it mounts.")).to_be_visible()
+
+
+# The host is served from 127.0.0.1, so localhost is another origin.
+LEAVE = """\
+import { useEffect } from "react";
+export default function V() {
+  useEffect(() => {
+    location.assign(location.href.replace("//127.0.0.1", "//localhost") + "?rows=1");
+  }, []);
+  return <p>leaving</p>;
+}
+"""
+
+
+def test_a_view_cannot_navigate_its_frame_to_another_origin(serve: Serve, page: Page) -> None:
+    server = serve([py("c1", pl_df), write("c2", LEAVE), end("drew it")])
+    refused: list[str] = []
+    off_site: list[str] = []
+    page.on("console", lambda m: refused.append(m.text) if "frame-src" in m.text else None)
+    page.on("request", lambda r: off_site.append(r.url) if "//localhost" in r.url else None)
+    open_session(page, server, "leave")
+    for _ in range(300):  # until the frame tries to leave, for up to 30 s
+        if refused or off_site:
+            break
+        page.wait_for_timeout(100)
+    assert not off_site, off_site
+    assert refused

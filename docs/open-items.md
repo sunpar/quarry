@@ -131,10 +131,10 @@ Decisions already made are in [decisions.md](context/decisions.md).
   parses `sql_local("SELECT '\ud800'")` once the code has run, and the
   `RuntimeError` that raises is not among the errors the parse suppresses, so
   `execute` raises and the step's result is lost. Loud.
-- **The host sends `mount` to whatever page the frame holds**: `HostBridge`
-  posts `mount`, which carries the SciChart key when SciChart is enabled, with
-  `targetOrigin "*"`, and the host page sets no `frame-src`. A view that
-  navigates its own frame to another site receives the next mount. Silent.
+- **A view can still send rows out over WebRTC or DNS**: no CSP directive covers
+  a peer connection's ICE traffic or a DNS prefetch, so a generated view can put
+  rows in a STUN host name or a prefetched name despite the runtime CSP and the
+  host's `frame-src 'self'`. Silent.
 - **A view can mount twice**: the host sends the queued `mount` on the frame's
   `load` when `ready` was missed, and again when a late `ready` arrives. The
   second mount rebuilds the view with a fresh store and cache, so it transpiles
@@ -199,9 +199,6 @@ one up when a researcher needs it.
   previous rows while a sort refetches, so the grid stops flashing to "Loading".
 - Restore the last snapshot's state on mount: a reload resets a view to
   `initial_state` even when `view.snapshots` has later state.
-- Detect a view frame that navigates itself (its `load` event fires a second
-  time) and tear the frame down, which also stops it receiving the next `mount`;
-  see [decisions](context/decisions.md#first-ui).
 - Make `npm run dev` views work inside the null-origin frame: Vite's dev CORS
   allowlist and its inline React preamble are both blocked there, so views
   render only from a production build today.
