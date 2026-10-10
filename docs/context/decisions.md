@@ -916,3 +916,8 @@ them.
   resolved 3.14, so failures specific to 3.11 surfaced only in CI.
 - **Tests are annotated**: ruff's ANN rules apply to tests as well as `src`,
   where the plan had a per-file ignore.
+- **Plotly's peer resolves to the dist build**: `web/package.json` overrides
+  `plotly.js` with `npm:plotly.js-dist-min@4.1.2`, so react-plotly.js's peer
+  no longer installs the full 98 MB source package and its 211 lock entries,
+  which nothing imports. The runtime uses `react-plotly.js/factory` with the
+  dist build either way.
