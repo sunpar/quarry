@@ -6,16 +6,20 @@ import type { Row } from "@/shared/api-types";
 
 const query = vi.fn<(spec: unknown) => QueryHookResult>();
 const saved = vi.hoisted((): Record<string, unknown> => ({}));
+const schema = vi.hoisted(() => ({
+  current: null as { name: string; dtype: string }[] | null,
+}));
 vi.mock("@quarry/hooks", () => ({
   useQuery: (spec: unknown) => query(spec),
   useViewState: <T,>(key: string, initial: T) => [
     key in saved ? (saved[key] as T) : initial,
     () => undefined,
   ],
-  useDatasetSchema: () => [
-    { name: "sector", dtype: "String" },
-    { name: "ret", dtype: "Float64" },
-  ],
+  useDatasetSchema: () =>
+    schema.current ?? [
+      { name: "sector", dtype: "String" },
+      { name: "ret", dtype: "Float64" },
+    ],
 }));
 interface ChartProps {
   data: Row[];
@@ -101,6 +105,48 @@ describe("bar-line built-in", () => {
       expect.objectContaining({
         group_by: ["sector"],
         aggs: [{ col: "ret", fn: "sum" }],
+      }),
+    );
+  });
+
+  it("groups by a numeric column when the dataset has no other kind", () => {
+    query.mockReturnValue({ status: "loading" });
+    schema.current = [
+      { name: "a", dtype: "Float64" },
+      { name: "b", dtype: "Int64" },
+    ];
+    try {
+      render(<BarLine datasets={["trades"]} />);
+    } finally {
+      schema.current = null;
+    }
+    expect(query).toHaveBeenLastCalledWith({
+      dataset: "trades",
+      group_by: ["b"],
+      aggs: [{ col: "a", fn: "sum" }],
+      sort: [{ col: "b" }],
+      limit: 500,
+    });
+  });
+
+  it("never groups by a column named like the aggregate, in any case", () => {
+    query.mockReturnValue({ status: "loading" });
+    saved.columns = { category: "RET_SUM", value: null };
+    schema.current = [
+      { name: "RET_SUM", dtype: "String" },
+      { name: "sector", dtype: "String" },
+      { name: "ret", dtype: "Float64" },
+    ];
+    try {
+      render(<BarLine datasets={["trades"]} />);
+    } finally {
+      delete saved.columns;
+      schema.current = null;
+    }
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        group_by: ["sector"],
+        sort: [{ col: "sector" }],
       }),
     );
   });

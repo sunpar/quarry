@@ -6,17 +6,21 @@ import type { Column, Row } from "@/shared/api-types";
 const query = vi.fn<(spec: unknown) => QueryHookResult>();
 const plot = vi.hoisted(() => vi.fn<(props: { data: unknown[] }) => void>());
 const saved = vi.hoisted((): Record<string, unknown> => ({}));
+const schema = vi.hoisted(() => ({
+  current: null as { name: string; dtype: string }[] | null,
+}));
 vi.mock("@quarry/hooks", () => ({
   useQuery: (spec: unknown) => query(spec),
   useViewState: <T,>(key: string, initial: T) => [
     key in saved ? (saved[key] as T) : initial,
     () => undefined,
   ],
-  useDatasetSchema: () => [
-    { name: "date", dtype: "Date" },
-    { name: "ticker", dtype: "String" },
-    { name: "ret", dtype: "Float64" },
-  ],
+  useDatasetSchema: () =>
+    schema.current ?? [
+      { name: "date", dtype: "Date" },
+      { name: "ticker", dtype: "String" },
+      { name: "ret", dtype: "Float64" },
+    ],
 }));
 vi.mock("react-plotly.js", () => ({
   default: (props: { data: unknown[] }) => {
@@ -45,15 +49,26 @@ const spec = {
   limit: 500,
 };
 
-// Renders with `columns` saved, then takes it back out.
-function renderWith(columns: object) {
-  saved.columns = columns;
+// Renders with `columns` saved or with the live schema replaced, then puts both back.
+function renderWith(options: {
+  columns?: object;
+  live?: { name: string; dtype: string }[];
+}) {
+  if (options.columns !== undefined) saved.columns = options.columns;
+  if (options.live !== undefined) schema.current = options.live;
   try {
     return render(<Heatmap datasets={["rets"]} />);
   } finally {
     delete saved.columns;
+    schema.current = null;
   }
 }
+
+const pivotOf = (index: string, columns: string, values: string) => ({
+  ...spec,
+  pivot: { ...spec.pivot, index: [index], columns, values },
+  sort: [{ col: index }],
+});
 
 describe("heatmap built-in", () => {
   it("pivots the mean value by the first two key columns", () => {
@@ -92,17 +107,30 @@ describe("heatmap built-in", () => {
 
   it("never pivots a column against itself", () => {
     query.mockReturnValue({ status: "loading" });
-    renderWith({ row: "ticker", column: "ticker", value: null });
-    expect(query).toHaveBeenLastCalledWith({
-      ...spec,
-      pivot: { ...spec.pivot, index: ["ticker"], columns: "date" },
-      sort: [{ col: "ticker" }],
+    renderWith({ columns: { row: "ticker", column: "ticker", value: null } });
+    expect(query).toHaveBeenLastCalledWith(pivotOf("ticker", "date", "ret"));
+  });
+
+  it("never keys on the value column, so no pick leaves the grid without a value", () => {
+    query.mockReturnValue({ status: "loading" });
+    renderWith({ columns: { row: "ret", column: null, value: null } });
+    expect(query).toHaveBeenLastCalledWith(spec);
+  });
+
+  it("keys on numeric columns when too few others are left", () => {
+    query.mockReturnValue({ status: "loading" });
+    const f64 = (name: string) => ({ name, dtype: "Float64" });
+    renderWith({
+      live: [{ name: "ticker", dtype: "String" }, f64("px"), f64("vol")],
     });
+    expect(query).toHaveBeenLastCalledWith(pivotOf("ticker", "vol", "px"));
+    renderWith({ live: [f64("a"), f64("b"), f64("c")] });
+    expect(query).toHaveBeenLastCalledWith(pivotOf("b", "c", "a"));
   });
 
   it("drops saved columns the live schema no longer has", () => {
     query.mockReturnValue({ status: "loading" });
-    renderWith({ row: "gone", column: "ticker", value: "px" });
+    renderWith({ columns: { row: "gone", column: "ticker", value: "px" } });
     expect(query).toHaveBeenLastCalledWith(spec);
   });
 

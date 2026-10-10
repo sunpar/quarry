@@ -69,8 +69,7 @@ export default function LargeSeries({ datasets }: Props) {
       {
         type: "line",
         showSymbol: false,
-        large: true,
-        largeThreshold: 2000,
+        // Line series have no `large` mode; downsampling to the pixel width is what scales.
         sampling: "lttb",
         data: toPoints(result.rows, time, value),
         lineStyle: { color: "#1e6e63", width: 1 },

@@ -1019,16 +1019,26 @@ them.
   `[epochMs, value]` pairs read with the time series' `parseTime`, so a naive
   datetime is UTC, and the option sets `useUTC: true`. Given strings, ECharts
   reads a naive datetime as browser-local time, which shifts it around DST
-  changes. The plan's `large: true` stays, but ECharts line series ignore it
-  (`LineSeriesOption` has no `large`); `sampling: "lttb"` and
-  `showSymbol: false` are what keep 50,000 points fast.
-- **No two roles share a column**: a saved column counts only while the live
-  schema offers it, so a stale choice falls back to the default instead of
-  failing the query. In the scatter, y and the color column skip any column an
-  earlier role holds, compared ignoring case as the kernel compares `select`
-  names; in the heatmap, the column key skips the row key, since a column
-  pivoted against itself is only a diagonal, and the value skips both. The
-  pickers offer only the free columns.
+  changes. The plan's `large: true` and `largeThreshold` are gone: ECharts
+  line series have no large mode (`LineSeriesOption` has no `large`), so
+  `sampling: "lttb"` and `showSymbol: false` are what keep 50,000 points fast.
+- **No two roles share a column, and no pick hides the pickers**: a saved
+  column counts only while the live schema offers it, so a stale choice falls
+  back to the default instead of failing the query. Roles resolve in an order
+  that always leaves the next one a column, and each picker offers only the
+  columns still free, compared ignoring case as the kernel compares names. In
+  the scatter, y skips x and the color column skips both. The heatmap resolves
+  the value first, then the row and column keys from the rest, non-numeric
+  ones first, and the column skips the row, since a column pivoted against
+  itself is only a diagonal. The bar and line chart resolves the value first
+  and skips `<value>_<fn>`, the aggregate's name, as a category. Both group by
+  a numeric or date column when no other is left, because the manifests' `any`
+  roles match all-numeric datasets and the kernel groups and pivots on any
+  dtype.
+- **The scatter colors by at most 30 values**: each color value is its own
+  `scattergl` trace, and Plotly stalls on thousands. Past 30 distinct values
+  the points draw as one series with a note saying so; there is no numeric
+  colorscale.
 - **Truncation banners give no total**: `row_count` counts the rows returned
   and `truncated` is set only when the server's row cap cut them, so each of
   these built-ins shows "Showing the first N rows." when the result fills its

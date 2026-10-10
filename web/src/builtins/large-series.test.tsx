@@ -5,7 +5,7 @@ import type { Row } from "@/shared/api-types";
 
 interface Option {
   useUTC: boolean;
-  series: { large: boolean; data: [number, number][] }[];
+  series: { data: [number, number][] }[];
 }
 
 const query = vi.fn<(spec: unknown) => QueryHookResult>();
@@ -25,12 +25,7 @@ vi.mock("@quarry/hooks", () => ({
 vi.mock("echarts-for-react", () => ({
   default: (props: { option: Option }) => {
     chart(props.option);
-    return (
-      <div
-        data-testid="echarts"
-        data-large={String(props.option.series[0]?.large)}
-      />
-    );
+    return <div data-testid="echarts" />;
   },
 }));
 
@@ -46,7 +41,7 @@ const success = (rows: Row[], truncated = false): QueryHookResult => ({
 });
 
 describe("large-series built-in", () => {
-  it("asks for up to 500,000 rows sorted by time and draws a large series", () => {
+  it("asks for up to 500,000 rows sorted by time and downsamples the line", () => {
     query.mockReturnValue(success([{ ts: "2024-01-02T10:00:00", px: 1 }]));
     render(<LargeSeries datasets={["ticks"]} />);
     expect(query).toHaveBeenCalledWith({
@@ -55,7 +50,10 @@ describe("large-series built-in", () => {
       sort: [{ col: "ts" }],
       limit: 500000,
     });
-    expect(screen.getByTestId("echarts").dataset.large).toBe("true");
+    expect(chart.mock.lastCall?.[0].series[0]).toMatchObject({
+      sampling: "lttb",
+      showSymbol: false,
+    });
     expect(screen.queryByText(/Showing the first/)).toBeNull();
   });
 

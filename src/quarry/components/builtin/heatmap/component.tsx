@@ -19,7 +19,7 @@ const isNumeric = (dtype: string) => /^(Int|UInt|Float|Decimal)/.test(dtype);
 // A saved column counts only while the live schema still offers it.
 const fit = (saved: string | null, options: string[]) =>
   saved !== null && options.includes(saved) ? saved : null;
-// The options no earlier role holds: a column pivoted against itself is only a diagonal.
+// The options no earlier role holds, compared ignoring case as the kernel compares names.
 const others = (options: string[], taken: (string | null)[]) =>
   options.filter(
     (o) => !taken.some((t) => t?.toLowerCase() === o.toLowerCase()),
@@ -38,12 +38,17 @@ export default function Heatmap({ datasets }: Props) {
   const numeric = (schema ?? [])
     .filter((c) => isNumeric(c.dtype))
     .map((c) => c.name);
-  const keys = names.filter((n) => !numeric.includes(n));
-  const row = fit(chosen.row, names) ?? keys[0] ?? null;
-  const columns = others(names, [row]);
+  // The value first, so no key choice can leave it without a column. The keys take the
+  // rest, non-numeric ones first, and a column pivoted against itself is only a diagonal.
+  const value = fit(chosen.value, numeric) ?? numeric[0] ?? null;
+  const free = others(names, [value]);
+  const keys = [
+    ...free.filter((n) => !numeric.includes(n)),
+    ...free.filter((n) => numeric.includes(n)),
+  ];
+  const row = fit(chosen.row, free) ?? keys[0] ?? null;
+  const columns = others(free, [row]);
   const column = fit(chosen.column, columns) ?? others(keys, [row])[0] ?? null;
-  const values = others(numeric, [row, column]);
-  const value = fit(chosen.value, values) ?? values[0] ?? null;
   const ready = row !== null && column !== null && value !== null;
   const result = useQuery(
     ready
@@ -84,7 +89,7 @@ export default function Heatmap({ datasets }: Props) {
         <Select
           label="Row"
           value={row}
-          options={names}
+          options={free}
           onChange={(v) => setChosen({ row: v, column, value })}
         />
         <Select
@@ -96,7 +101,7 @@ export default function Heatmap({ datasets }: Props) {
         <Select
           label="Value"
           value={value}
-          options={values}
+          options={numeric}
           onChange={(v) => setChosen({ row, column, value: v })}
         />
         <Select

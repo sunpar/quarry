@@ -14,6 +14,8 @@ type Columns = {
 };
 
 const LIMIT = 20000;
+// Plotly stalls on thousands of traces, so past this many color values the points draw as one.
+const MAX_COLORS = 30;
 
 const isNumeric = (dtype: string) => /^(Int|UInt|Float|Decimal)/.test(dtype);
 // A saved column counts only while the live schema still offers it.
@@ -70,6 +72,7 @@ export default function Scatter({ datasets }: Props) {
       </pre>
     );
 
+  const { traces, merged } = tracesFor(result.rows, x, y, color);
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap gap-3 border-b border-border px-3 py-1 text-sm">
@@ -97,9 +100,14 @@ export default function Scatter({ datasets }: Props) {
           Showing the first {result.rows.length.toLocaleString()} rows.
         </p>
       )}
+      {merged && (
+        <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
+          Too many values in {color} to color by; showing one series.
+        </p>
+      )}
       <div className="min-h-0 flex-1">
         <Plot
-          data={tracesFor(result.rows, x, y, color)}
+          data={traces}
           layout={{
             autosize: true,
             margin: { t: 16, r: 16, b: 40, l: 48 },
@@ -148,15 +156,18 @@ function parseValue(raw: Row[string]): number {
   return typeof raw === "string" && raw.trim() !== "" ? Number(raw) : NaN;
 }
 
-// One trace without a color column, one per distinct value with it. A point whose x or y
-// is not a finite number is dropped rather than drawn at zero.
+type Points = { x: number[]; y: number[] };
+
+// One trace without a color column, one per distinct value with it, and one again past
+// MAX_COLORS values (`merged`). A point whose x or y is not a finite number is dropped
+// rather than drawn at zero.
 function tracesFor(
   rows: Row[],
   x: string,
   y: string,
   color: string | null,
-): Data[] {
-  const groups = new Map<string, { x: number[]; y: number[] }>();
+): { traces: Data[]; merged: boolean } {
+  const groups = new Map<string, Points>();
   for (const row of rows) {
     const px = parseValue(row[x] ?? null);
     const py = parseValue(row[y] ?? null);
@@ -167,12 +178,19 @@ function tracesFor(
     group.y.push(py);
     groups.set(key, group);
   }
-  return [...groups.entries()].map(([name, points]) => ({
+  const merged = groups.size > MAX_COLORS;
+  const all = [...groups.values()];
+  const series: [string, Points][] = merged
+    ? [["", { x: all.flatMap((g) => g.x), y: all.flatMap((g) => g.y) }]]
+    : [...groups.entries()];
+  const single = color === null || merged;
+  const traces: Data[] = series.map(([name, points]) => ({
     type: "scattergl",
     mode: "markers",
     name,
     x: points.x,
     y: points.y,
-    marker: { size: 5, ...(color === null ? { color: "#1e6e63" } : {}) },
+    marker: { size: 5, ...(single ? { color: "#1e6e63" } : {}) },
   }));
+  return { traces, merged };
 }

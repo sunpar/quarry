@@ -28,6 +28,11 @@ const isNumeric = (dtype: string) => /^(Int|UInt|Float|Decimal)/.test(dtype);
 // A saved column counts only while the live schema still offers it.
 const fit = (saved: string | null, options: string[]) =>
   saved !== null && options.includes(saved) ? saved : null;
+// The options no other output column holds; the kernel compares output names ignoring case.
+const others = (options: string[], taken: (string | null)[]) =>
+  options.filter(
+    (o) => !taken.some((t) => t?.toLowerCase() === o.toLowerCase()),
+  );
 
 export default function BarLine({ datasets }: Props) {
   const dataset = datasets[0] ?? "";
@@ -42,11 +47,16 @@ export default function BarLine({ datasets }: Props) {
   const numeric = (schema ?? [])
     .filter((c) => isNumeric(c.dtype))
     .map((c) => c.name);
-  const category =
-    fit(chosen.category, names) ??
-    schema?.find((c) => !isNumeric(c.dtype))?.name ??
-    null;
   const value = fit(chosen.value, numeric) ?? numeric[0] ?? null;
+  // The kernel names the aggregate `<value>_<fn>`, so no category may take that name.
+  const key = `${value}_${agg}`;
+  const categories = others(names, [key]);
+  // A non-numeric category first; a numeric or date one groups as well.
+  const category =
+    fit(chosen.category, categories) ??
+    categories.find((n) => !numeric.includes(n)) ??
+    categories.find((n) => n !== value) ??
+    null;
   const ready = category !== null && value !== null;
   const result = useQuery(
     ready
@@ -77,9 +87,8 @@ export default function BarLine({ datasets }: Props) {
       </pre>
     );
 
-  // The kernel names the aggregate `<value>_<fn>`. Integer sums arrive as exact decimal
-  // strings, and a group with no values aggregates to null, which Recharts leaves a gap for.
-  const key = `${value}_${agg}`;
+  // Integer sums arrive as exact decimal strings, and a group with no values aggregates
+  // to null, which Recharts leaves a gap for.
   const data = result.rows.map((row) => {
     const v = parseValue(row[key] ?? null);
     return { ...row, [key]: Number.isFinite(v) ? v : null };
@@ -97,7 +106,7 @@ export default function BarLine({ datasets }: Props) {
         <Select
           label="Category"
           value={category}
-          options={names}
+          options={categories}
           onChange={(v) => setChosen({ category: v, value })}
         />
         <Select

@@ -5,17 +5,21 @@ import type { Row } from "@/shared/api-types";
 
 const query = vi.fn<(spec: unknown) => QueryHookResult>();
 const saved = vi.hoisted((): Record<string, unknown> => ({}));
+const schema = vi.hoisted(() => ({
+  current: null as { name: string; dtype: string }[] | null,
+}));
 vi.mock("@quarry/hooks", () => ({
   useQuery: (spec: unknown) => query(spec),
   useViewState: <T,>(key: string, initial: T) => [
     key in saved ? (saved[key] as T) : initial,
     () => undefined,
   ],
-  useDatasetSchema: () => [
-    { name: "x", dtype: "Float64" },
-    { name: "y", dtype: "Float64" },
-    { name: "sym", dtype: "String" },
-  ],
+  useDatasetSchema: () =>
+    schema.current ?? [
+      { name: "x", dtype: "Float64" },
+      { name: "y", dtype: "Float64" },
+      { name: "sym", dtype: "String" },
+    ],
 }));
 vi.mock("react-plotly.js", () => ({
   default: (props: { data: unknown[] }) => (
@@ -100,9 +104,40 @@ describe("scatter built-in", () => {
     ]);
   });
 
+  it("draws one series when the color column has too many values", () => {
+    const rows = Array.from({ length: 31 }, (_, i) => ({
+      x: i,
+      y: i,
+      sym: `s${i}`,
+    }));
+    query.mockReturnValue(success(rows));
+    renderWith({ x: null, y: null, color: "sym" });
+    expect(traces()).toHaveLength(1);
+    expect(traces()[0]?.x).toHaveLength(31);
+    expect(
+      screen.getByText(
+        "Too many values in sym to color by; showing one series.",
+      ),
+    ).toBeTruthy();
+  });
+
   it("never selects one column for two roles", () => {
     query.mockReturnValue({ status: "loading" });
     renderWith({ x: "x", y: "x", color: "y" });
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({ select: ["x", "y"] }),
+    );
+    // The kernel compares select names ignoring case, so `X` repeats `x`.
+    schema.current = [
+      { name: "x", dtype: "Float64" },
+      { name: "X", dtype: "Float64" },
+      { name: "y", dtype: "Float64" },
+    ];
+    try {
+      render(<Scatter datasets={["pts"]} />);
+    } finally {
+      schema.current = null;
+    }
     expect(query).toHaveBeenLastCalledWith(
       expect.objectContaining({ select: ["x", "y"] }),
     );
