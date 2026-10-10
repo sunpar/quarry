@@ -13,7 +13,13 @@ describe("built-ins under the runtime's transform", () => {
   it("finds every built-in", () => {
     const ids = Object.keys(sources).map((path) => path.split("/").at(-2));
     expect(ids).toEqual(
-      expect.arrayContaining(["data-table", "time-series", "pivot"]),
+      expect.arrayContaining([
+        "data-table",
+        "time-series",
+        "pivot",
+        "data-table-tanstack",
+        "ohlc",
+      ]),
     );
   });
 

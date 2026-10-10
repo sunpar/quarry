@@ -1,0 +1,15 @@
+{
+  "id": "ohlc",
+  "name": "OHLC",
+  "description": "Candlestick chart of open, high, low and close columns over a date or datetime column.",
+  "tags": ["ohlc", "candlestick", "price", "bars", "time"],
+  "contract_version": 1,
+  "schema": {
+    "requires": [
+      { "role": "time", "dtype": "datetime", "min": 1 },
+      { "role": "price", "dtype": "numeric", "min": 4 }
+    ]
+  },
+  "origin": "builtin",
+  "created_at": "2026-10-09T00:00:00Z"
+}

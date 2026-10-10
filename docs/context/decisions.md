@@ -700,9 +700,10 @@ them.
   `lightweight-charts`), and `enabled_libraries` intersects with it. A corrupt
   manifest fails startup loudly, since the build writes it.
 - **Built-ins live outside `web/`**:
-  `src/quarry/components/builtin/*/component.tsx` resolve `react`, `ag-grid-*`
-  and `lightweight-charts` through a regex alias to `web/node_modules` in the
-  vite and vitest configs, and the prettier scripts include that directory.
+  `src/quarry/components/builtin/*/component.tsx` resolve `react`, `ag-grid-*`,
+  `lightweight-charts` and `@tanstack/react-table` through a regex alias to
+  `web/node_modules` in the vite and vitest configs and through `paths` in
+  `tsconfig.app.json`, and the prettier scripts include that directory.
 - **TypeScript config departures**: `erasableSyntaxOnly` is off because the
   plan's classes use constructor parameter properties, and `baseUrl` is dropped
   because TypeScript 6 rejects it (TS5101); `paths` resolve relative to the
@@ -972,6 +973,33 @@ them.
 - **The saved config is a `JsonObject` in view state**: Perspective's types
   allow `undefined` values, which `useViewState`'s `Json` bound refuses, so the
   pivot casts at the boundary, as the plan allowed.
+
+### TanStack table and OHLC
+
+- **Built-ins inline their column helpers**: the plan's `_shared/columns.ts`
+  would load as `require("@builtin/_shared/columns")`, which the runtime cannot
+  serve, so each built-in keeps its own `isTime` and `isNumeric` and
+  `time-series` is unchanged.
+- **The TanStack table registers no sorting feature**: the query spec sorts on
+  the server and `header.column.id` is core in v9, so the plan's
+  `rowSortingFeature` and `enableSorting: false` are gone; v9's `TableOptions`
+  refuses `enableSorting` without that feature. The numeric flag is typed
+  through the `columnMeta: metaHelper<…>()` slot instead of a cast. As the AG
+  Grid table does, it drops a saved sort on a column the live schema lacks and
+  shows "Showing the first N rows." when a page is full; the plan's "N of M
+  rows" would repeat the page size, since `row_count` counts the rows returned.
+- **OHLC reads times and prices as the time series does**: naive ISO datetimes
+  are UTC, Decimal strings become numbers, a candle whose time or any price is
+  not finite is dropped, and rows on the same second keep the last, because
+  Lightweight Charts throws on those. The plan's bare `Date.parse` read a naive
+  datetime as local time.
+- **OHLC never guesses one column for two roles**: a saved column counts only
+  while the live schema has it with a fitting dtype; each remaining price role
+  then takes the first free numeric column named like it, then the first free
+  numeric column. A column the researcher picks for two roles keeps both, and
+  the query selects it once, since the kernel refuses a repeated `select` name.
+  The chart effect is keyed on the rows and the five names, so a re-render with
+  the same result keeps the chart.
 
 ## Packaging and CI
 

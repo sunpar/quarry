@@ -28,7 +28,7 @@ export default defineConfig({
     alias: [
       // Built-ins live outside web/, so bare imports from them need an explicit home.
       {
-        find: /^(react|ag-grid-react|ag-grid-community|lightweight-charts)(\/.*)?$/,
+        find: /^(react|ag-grid-react|ag-grid-community|lightweight-charts|@tanstack\/react-table)(\/.*)?$/,
         replacement: `${path.resolve(root, "node_modules")}/$1$2`,
       },
       { find: "@", replacement: path.resolve(root, "./src") },
