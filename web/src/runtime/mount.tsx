@@ -48,13 +48,16 @@ export function createRuntime(
   };
 
   const mount = async (message: Extract<HostToRuntime, { type: "mount" }>) => {
-    // A replaced view's hooks let go as it unmounts; only the mounted view reports.
-    const bridge = new RuntimeBridge(message.viewId, post, () => {
-      if (mounted === m) store.queriesChanged();
-    });
+    const bridge = new RuntimeBridge(message.viewId, post, () =>
+      store.queriesChanged(),
+    );
+    // A replaced view's hooks let go as it unmounts, and its pending report can still fire,
+    // under the same view id when the step remounts; only the mounted view reports.
     const store = new ViewStateStore(
       message.initialState,
-      (s) => bridge.stateChanged(s),
+      (s) => {
+        if (mounted === m) bridge.stateChanged(s);
+      },
       300,
     );
     const cache = new RequestCache(bridge);

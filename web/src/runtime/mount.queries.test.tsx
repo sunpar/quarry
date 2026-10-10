@@ -152,4 +152,22 @@ describe("runtime query reports", () => {
     await m.runTimers();
     expect(m.reports()).toHaveLength(1);
   });
+
+  it("a view replaced within the debounce reports only its successor", async () => {
+    const m = await mount(QUERY_VIEW, { n: 5 });
+    await vi.waitFor(() => expect(m.view.getByText("more")).toBeTruthy());
+    await act(async () => {
+      m.runtime.handle({
+        type: "mount",
+        viewId: "v1",
+        source: QUERY_VIEW,
+        initialState: { n: 7 },
+        datasets: ["df"],
+      });
+    });
+    await m.runTimers();
+    expect(m.reports()).toEqual([
+      expect.objectContaining({ queries: [{ dataset: "df", limit: 7 }] }),
+    ]);
+  });
 });

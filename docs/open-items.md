@@ -135,11 +135,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   `load` when `ready` was missed, and again when a late `ready` arrives. The
   second mount rebuilds the view with a fresh store and cache, so it transpiles
   and queries twice and drops any state set in between. Silent.
-- **A remount within 300 ms can record an empty snapshot**: when a step's view
-  remounts within the state debounce, the old store's timer can still fire and
-  report `queries: []` under the same view id, so "To code" has nothing to
-  render until the next report. Silent. Moving the `mounted === m` check into
-  the store's `onChange` in `mount.tsx` would close it.
 - **The transpile check and the runtime transform differ**:
   `web/tools/transpile-check.ts` runs Sucrase without `keepUnusedImports`, which
   the runtime loader sets, so the two can treat a source with an inline `type`
@@ -202,8 +197,7 @@ one up when a researcher needs it.
   first session.
 - Disable the view's "Fix this view" after a successful repair, and clear a
   replay-failure banner once a later restart succeeds.
-- `ErrorBoundary` resets only when the view id changes, and a store abandoned by
-  a stale mount is not disposed, so its debounced change can still post.
+- `ErrorBoundary` resets only when the view id changes.
 - The Lightweight Charts attribution link is inert under the sandbox (no
   popups).
 - Add component tests for `SessionPage` (reload keeps the session, 401 message),
