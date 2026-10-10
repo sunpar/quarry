@@ -8,10 +8,10 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Finish Stage 5, breadth, the last planned stage. All 13 tasks of the
-[Stage 5 plan](superpowers/plans/2026-10-09-quarry-stage5-breadth.md) are
-committed on `claude/quarry-stage5-breadth`, and so are the fixes from the
-whole-branch review. They are in review as sunpar/quarry#9 against `main`.
+None planned. Stage 5, breadth, was the last planned stage and merged on
+2026-10-10. What remains is in [open-items.md](open-items.md) (its known
+problems, the "Any time" list and the open questions) and in the spec's
+[deferred list](superpowers/specs/2026-10-08-quarry-design.md#16-deferred).
 
 ## Status by stage
 
@@ -20,8 +20,8 @@ whole-branch review. They are in review as sunpar/quarry#9 against `main`.
 | 1. Core             | Merged in sunpar/quarry#1 as `d00b5fa` | [Stage 1](superpowers/plans/2026-10-08-quarry-stage1-core.md)         |
 | 2. Server and agent | Merged in sunpar/quarry#2 as `7779c05` | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
 | 3. First UI         | Merged in sunpar/quarry#4 as `faf913f` | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
-| 4. Projects         | Merged in sunpar/quarry#8              | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
-| 5. Breadth          | In review in sunpar/quarry#9           | [Stage 5](superpowers/plans/2026-10-09-quarry-stage5-breadth.md)      |
+| 4. Projects         | Merged in sunpar/quarry#8 as `0e1720d` | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
+| 5. Breadth          | Merged in sunpar/quarry#9 as `1aa5d6e` | [Stage 5](superpowers/plans/2026-10-09-quarry-stage5-breadth.md)      |
 
 ### Stage 1: core
 
@@ -82,22 +82,25 @@ the other sections the plan touched, the modules are in the
 [code map](context/code-map.md), and what it closed is gone from
 [open-items.md](open-items.md). What it deferred is under
 [Any time](open-items.md#any-time), and what the task reviews and the final
-review left is under [known problems](open-items.md#known-problems).
+review left is under [known problems](open-items.md#known-problems). Codex was
+out of review credits, so two whole-PR `@claude` reviews stood in for it; both
+came back with nothing to block on, the second covering the built-ins, the
+Perspective mapping and the host dialogs the first had skipped. The pull request
+merged on 2026-10-10.
 
 ## Latest verification
 
-`claude/quarry-stage5-breadth` after the final review's fixes, locally on
-2026-10-10: `pytest` passed 1060 tests and skipped 3 (the live provider and
-memory-cap tests), including the 10 browser tests under `tests/e2e`.
-`ruff check`, `ruff format --check`, `mypy src tests` and `uv lock --check` were
-clean, and in `web/` `npm run check`, `npm test` (233 tests) and `npm run build`
-passed. CI runs on sunpar/quarry#9.
+`claude/quarry-stage5-breadth` at `6eb8d19`, merged as `1aa5d6e`. Locally on
+2026-10-10, after the final review's fixes: `pytest` passed 1060 tests and
+skipped 3 (the live provider and memory-cap tests), including the 10 browser
+tests under `tests/e2e`. `ruff check`, `ruff format --check`, `mypy src tests`
+and `uv lock --check` were clean, and in `web/` `npm run check`, `npm test` (233
+tests) and `npm run build` passed. CI passed on sunpar/quarry#9 at `6eb8d19`.
 
 ## Next actions
 
-1. Take sunpar/quarry#9 through whole-PR `@claude` reviews (Codex is out of
-   credits until 2026-10-15) until one comes back clean, with CI green, then
-   merge it and record the merge here.
+1. Pick the next work from [open-items.md](open-items.md), starting with its
+   known problems.
 
 ## Resuming
 
