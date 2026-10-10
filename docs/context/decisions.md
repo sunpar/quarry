@@ -1028,13 +1028,19 @@ them.
   that always leaves the next one a column, and each picker offers only the
   columns still free, compared ignoring case as the kernel compares names. In
   the scatter, y skips x and the color column skips both. The heatmap resolves
-  the value first, then the row and column keys from the rest, non-numeric
-  ones first, and the column skips the row, since a column pivoted against
-  itself is only a diagonal. The bar and line chart resolves the value first
-  and skips `<value>_<fn>`, the aggregate's name, as a category. Both group by
-  a numeric or date column when no other is left, because the manifests' `any`
-  roles match all-numeric datasets and the kernel groups and pivots on any
-  dtype.
+  the value first, then the row and column keys from the rest, and the column
+  skips the row, since a column pivoted against itself is only a diagonal. The
+  bar and line chart resolves the value first and skips `<value>_<fn>`, the
+  aggregate's name, as a category; with no other column left it groups by a
+  numeric one, then by the value itself, which the kernel accepts, because the
+  manifest's `any` role matches all-numeric datasets.
+- **The heatmap never defaults to a numeric key**: the pivot runs eagerly and
+  makes one column per distinct value of its column key, which `row_cap` and
+  `limit` do not bound, so a float key made a grid thousands of columns wide
+  on open. Only non-numeric columns are default keys. Numeric ones stay in the
+  Row and Column pickers as a deliberate choice; until a key is picked the
+  picker shows blank, a note asks for it, and only the `{dataset, limit: 1}`
+  placeholder query runs.
 - **The scatter colors by at most 30 values**: each color value is its own
   `scattergl` trace, and Plotly stalls on thousands. Past 30 distinct values
   the points draw as one series with a note saying so; there is no numeric

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { QueryHookResult } from "@/runtime/hooks";
 import type { Column, Row } from "@/shared/api-types";
@@ -9,19 +9,21 @@ const saved = vi.hoisted((): Record<string, unknown> => ({}));
 const schema = vi.hoisted(() => ({
   current: null as { name: string; dtype: string }[] | null,
 }));
-vi.mock("@quarry/hooks", () => ({
-  useQuery: (spec: unknown) => query(spec),
-  useViewState: <T,>(key: string, initial: T) => [
-    key in saved ? (saved[key] as T) : initial,
-    () => undefined,
-  ],
-  useDatasetSchema: () =>
-    schema.current ?? [
-      { name: "date", dtype: "Date" },
-      { name: "ticker", dtype: "String" },
-      { name: "ret", dtype: "Float64" },
-    ],
-}));
+// View state starts from `saved` and keeps what the pickers set, as the real hook does.
+vi.mock("@quarry/hooks", async () => {
+  const { useState } = await import("react");
+  return {
+    useQuery: (spec: unknown) => query(spec),
+    useViewState: <T,>(key: string, initial: T) =>
+      useState<T>(key in saved ? (saved[key] as T) : initial),
+    useDatasetSchema: () =>
+      schema.current ?? [
+        { name: "date", dtype: "Date" },
+        { name: "ticker", dtype: "String" },
+        { name: "ret", dtype: "Float64" },
+      ],
+  };
+});
 vi.mock("react-plotly.js", () => ({
   default: (props: { data: unknown[] }) => {
     plot(props);
@@ -117,15 +119,32 @@ describe("heatmap built-in", () => {
     expect(query).toHaveBeenLastCalledWith(spec);
   });
 
-  it("keys on numeric columns when too few others are left", () => {
+  it("pivots on a numeric key only once the researcher picks it", () => {
     query.mockReturnValue({ status: "loading" });
     const f64 = (name: string) => ({ name, dtype: "Float64" });
-    renderWith({
-      live: [{ name: "ticker", dtype: "String" }, f64("px"), f64("vol")],
-    });
-    expect(query).toHaveBeenLastCalledWith(pivotOf("ticker", "vol", "px"));
+    const placeholder = { dataset: "rets", limit: 1 };
+    // Each distinct value of a column key becomes a column, so `[a, b, c]` waits too.
     renderWith({ live: [f64("a"), f64("b"), f64("c")] });
-    expect(query).toHaveBeenLastCalledWith(pivotOf("b", "c", "a"));
+    expect(query).toHaveBeenLastCalledWith(placeholder);
+    expect(screen.getByText("Pick a row key.")).toBeTruthy();
+    cleanup();
+    schema.current = [
+      { name: "ticker", dtype: "String" },
+      f64("px"),
+      f64("vol"),
+    ];
+    try {
+      render(<Heatmap datasets={["rets"]} />);
+      expect(query).toHaveBeenLastCalledWith(placeholder);
+      expect(screen.getByText("Pick a column key.")).toBeTruthy();
+      expect(screen.getByLabelText("Row")).toBeTruthy();
+      fireEvent.change(screen.getByLabelText("Column"), {
+        target: { value: "vol" },
+      });
+    } finally {
+      schema.current = null;
+    }
+    expect(query).toHaveBeenLastCalledWith(pivotOf("ticker", "vol", "px"));
   });
 
   it("drops saved columns the live schema no longer has", () => {

@@ -39,13 +39,12 @@ export default function Heatmap({ datasets }: Props) {
     .filter((c) => isNumeric(c.dtype))
     .map((c) => c.name);
   // The value first, so no key choice can leave it without a column. The keys take the
-  // rest, non-numeric ones first, and a column pivoted against itself is only a diagonal.
+  // rest, and a column pivoted against itself is only a diagonal. A pivot makes one
+  // column per distinct value, so only non-numeric keys are defaults; a numeric key is
+  // the researcher's pick.
   const value = fit(chosen.value, numeric) ?? numeric[0] ?? null;
   const free = others(names, [value]);
-  const keys = [
-    ...free.filter((n) => !numeric.includes(n)),
-    ...free.filter((n) => numeric.includes(n)),
-  ];
+  const keys = free.filter((n) => !numeric.includes(n));
   const row = fit(chosen.row, free) ?? keys[0] ?? null;
   const columns = others(free, [row]);
   const column = fit(chosen.column, columns) ?? others(keys, [row])[0] ?? null;
@@ -63,11 +62,50 @@ export default function Heatmap({ datasets }: Props) {
 
   if (schema === null)
     return <p className="p-4 text-sm text-muted-foreground">Loading</p>;
-  if (!ready)
+  if (value === null || free.length < 2)
     return (
       <p className="p-4 text-sm text-muted-foreground">
         This dataset needs two key columns and a numeric column.
       </p>
+    );
+
+  // A key with no default shows blank until the researcher picks one.
+  const toolbar = (
+    <div className="flex flex-wrap gap-3 border-b border-border px-3 py-1 text-sm">
+      <Select
+        label="Row"
+        value={row ?? ""}
+        options={row === null ? ["", ...free] : free}
+        onChange={(v) => setChosen({ row: v, column, value })}
+      />
+      <Select
+        label="Column"
+        value={column ?? ""}
+        options={column === null ? ["", ...columns] : columns}
+        onChange={(v) => setChosen({ row, column: v, value })}
+      />
+      <Select
+        label="Value"
+        value={value}
+        options={numeric}
+        onChange={(v) => setChosen({ row, column, value: v })}
+      />
+      <Select
+        label="Aggregate"
+        value={agg}
+        options={AGGS}
+        onChange={(v) => setAgg(v as Agg["fn"])}
+      />
+    </div>
+  );
+  if (!ready)
+    return (
+      <div className="flex h-full flex-col">
+        {toolbar}
+        <p className="px-3 py-1 text-sm text-muted-foreground">
+          Pick a {row === null ? "row" : "column"} key.
+        </p>
+      </div>
     );
   if (result.status === "loading")
     return <p className="p-4 text-sm text-muted-foreground">Loading</p>;
@@ -85,32 +123,7 @@ export default function Heatmap({ datasets }: Props) {
   const z = result.rows.map((r) => cols.map((c) => parseValue(r[c] ?? null)));
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-wrap gap-3 border-b border-border px-3 py-1 text-sm">
-        <Select
-          label="Row"
-          value={row}
-          options={free}
-          onChange={(v) => setChosen({ row: v, column, value })}
-        />
-        <Select
-          label="Column"
-          value={column}
-          options={columns}
-          onChange={(v) => setChosen({ row, column: v, value })}
-        />
-        <Select
-          label="Value"
-          value={value}
-          options={numeric}
-          onChange={(v) => setChosen({ row, column, value: v })}
-        />
-        <Select
-          label="Aggregate"
-          value={agg}
-          options={AGGS}
-          onChange={(v) => setAgg(v as Agg["fn"])}
-        />
-      </div>
+      {toolbar}
       {(result.truncated || result.rows.length >= LIMIT) && (
         <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
           Showing the first {result.rows.length.toLocaleString()} rows.

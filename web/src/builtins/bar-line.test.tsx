@@ -127,6 +127,22 @@ describe("bar-line built-in", () => {
       sort: [{ col: "b" }],
       limit: 500,
     });
+    // With no other column left, the value groups itself, which the kernel accepts.
+    schema.current = [
+      { name: "ret", dtype: "Float64" },
+      { name: "ret_sum", dtype: "Float64" },
+    ];
+    try {
+      render(<BarLine datasets={["trades"]} />);
+    } finally {
+      schema.current = null;
+    }
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        group_by: ["ret"],
+        aggs: [{ col: "ret", fn: "sum" }],
+      }),
+    );
   });
 
   it("never groups by a column named like the aggregate, in any case", () => {

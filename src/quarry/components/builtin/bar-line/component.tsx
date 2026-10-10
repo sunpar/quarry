@@ -51,11 +51,13 @@ export default function BarLine({ datasets }: Props) {
   // The kernel names the aggregate `<value>_<fn>`, so no category may take that name.
   const key = `${value}_${agg}`;
   const categories = others(names, [key]);
-  // A non-numeric category first; a numeric or date one groups as well.
+  // A non-numeric category first, then any other column, then the value itself: the
+  // kernel groups by any dtype, and by the column it aggregates as well.
   const category =
     fit(chosen.category, categories) ??
     categories.find((n) => !numeric.includes(n)) ??
     categories.find((n) => n !== value) ??
+    categories[0] ??
     null;
   const ready = category !== null && value !== null;
   const result = useQuery(
