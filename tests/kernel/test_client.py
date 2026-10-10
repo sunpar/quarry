@@ -23,7 +23,7 @@ from quarry.config import ENV_API_KEY, ENV_MSSQL_DSN
 from quarry.kernel.client import KernelClient, KernelDead, RpcFailure, _accept
 from quarry.kernel.executor import ExecResult
 from quarry.kernel.protocol import Response, encode, read_lines
-from quarry.query import Filter, QuerySpec
+from quarry.query import Filter, Json, QuerySpec, Sort
 from tests.kernel.fixtures import BUSY_LOOP, HEAVY
 
 # Streams 3M rows from the default DuckDB connection; a query on that connection mid-stream
@@ -113,8 +113,14 @@ def test_execute_round_trip(kernel: KernelClient) -> None:
 
 def test_query_round_trip(kernel: KernelClient) -> None:
     kernel.execute("df = pl.DataFrame({'a': [3, 1, 2]})")
-    out = kernel.query(QuerySpec(dataset="df", sort=[{"col": "a"}], limit=2))
+    out = kernel.query(QuerySpec(dataset="df", sort=[Sort(col="a")], limit=2))
     assert out.rows == [{"a": 1}, {"a": 2}]
+
+
+def test_to_code_round_trip(kernel: KernelClient) -> None:
+    kernel.execute("df = pl.DataFrame({'a': [3, 1, 2]})")
+    code = kernel.to_code([QuerySpec(dataset="df", sort=[Sort(col="a")])])
+    assert "df_1 = (" in code and "df.lazy()" in code
 
 
 def test_query_cannot_carry_a_non_finite_filter_value(kernel: KernelClient) -> None:
@@ -519,7 +525,7 @@ def test_close_does_not_raise_when_the_temp_directory_will_not_empty(
     tmpdir.rmdir()  # what the failed removal left behind
 
 
-def answer_next_request_with(peer: socket.socket, result: object) -> None:
+def answer_next_request_with(peer: socket.socket, result: Json) -> None:
     """Reply to the next request on `peer` with a well-formed response carrying `result`."""
     request = json.loads(next(read_lines(peer)))
     peer.sendall(encode(Response(id=request["id"], result=result)))

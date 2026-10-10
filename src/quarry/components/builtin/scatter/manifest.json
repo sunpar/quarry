@@ -1,0 +1,10 @@
+{
+  "id": "scatter",
+  "name": "Scatter",
+  "description": "Plotly scatter of two numeric columns, optionally colored by a third column.",
+  "tags": ["scatter", "points", "correlation", "plotly"],
+  "contract_version": 1,
+  "schema": { "requires": [{ "role": "xy", "dtype": "numeric", "min": 2 }] },
+  "origin": "builtin",
+  "created_at": "2026-10-09T00:00:00Z"
+}

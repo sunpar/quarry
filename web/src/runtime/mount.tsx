@@ -4,6 +4,7 @@ import { RuntimeBridge } from "./bridge";
 import { RequestCache } from "./cache";
 import { RuntimeProvider } from "./context";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { setLicensed } from "./libs/registry";
 import { loadComponent, type ModuleTable, type ViewComponent } from "./loader";
 import { MODULES } from "./modules";
 import { ViewStateStore } from "./state";
@@ -47,17 +48,23 @@ export function createRuntime(
   };
 
   const mount = async (message: Extract<HostToRuntime, { type: "mount" }>) => {
-    const bridge = new RuntimeBridge(message.viewId, post);
+    const bridge = new RuntimeBridge(message.viewId, post, () =>
+      store.queriesChanged(),
+    );
+    // A replaced view's hooks let go as it unmounts, and its pending report can still fire,
+    // under the same view id when the step remounts; only the mounted view reports.
     const store = new ViewStateStore(
       message.initialState,
-      (s) => bridge.stateChanged(s),
+      (s) => {
+        if (mounted === m) bridge.stateChanged(s);
+      },
       300,
     );
-    // Runs before React re-renders, so the next snapshot carries only the new state's queries.
-    store.subscribe(() => bridge.resetUsage());
     const cache = new RequestCache(bridge);
     const m: Mounted = { bridge, store, cache };
     mounted = m;
+    // The licensed loaders read this while the view's imports resolve.
+    setLicensed(message.licensed ?? []);
     try {
       const component = await loadComponent(message.source, table);
       if (mounted !== m) return;

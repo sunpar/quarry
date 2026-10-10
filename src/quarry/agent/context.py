@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from quarry.config import QuarryConfig
 from quarry.data.parquet import PartitionLayout
 from quarry.kernel.datasets import DatasetMeta
+from quarry.libraries import licensed_libraries
 from quarry.server.models import Step
 
 GUIDE_PATH: Final = Path(__file__).parent / "guide.md"
@@ -42,10 +43,10 @@ The hooks are exactly these, from "@quarry/hooks":
 
   Default export: a component receiving one prop, datasets: string[] (the names you passed,
   in order).
-  useQuery(spec): {status:"loading"} | {status:"success", rows, schema, rowCount, truncated}
+  useQuery(spec): {status:"loading"} | {status:"success", rows, schema, rowCount, truncated, arrow}
     | {status:"error", message}
-    spec = {dataset, select?, filters?, group_by?, aggs?, pivot?, sort?, limit?, offset?}
-    (rows are JSON; views cannot request format "arrow")
+    spec = {dataset, select?, filters?, group_by?, aggs?, pivot?, sort?, limit?, offset?, format?}
+    arrow is an ArrayBuffer of Arrow IPC when spec.format is "arrow" (rows is then []), else null.
   useViewState(key, initial): [value, setValue]  (recorded; keys starting with "shared:" are linked)
   useDatasetSchema(name): Column[] | null
 
@@ -79,12 +80,8 @@ def runtime_libraries(static_dir: Path) -> list[str] | None:
 
 
 def enabled_libraries(config: QuarryConfig, available: list[str] | None = None) -> list[str]:
-    extra: list[str] = []
-    if config.libraries.highcharts_license:
-        extra.append("highcharts")
-    if config.libraries.scichart_license:
-        extra.append("scichart")
-    wanted = [*ALWAYS_ON, *extra]
+    licensed = [s.id for s in licensed_libraries(config) if s.enabled]
+    wanted = [*ALWAYS_ON, *licensed]
     if available is None:
         return wanted
     return [lib for lib in wanted if lib in available]

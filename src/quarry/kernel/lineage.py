@@ -4,7 +4,8 @@ Only bindings in module scope are the step's stores. Function, lambda, and compr
 contribute only their free names as loads. A class body contributes every name it reads, because
 class-level names are looked up at run time and can fall through to the module. The body of an
 `except ... as name` handler binds in its enclosing scope, but `name` there is the exception, so
-loading it is not a read.
+loading it is not a read. Assigning to or deleting an attribute or subscript in module scope
+(`df.x = ...`, `del df[k]`) changes the object its root name holds, so it stores that name too.
 """
 
 from __future__ import annotations
@@ -22,6 +23,9 @@ class CodeNames:
     stores: frozenset[str]
     loads: frozenset[str]
     defines: frozenset[str]
+    # String literals handed to `sql_local(...)` or `<anything>.sql(...)`: DuckDB can name the
+    # tables they read, which the executor turns into dataset reads.
+    sql_literals: frozenset[str] = frozenset()
 
 
 def analyze(code: str) -> CodeNames:
@@ -33,7 +37,12 @@ def analyze(code: str) -> CodeNames:
     visitor = _ScopeVisitor()
     visitor.walk(ast.parse(code))
     module = visitor.module
-    return CodeNames(frozenset(module.bound), frozenset(module.loads), frozenset(visitor.defines))
+    return CodeNames(
+        frozenset(module.bound),
+        frozenset(module.loads),
+        frozenset(visitor.defines),
+        frozenset(visitor.sql_literals),
+    )
 
 
 def dataset_writes(names: CodeNames, before: set[str], after: set[str]) -> list[str]:
@@ -76,6 +85,7 @@ class _ScopeVisitor(ast.NodeVisitor):
     def __init__(self) -> None:
         self.module = _Scope("module")
         self.defines: set[str] = set()
+        self.sql_literals: set[str] = set()
         self._scope = self.module
         self._pending: list[tuple[ast.AST, _Scope] | _Scope] = []
 
@@ -99,6 +109,26 @@ class _ScopeVisitor(ast.NodeVisitor):
         elif isinstance(node.ctx, ast.Load):
             self._scope.loads.add(node.id)
         # A `del` target leaves the namespace: it is neither read nor written.
+
+    def visit_Attribute(self, node: ast.Attribute | ast.Subscript) -> None:
+        # A target's outermost attribute or subscript is its only Store or Del link, so this one
+        # handler sees every form: plain, augmented, annotated, unpacked, `for`, `with`, `del`.
+        # At module level `df.columns = ...` or `del df["c"]` changes the object `df` holds, a
+        # store of `df`; in a function `df` stays a free name the function reads.
+        if isinstance(node.ctx, ast.Store | ast.Del) and self._scope.kind == "module":
+            root = _root_name(node)
+            if root is not None:
+                self._scope.bound.add(root)
+        self.generic_visit(node)
+
+    visit_Subscript = visit_Attribute
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if node.args and _is_sql_call(node.func):
+            first = node.args[0]
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                self.sql_literals.add(first.value)
+        self.generic_visit(node)
 
     def visit_AugAssign(self, node: ast.AugAssign) -> None:
         if isinstance(node.target, ast.Name):
@@ -214,6 +244,21 @@ class _ScopeVisitor(ast.NodeVisitor):
         scope = _Scope(kind, parent=self._scope, bound=set(bound))
         self._pending.append(scope)  # popped, and closed, only after its whole body is walked
         self._pending.extend((node, scope) for node in body)
+
+
+def _is_sql_call(func: ast.expr) -> bool:
+    if isinstance(func, ast.Name):
+        return func.id == "sql_local"
+    return isinstance(func, ast.Attribute) and func.attr == "sql"
+
+
+def _root_name(node: ast.Attribute | ast.Subscript) -> str | None:
+    """The name an attribute or subscript chain hangs off; None when it starts at another
+    expression, as `f().x` does."""
+    value = node.value
+    while isinstance(value, ast.Attribute | ast.Subscript):
+        value = value.value
+    return value.id if isinstance(value, ast.Name) else None
 
 
 def _parameters(args: ast.arguments) -> set[str]:

@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Final
 
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 
 from quarry.errors import NOT_FAILURES, exception_message
 from quarry.kernel.executor import Executor
 from quarry.kernel.protocol import Request, Response, RpcError
 from quarry.query.spec import Json, QuerySpec
+
+_SPEC_LIST: Final = TypeAdapter(list[QuerySpec])
 
 
 class UnknownMethod(Exception):
@@ -49,6 +52,9 @@ class KernelService:
                 return self._executor.query(QuerySpec.model_validate(params.get("spec")))
             case "snapshot":
                 return self._executor.snapshot(_text(params, "name"), Path(_text(params, "path")))
+            case "to_code":
+                specs = _SPEC_LIST.validate_python(params.get("specs"))
+                return self._executor.to_code(specs)
             case "shutdown":
                 return None
             case _:

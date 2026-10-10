@@ -9,27 +9,35 @@ interface Pending {
 
 export class RuntimeBridge {
   private readonly pending = new Map<string, Pending>();
-  // Keyed by spec, so a query used on every render is recorded once.
-  private used = new Map<string, QuerySpec>();
+  // The specs mounted `useQuery` hooks hold, keyed by spec and counted: two hooks may share one.
+  private readonly held = new Map<string, { spec: QuerySpec; count: number }>();
+  private reported = "";
   private counter = 0;
 
   constructor(
     readonly viewId: string,
     private readonly post: (message: RuntimeToHost) => void,
+    /** The held specs now differ from the last `stateChanged`. */
+    private readonly onQueriesChanged: () => void = () => undefined,
   ) {}
 
   ready(): void {
     this.post({ type: "ready" });
   }
 
-  /** Note a query the view used, served from cache or not, for the next `stateChanged`. */
-  useQuery(spec: QuerySpec): void {
-    this.used.set(JSON.stringify(spec), spec);
+  retain(key: string, spec: QuerySpec): void {
+    const held = this.held.get(key);
+    if (held === undefined) this.held.set(key, { spec, count: 1 });
+    else held.count += 1;
+    this.checkHeld();
   }
 
-  /** Start a fresh usage window: the state changed, so earlier queries no longer show it. */
-  resetUsage(): void {
-    this.used = new Map();
+  release(key: string): void {
+    const held = this.held.get(key);
+    if (held === undefined) return;
+    held.count -= 1;
+    if (held.count === 0) this.held.delete(key);
+    this.checkHeld();
   }
 
   query(spec: QuerySpec): Promise<QueryResult> {
@@ -45,8 +53,8 @@ export class RuntimeBridge {
   }
 
   stateChanged(state: JsonObject): void {
-    const queries = [...this.used.values()];
-    this.used = new Map();
+    const queries = [...this.held.values()].map((h) => h.spec);
+    this.reported = this.heldKeys();
     this.post({ type: "stateChanged", viewId: this.viewId, state, queries });
   }
 
@@ -69,6 +77,15 @@ export class RuntimeBridge {
       return;
     }
     onControl?.(message);
+  }
+
+  private checkHeld(): void {
+    if (this.heldKeys() !== this.reported) this.onQueriesChanged();
+  }
+
+  // JSON keys never hold a raw newline, so the sorted join names the set.
+  private heldKeys(): string {
+    return [...this.held.keys()].sort().join("\n");
   }
 
   private nextId(): string {

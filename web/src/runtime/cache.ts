@@ -1,9 +1,10 @@
 import type { Column, QueryResult, QuerySpec } from "@/shared/api-types";
+import { decodeBase64 } from "@/shared/base64";
 import type { RuntimeBridge } from "./bridge";
 
 export type QueryState =
   | { status: "loading" }
-  | { status: "success"; result: QueryResult }
+  | { status: "success"; result: QueryResult; arrow: ArrayBuffer | null }
   | { status: "error"; message: string };
 
 export type SchemaState =
@@ -35,7 +36,6 @@ export class RequestCache {
   }
 
   ensureQuery(spec: QuerySpec): QueryState {
-    this.bridge.useQuery(spec);
     const key = JSON.stringify(spec);
     const known = this.queries.get(key);
     if (known !== undefined && !this.stale.delete(`q:${key}`)) return known;
@@ -46,6 +46,11 @@ export class RequestCache {
         this.settle(this.queries, key, `q:${key}`, ticket, {
           status: "success",
           result,
+          // Decoded once per answer, so the buffer is stable across renders.
+          arrow:
+            result.arrow_base64 === null
+              ? null
+              : decodeBase64(result.arrow_base64),
         }),
       (error: unknown) =>
         this.settle(this.queries, key, `q:${key}`, ticket, {

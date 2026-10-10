@@ -1,0 +1,15 @@
+{
+  "id": "large-series",
+  "name": "Large series",
+  "description": "ECharts line for series of hundreds of thousands of points, with zoom.",
+  "tags": ["line", "large", "time", "series", "zoom", "echarts"],
+  "contract_version": 1,
+  "schema": {
+    "requires": [
+      { "role": "time", "dtype": "datetime", "min": 1 },
+      { "role": "value", "dtype": "numeric", "min": 1 }
+    ]
+  },
+  "origin": "builtin",
+  "created_at": "2026-10-09T00:00:00Z"
+}

@@ -10,9 +10,10 @@ from quarry.agent.transpile import CommandTranspiler, NoopTranspiler, Transpiler
 from quarry.agent.types import ToolCall
 from quarry.components.library import ComponentLibrary
 from quarry.kernel.client import KernelClient
+from quarry.query import Json
 from tests.components.test_library import write_broken_components, write_component
 
-MAKE_DF = {"code": "df = pl.DataFrame({'a': [1]})"}
+MAKE_DF: dict[str, Json] = {"code": "df = pl.DataFrame({'a': [1]})"}
 
 
 @pytest.fixture

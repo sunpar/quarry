@@ -1,0 +1,10 @@
+{
+  "id": "data-table-tanstack",
+  "name": "Data table (TanStack)",
+  "description": "Plain sortable table in the design system's styling, for custom cell rendering.",
+  "tags": ["table", "rows", "inspect", "tanstack"],
+  "contract_version": 1,
+  "schema": { "requires": [] },
+  "origin": "builtin",
+  "created_at": "2026-10-09T00:00:00Z"
+}

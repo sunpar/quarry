@@ -147,6 +147,7 @@ export interface KernelStatus {
 export interface SessionStatus {
   session_id: string;
   running_step: string | null;
+  busy: boolean;
   kernel: KernelStatus;
   last_error: string | null;
 }

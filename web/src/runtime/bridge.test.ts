@@ -52,17 +52,37 @@ describe("RuntimeBridge", () => {
     await expect(promise).rejects.toThrow("bad");
   });
 
-  it("stateChanged carries the specs used since the last change, once each", () => {
+  it("stateChanged carries the specs still held, once each", () => {
     const { bridge, sent } = setup();
-    bridge.useQuery({ dataset: "a" });
-    bridge.useQuery({ dataset: "a" });
+    const a = { dataset: "a" };
+    const b = { dataset: "b" };
+    bridge.retain(JSON.stringify(a), a);
+    bridge.retain(JSON.stringify(a), a);
+    bridge.retain(JSON.stringify(b), b);
     bridge.stateChanged({ k: 1 });
-    bridge.useQuery({ dataset: "b" });
+    // One of two holders lets go: `a` is still held.
+    bridge.release(JSON.stringify(a));
+    bridge.release(JSON.stringify(b));
     bridge.stateChanged({ k: 2 });
     const changes = sent.filter((m) => m.type === "stateChanged");
     expect(
       changes.map((m) => (m.type === "stateChanged" ? m.queries : [])),
-    ).toEqual([[{ dataset: "a" }], [{ dataset: "b" }]]);
+    ).toEqual([[a, b], [a]]);
+  });
+
+  it("calls back when the held specs differ from the last report", () => {
+    const changed = vi.fn();
+    const bridge = new RuntimeBridge("v1", () => undefined, changed);
+    const a = { dataset: "a" };
+    bridge.retain(JSON.stringify(a), a);
+    expect(changed).toHaveBeenCalledTimes(1);
+    bridge.stateChanged({});
+    // A second holder of a reported spec changes nothing to report.
+    bridge.retain(JSON.stringify(a), a);
+    bridge.release(JSON.stringify(a));
+    expect(changed).toHaveBeenCalledTimes(1);
+    bridge.release(JSON.stringify(a));
+    expect(changed).toHaveBeenCalledTimes(2);
   });
 
   it("ignores messages for other views", () => {

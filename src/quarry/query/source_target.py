@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import keyword
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Container, Mapping, Sequence
 from datetime import date, datetime
 from typing import Final
 from zoneinfo import ZoneInfo
@@ -40,11 +40,23 @@ from quarry.query.polars_target import (
     coerce_literal,
     sums_as_decimal,
 )
-from quarry.query.spec import NULL_OPS, TEXT_OPS, Agg, AggFn, Backing, Filter, Json, QuerySpec
+from quarry.query.spec import (
+    NULL_OPS,
+    TEXT_OPS,
+    Agg,
+    AggFn,
+    Backing,
+    Filter,
+    Json,
+    QueryError,
+    QuerySpec,
+)
 from quarry.query.sql_target import quote_ident, relation_view, split_for_relation, to_sql
 
 DATE_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATETIME_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
+# Matched whole (fullmatch): `$` would also accept a trailing newline.
+IDENT_RE: Final = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # The module each name a literal can need is imported from.
 IMPORTED_FROM: Final[dict[str, str]] = {
     "date": "datetime",
@@ -69,12 +81,33 @@ def to_source(
     *,
     result_name: str = "result",
     schema: Schema | None = None,
+    relation_projection: str | None = None,
 ) -> str:
-    """Render `spec` as Python that assigns the polars DataFrame `to_polars` yields."""
-    _require_identifier(spec.dataset, "dataset")
-    _require_identifier(result_name, "result_name")
+    """Render `spec` as Python that assigns the polars DataFrame `to_polars` yields.
+
+    `relation_projection`, for a DuckDB relation, is the DuckDB select list the kernel reads
+    the relation through (`importable_projection`): it renames repeated columns and casts
+    INTERVAL and UNION columns to VARCHAR so `.pl()` can import them. Every failure caused by
+    the spec is a QueryError.
+    """
+    _require_identifier(spec.dataset, "dataset", spec)
+    _require_identifier(result_name, "result_name", spec)
     if schema is not None:
         check_columns(spec, set(schema))
+    try:
+        return _render(spec, backing, result_name, schema, relation_projection)
+    except (ValueError, TypeError) as exc:
+        # The SQL target's literal checks raise plain errors; the caller sees one type.
+        raise QueryError(str(exc), dataset=spec.dataset) from exc
+
+
+def _render(
+    spec: QuerySpec,
+    backing: Backing,
+    result_name: str,
+    schema: Schema | None,
+    relation_projection: str | None,
+) -> str:
     if backing != "duckdb":
         chain = _chain_source(
             spec,
@@ -85,16 +118,23 @@ def to_source(
         )
         imported = _imported_names(spec, schema)
         if spec.dataset in imported:
-            raise ValueError(
-                f"dataset {spec.dataset!r} would be shadowed by the generated import; rename it"
+            raise QueryError(
+                f"dataset {spec.dataset!r} would be shadowed by the generated import; rename it",
+                dataset=spec.dataset,
             )
         return f"{_import_lines(imported)}{chain}\n"
     if result_name == spec.dataset:
         # The view is dropped through the dataset after the result is assigned.
-        raise ValueError(f"result_name {result_name!r} must differ from the dataset for a relation")
+        raise QueryError(
+            f"result_name {result_name!r} must differ from the dataset for a relation",
+            dataset=spec.dataset,
+        )
     sql_part, polars_part = split_for_relation(spec)
     view = relation_view(spec.dataset)
-    head = f"{spec.dataset}.query({py_literal(view)}, {py_literal(to_sql(sql_part, view))}).pl()"
+    source_rel = spec.dataset
+    if relation_projection is not None:
+        source_rel = f"{spec.dataset}.project({py_literal(relation_projection)})"
+    head = f"{source_rel}.query({py_literal(view)}, {py_literal(to_sql(sql_part, view))}).pl()"
     if polars_part is None:
         assign = f"{result_name} = {head}"
     else:
@@ -107,6 +147,27 @@ def to_source(
     drop_sql = py_literal(f"DROP VIEW {quote_ident(view)}")
     drop = f"# release the temporary view\n{spec.dataset}.query({py_literal(view)}, {drop_sql})"
     return f"try:\n{_indent(assign)}\nfinally:\n{_indent(drop)}\n"
+
+
+def result_names(queries: Sequence[tuple[int, str]], taken: Container[str]) -> list[str]:
+    """`<dataset>_<n>` for each `(n, dataset)`, n being the query's 1-based position in its list,
+    its suffix raised past every name in `taken`, any query's dataset, and the names chosen
+    before it, so no block overwrites what another reads."""
+    reserved = {dataset for _, dataset in queries}
+    names: list[str] = []
+    for n, dataset in queries:
+        suffix = n
+        while (name := f"{dataset}_{suffix}") in reserved or name in taken:
+            suffix += 1
+        reserved.add(name)
+        names.append(name)
+    return names
+
+
+def imported_names(spec: QuerySpec, backing: Backing, *, schema: Schema | None = None) -> list[str]:
+    """The names `to_source(spec, backing, schema=schema)` binds with its import lines."""
+    # Relation source imports nothing: its filters, the only literals, run in the SQL.
+    return [] if backing == "duckdb" else _imported_names(spec, schema)
 
 
 def filter_source(f: Filter, dtype: pl.DataType | None = None) -> str:
@@ -155,6 +216,13 @@ def py_literal(value: object) -> str:
             raise TypeError(f"cannot render a {type(value).__name__} as a Python literal")
 
 
+def py_comment(text: str) -> str:
+    """Render `text` as one comment line, its line breaks as spaces and the rest of what is
+    unprintable escaped: a line break would end the comment and run what follows as code, a NUL
+    would stop the source compiling, and a bidi control would make it read differently."""
+    return "# " + "".join(map(_escape_unprintable, " ".join(text.splitlines())))
+
+
 def _chain_source(
     spec: QuerySpec,
     *,
@@ -184,8 +252,17 @@ def _filter_steps(spec: QuerySpec, schema: Schema | None) -> list[str]:
     if not spec.filters:
         return []
     # LazyFrame.filter combines its predicates with all_horizontal, as to_polars does.
-    predicates = [filter_source(f, _dtype(schema, f.col)) for f in spec.filters]
+    predicates = [_filter_predicate(spec, f, schema) for f in spec.filters]
     return [_method_call("filter", predicates)]
+
+
+def _filter_predicate(spec: QuerySpec, f: Filter, schema: Schema | None) -> str:
+    try:
+        return filter_source(f, _dtype(schema, f.col))
+    except (ValueError, TypeError, OverflowError) as exc:
+        # Literal coercion names neither the column nor the value ("month must be in 1..12").
+        message = f"filter on {f.col!r} cannot use {f.value!r}: {exc}"
+        raise QueryError(message, dataset=spec.dataset, column=f.col) from exc
 
 
 def _reshape_steps(spec: QuerySpec, schema: Schema | None, head_is_lazy: bool) -> list[str]:
@@ -327,7 +404,12 @@ def _escape_unprintable(ch: str) -> str:
     return f"\\u{code:04x}" if code <= 0xFFFF else f"\\U{code:08x}"
 
 
-def _require_identifier(name: str, role: str) -> None:
+def _require_identifier(name: str, role: str, spec: QuerySpec) -> None:
     # Both names are pasted into code that will run, so nothing else may get through.
-    if not name.isidentifier() or keyword.iskeyword(name):
-        raise ValueError(f"{role} {name!r} is not a Python identifier")
+    # Python NFKC-folds identifiers at parse time, so a name that is not ASCII could run as a
+    # different name than the one checked here.
+    if not IDENT_RE.fullmatch(name) or keyword.iskeyword(name):
+        raise QueryError(
+            f"{role} {name!r} must be a Python identifier of ASCII letters, digits and underscores",
+            dataset=spec.dataset,
+        )

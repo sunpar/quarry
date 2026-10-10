@@ -1,6 +1,7 @@
 import { act, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { RuntimeToHost } from "@/shared/bridge-types";
+import { licensed } from "./libs/registry";
 import type { ModuleTable } from "./loader";
 import { createRuntime } from "./mount";
 
@@ -37,50 +38,15 @@ describe("runtime mount", () => {
         source,
         initialState: { n: 1 },
         datasets: ["df"],
+        licensed: [{ id: "highcharts", entry: "/libs/h.js", license: null }],
       });
     });
     await waitFor(() => expect(screen.getByText("df:1")).toBeTruthy());
+    expect(licensed("highcharts")?.entry).toBe("/libs/h.js");
     await act(async () => {
       runtime.handle({ type: "restore", viewId: "v1", state: { n: 7 } });
     });
     await waitFor(() => expect(screen.getByText("df:7")).toBeTruthy());
-  });
-
-  it("snapshots carry only the queries of the state they record", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    try {
-      const { runtime, sent } = setup();
-      const source = `
-        import { useQuery, useViewState } from "@quarry/hooks";
-        export default function V() {
-          const [n, setN] = useViewState("n", 1);
-          useQuery({ dataset: "df", limit: n });
-          return <button onClick={() => setN(n + 1)}>more</button>;
-        }`;
-      await act(async () => {
-        runtime.handle({
-          type: "mount",
-          viewId: "v9",
-          source,
-          initialState: {},
-          datasets: ["df"],
-        });
-      });
-      await vi.waitFor(() => expect(screen.getByText("more")).toBeTruthy());
-      await act(async () => {
-        screen.getByText("more").click();
-      });
-      await act(async () => {
-        vi.runAllTimers();
-      });
-      const change = sent.find((m) => m.type === "stateChanged");
-      expect(change).toMatchObject({
-        state: { n: 2 },
-        queries: [{ dataset: "df", limit: 2 }],
-      });
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it("posts error when the component throws during render", async () => {

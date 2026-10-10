@@ -1,4 +1,9 @@
-import { useCallback, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useSyncExternalStore,
+} from "react";
 import type { Column, QuerySpec, Row } from "@/shared/api-types";
 import type { Json } from "@/shared/json";
 import { useRuntime } from "./context";
@@ -11,30 +16,33 @@ export type QueryHookResult =
       schema: Column[];
       rowCount: number;
       truncated: boolean;
+      arrow: ArrayBuffer | null;
     }
   | { status: "error"; message: string };
 
 export function useQuery(spec: QuerySpec): QueryHookResult {
-  const { cache } = useRuntime();
+  const { bridge, cache } = useRuntime();
   const key = JSON.stringify(spec);
   const state = useSyncExternalStore(cache.subscribe.bind(cache), () =>
     cache.ensureQuery(JSON.parse(key) as QuerySpec),
   );
-  if (state.status === "success") {
+  // Snapshots report the specs mounted hooks hold, not every spec a render asked for.
+  useLayoutEffect(() => {
+    bridge.retain(key, JSON.parse(key) as QuerySpec);
+    return () => bridge.release(key);
+  }, [bridge, key]);
+  return useMemo<QueryHookResult>(() => {
+    if (state.status !== "success") return state;
     const { result } = state;
-    // Views get JSON rows; the Arrow payload has no consumer in the runtime.
-    if (result.rows === null) {
-      return { status: "error", message: 'views cannot use format "arrow"' };
-    }
     return {
       status: "success",
-      rows: result.rows,
+      rows: result.rows ?? [],
       schema: result.schema,
       rowCount: result.row_count,
       truncated: result.truncated,
+      arrow: state.arrow,
     };
-  }
-  return state;
+  }, [state]);
 }
 
 export function useViewState<T extends Json>(

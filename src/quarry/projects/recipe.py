@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from quarry.query.source_target import py_comment
 from quarry.server.models import Step
 
 
@@ -32,9 +33,8 @@ def raw_recipe(steps: list[Step]) -> str:
         code = "\n".join(run.code.rstrip("\n") for run in step.runs if run.status == "ok")
         if code == "":
             continue
-        # Every line break, `\r` included, would end the comment and run the rest as code.
-        label = " ".join((step.prompt or step.kind).splitlines())
-        blocks.append(f"# step {step.index + 1}: {label}\n{code}\n")
+        label = py_comment(f"step {step.index + 1}: {step.prompt or step.kind}")
+        blocks.append(f"{label}\n{code}\n")
     return "\n".join(blocks)
 
 

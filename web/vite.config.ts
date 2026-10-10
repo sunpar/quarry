@@ -28,13 +28,29 @@ export default defineConfig({
     alias: [
       // Built-ins live outside web/, so bare imports from them need an explicit home.
       {
-        find: /^(react|ag-grid-react|ag-grid-community|lightweight-charts)(\/.*)?$/,
+        find: /^(react|ag-grid-react|ag-grid-community|lightweight-charts|@tanstack\/react-table|recharts|echarts-for-react)(\/.*)?$/,
         replacement: `${path.resolve(root, "node_modules")}/$1$2`,
+      },
+      // Exact: the app imports `react-plotly.js/factory` through the package exports map.
+      {
+        find: /^react-plotly\.js$/,
+        replacement: path.resolve(root, "node_modules/react-plotly.js"),
       },
       { find: "@", replacement: path.resolve(root, "./src") },
       {
         find: "@quarry/hooks",
         replacement: path.resolve(root, "./src/runtime/hooks.ts"),
+      },
+      {
+        find: "@quarry/perspective",
+        replacement: path.resolve(root, "./src/runtime/perspective/index.ts"),
+      },
+      {
+        find: "@quarry/highcharts",
+        replacement: path.resolve(
+          root,
+          "./src/runtime/libs/HighchartsReact.tsx",
+        ),
       },
       {
         find: "@builtin",
@@ -48,6 +64,9 @@ export default defineConfig({
       "/sessions": `http://127.0.0.1:${apiPort}`,
       "/projects": `http://127.0.0.1:${apiPort}`,
       "/healthz": `http://127.0.0.1:${apiPort}`,
+      "/libraries": `http://127.0.0.1:${apiPort}`,
+      "/libs": `http://127.0.0.1:${apiPort}`,
+      "/components": `http://127.0.0.1:${apiPort}`,
     },
   },
   build: {

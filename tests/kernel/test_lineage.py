@@ -261,3 +261,47 @@ def test_chain_at_cpythons_own_limit() -> None:
     names = analyze(_operator_chain(longest - 8))
     assert names.stores == {"x"}
     assert names.loads == {"a"}
+
+
+def test_sql_string_literals_are_collected() -> None:
+    names = analyze(
+        "a = sql_local('SELECT * FROM recent')\n"
+        'b = duckdb.sql("SELECT 1 FROM t")\n'
+        "c = _conn.sql('x')\n"
+        "d = _conn.sql(query)\n"  # not a literal: nothing to collect
+        "e = other('SELECT * FROM ignored')\n"
+    )
+    assert names.sql_literals == {"SELECT * FROM recent", "SELECT 1 FROM t", "x"}
+
+
+def test_attribute_and_subscript_mutation_at_module_level_is_a_store() -> None:
+    names = analyze("df.columns = ['a']\nother['k'] = 1\nnested.attr.deep = 2\nn += 1")
+    assert names.stores == {"df", "other", "nested", "n"}
+    assert {"df", "other", "nested", "n"} <= names.loads
+
+
+def test_mutation_inside_a_function_is_not_a_module_store() -> None:
+    names = analyze("def f():\n    df.columns = ['a']\n")
+    assert names.stores == {"f"}
+    assert "df" in names.loads  # the function reads the module-level df
+
+
+def test_mutation_through_every_assignment_target_is_a_store() -> None:
+    code = (
+        "(a.x, b) = 1, 2\n"
+        "c, *d[0] = [1, 2]\n"
+        "for e.i in range(2):\n    pass\n"
+        "with open('p') as f[0]:\n    pass\n"
+        "g.y: int = 1\n"
+        "h[k].z += 1\n"
+        "call().w = 1\n"  # no name to store
+    )
+    names = analyze(code)
+    assert names.stores == {"a", "b", "c", "d", "e", "f", "g", "h"}
+    assert {"k", "call"} <= names.loads
+
+
+def test_deleting_an_attribute_or_item_at_module_level_is_a_store() -> None:
+    names = analyze("del df['col']\ndel obj.attr\ndel gone")
+    assert names.stores == {"df", "obj"}
+    assert {"df", "obj"} <= names.loads and "gone" not in names.loads

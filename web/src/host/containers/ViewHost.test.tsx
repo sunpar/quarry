@@ -1,11 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostToRuntime } from "@/shared/bridge-types";
 import type { JsonObject } from "@/shared/json";
+import type { LibraryStatus } from "@/shared/library-types";
 import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
+import { keys } from "../api/keys";
 import { HostBridge } from "../bridge/HostBridge";
 import { SharedStateHub } from "../bridge/SharedStateHub";
 import { ViewHost } from "./ViewHost";
@@ -17,9 +19,18 @@ const DATASETS = ["df"];
 
 afterEach(() => vi.restoreAllMocks());
 
-function mount(overrides: Partial<Props> = {}) {
-  const fetchImpl = vi.fn(async () => new Response("[]", { status: 200 }));
+function mount(
+  overrides: Partial<Props> = {},
+  libraries?: () => Promise<Response>,
+) {
+  const fetchImpl = vi.fn(async (url: string) =>
+    url === "/libraries" && libraries !== undefined
+      ? libraries()
+      : new Response("[]", { status: 200 }),
+  );
   const qc = new QueryClient();
+  // Every view after the app's first finds the libraries answer already cached.
+  if (libraries === undefined) qc.setQueryData(keys.libraries(), []);
   // One client for every render: `api` is a mount dependency, so a new one would remount.
   const api = new ApiClient("t", fetchImpl);
   const posted: HostToRuntime[] = [];
@@ -53,7 +64,7 @@ function mount(overrides: Partial<Props> = {}) {
   // Once the frame has loaded, a remounted bridge posts its mount straight away.
   const load = () => iframe.dispatchEvent(new Event("load"));
   const mounts = () => posted.filter((m) => m.type === "mount");
-  return { posted, send, rerender, load, mounts, unmount: view.unmount };
+  return { posted, send, rerender, load, mounts, qc, unmount: view.unmount };
 }
 
 describe("ViewHost", () => {
@@ -157,5 +168,73 @@ describe("ViewHost", () => {
     );
     expect(screen.getByText("boom")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Fix this view" })).toBeNull();
+  });
+
+  it("mounts once, after the libraries answer, with the enabled ones", async () => {
+    const highcharts: LibraryStatus = {
+      id: "highcharts",
+      enabled: true,
+      reason: null,
+      license: "hk",
+      entry: "/libs/highcharts/highstock.js",
+    };
+    const scichart: LibraryStatus = {
+      id: "scichart",
+      enabled: true,
+      reason: null,
+      license: "sk",
+      entry: "/libs/scichart/index.min.mjs",
+    };
+    let statuses = [highcharts, scichart];
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const { load, mounts, rerender, qc } = mount({}, async () => {
+      await held;
+      return new Response(JSON.stringify(statuses));
+    });
+    await act(async () => load());
+    expect(mounts()).toHaveLength(0);
+    await act(async () => release());
+    await waitFor(() => expect(mounts()).toHaveLength(1));
+    // Only SciChart reads its key inside the frame.
+    expect(mounts()[0]?.licensed).toEqual([
+      { id: "highcharts", entry: highcharts.entry, license: null },
+      { id: "scichart", entry: scichart.entry, license: "sk" },
+    ]);
+    // A refetch, as a refocus or another view's first mount can start, leaves this one alone.
+    statuses = [{ ...highcharts, enabled: false }, scichart];
+    await act(() => qc.invalidateQueries({ queryKey: keys.libraries() }));
+    rerender({ source: "export default () => 1" });
+    expect(mounts()).toHaveLength(1);
+    // New content mounts with the latest answer.
+    rerender({ contentKey: "h2" });
+    expect(mounts()[1]?.licensed).toEqual([
+      { id: "scichart", entry: scichart.entry, license: "sk" },
+    ]);
+  });
+
+  it("mounts without licensed libraries when the answer fails", async () => {
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let calls = 0;
+    const { load, mounts, qc } = mount({}, async () => {
+      calls += 1;
+      if (calls > 1) await held;
+      return new Response("{}", { status: 500 });
+    });
+    await act(async () => load());
+    // No retries: a failed answer must not hold the view back.
+    await waitFor(() => expect(mounts()).toHaveLength(1));
+    expect(mounts()[0]?.licensed).toEqual([]);
+    // With no data, a refetch puts the status back to pending until it answers. React Query
+    // notifies on a timer, so each step waits for the render it causes.
+    const settle = () => act(() => new Promise((r) => setTimeout(r, 20)));
+    void qc.invalidateQueries({ queryKey: keys.libraries() });
+    await settle();
+    expect(qc.getQueryState(keys.libraries())?.status).toBe("pending");
+    release();
+    await settle();
+    expect(qc.getQueryState(keys.libraries())?.status).toBe("error");
+    expect(mounts()).toHaveLength(1);
   });
 });

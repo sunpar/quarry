@@ -70,6 +70,10 @@ class ProjectService:
         self._sessions = sessions
         self._provider_factory = provider_factory
 
+    @property
+    def store(self) -> ProjectStore:
+        return self._store
+
     def create(self, name: str, description: str) -> ProjectMeta:
         return self._store.create(name, description)
 

@@ -3,13 +3,15 @@ on:
   push:
     branches: [main]
   pull_request:
+permissions:
+  contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -22,13 +24,14 @@ jobs:
         working-directory: web
       - run: npm run build
         working-directory: web
-      - uses: astral-sh/setup-uv@v3
+      # setup-uv publishes no major tags since v8, so it is pinned to a release.
+      - uses: astral-sh/setup-uv@v10.3.0
       - run: uv python install 3.11
       - run: uv sync --locked
       - run: uv run playwright install --with-deps chromium
       - run: uv run ruff check src tests
       - run: uv run ruff format --check src tests
-      - run: uv run mypy src
+      - run: uv run mypy src tests
       - run: uv run pytest -v
       - run: uv build
       - run: unzip -l dist/*.whl | grep quarry/static/index.html

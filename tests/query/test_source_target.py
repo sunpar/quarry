@@ -401,10 +401,16 @@ def test_unknown_column_raises_when_schema_given() -> None:
 
 @pytest.mark.parametrize(
     ("dataset", "result_name"),
-    [("trades; import os", "result"), ("class", "result"), ("trades", "x = 1; y")],
+    [
+        ("trades; import os", "result"),
+        ("class", "result"),
+        ("trades", "x = 1; y"),
+        ("trades\n", "result"),
+        ("trades", "result\n"),
+    ],
 )
 def test_names_must_be_python_identifiers(dataset: str, result_name: str) -> None:
-    with pytest.raises(ValueError, match="is not a Python identifier"):
+    with pytest.raises(QueryError, match="ASCII letters, digits and underscores"):
         to_source(QuerySpec(dataset=dataset), "polars", result_name=result_name)
 
 
@@ -421,16 +427,70 @@ def test_dataset_named_like_a_generated_import_is_rejected(
 ) -> None:
     # The import line would rebind the dataset before the chain reads it.
     spec = QuerySpec(dataset=dataset, filters=[Filter(col="ts", op="ge", value=value)])
-    with pytest.raises(ValueError, match="shadowed by the generated import"):
+    with pytest.raises(QueryError, match="shadowed by the generated import"):
         to_source(spec, "polars", schema={"ts": dtype})
 
 
 def test_relation_source_needs_a_result_name_other_than_the_dataset() -> None:
     # The generated code drops its view through the dataset after assigning the result.
-    with pytest.raises(ValueError, match="must differ from the dataset"):
+    with pytest.raises(QueryError, match="must differ from the dataset"):
         to_source(QuerySpec(dataset="trades"), "duckdb", result_name="trades")
     source = to_source(QuerySpec(dataset="trades"), "polars", result_name="trades")
     assert source.startswith("trades = (\n    trades.lazy()")
+
+
+def test_errors_are_query_errors_with_the_dataset() -> None:
+    with pytest.raises(QueryError) as info:
+        to_source(QuerySpec(dataset="class"), "polars")
+    assert info.value.dataset == "class" and info.value.column is None
+
+
+@pytest.mark.parametrize("name", ["\uff54rades", "tra\u00addes"])
+def test_non_nfkc_identifiers_are_rejected(name: str) -> None:
+    # `isidentifier` accepts a fullwidth t, which Python then runs as plain `trades`.
+    with pytest.raises(QueryError, match="ASCII letters, digits and underscores"):
+        to_source(QuerySpec(dataset=name), "polars")
+    with pytest.raises(QueryError, match="ASCII letters, digits and underscores"):
+        to_source(QuerySpec(dataset="trades"), "polars", result_name=name)
+
+
+def test_malformed_literal_with_schema_is_a_query_error() -> None:
+    spec = QuerySpec(dataset="trades", filters=[Filter(col="date", op="ge", value="2024-99-99")])
+    with pytest.raises(QueryError) as info:
+        to_source(spec, "polars", schema=trades().schema)
+    assert info.value.column == "date"
+    assert "2024-99-99" in str(info.value)
+
+
+def test_unrenderable_literals_are_query_errors() -> None:
+    # A float column turns an int into a float, which a 401-digit int overflows.
+    huge = QuerySpec(dataset="trades", filters=[Filter(col="ret", op="eq", value=10**400)])
+    with pytest.raises(QueryError) as info:
+        to_source(huge, "polars", schema=trades().schema)
+    assert info.value.column == "ret"
+    # A dict inside an `in` list passes the spec; neither the polars nor the SQL form renders it.
+    nested = QuerySpec(dataset="trades", filters=[Filter(col="ticker", op="in", value=[{"a": 1}])])
+    with pytest.raises(QueryError) as info:
+        to_source(nested, "polars")
+    assert info.value.column == "ticker"
+    with pytest.raises(QueryError, match="dict literals"):
+        to_source(nested, "duckdb")
+
+
+def test_relation_projection_casts_interval_columns_so_the_source_runs() -> None:
+    conn = utc_connection()
+    namespace: dict[str, object] = {
+        "pl": pl,
+        "rel": conn.sql("SELECT 1 AS n, INTERVAL 9 DAY AS span, INTERVAL 100 DAY AS span2"),
+    }
+    projection = '#1 AS "n", CAST(#2 AS VARCHAR) AS "span", CAST(#3 AS VARCHAR) AS "span2"'
+    source = to_source(QuerySpec(dataset="rel"), "duckdb", relation_projection=projection)
+    assert "rel.project(" in source and "CAST(#2 AS VARCHAR)" in source
+    exec(source, namespace)  # the generated source is the thing under test
+    result = namespace["result"]
+    assert isinstance(result, pl.DataFrame)
+    assert result.schema == pl.Schema({"n": pl.Int32, "span": pl.String, "span2": pl.String})
+    assert result["span"][0] == "9 days"
 
 
 @pytest.mark.parametrize(

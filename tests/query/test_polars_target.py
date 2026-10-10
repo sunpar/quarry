@@ -59,7 +59,7 @@ def test_group_by_agg_names() -> None:
 def test_pivot() -> None:
     spec = QuerySpec(
         dataset="trades",
-        pivot={"index": ["date"], "columns": "ticker", "values": "volume", "agg": "sum"},
+        pivot=Pivot(index=["date"], columns="ticker", values="volume", agg="sum"),
         sort=[Sort(col="date")],
     )
     out = to_polars(spec, trades()).collect()

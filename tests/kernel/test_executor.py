@@ -69,6 +69,13 @@ def make(conn: duckdb.DuckDBPyConnection | None = None) -> Executor:
     return Executor({"pl": pl, "duckdb": duckdb, "_conn": conn}, conn=conn, row_cap=3)
 
 
+def frame_in(namespace: dict[str, object], name: str) -> pl.DataFrame:
+    """`namespace[name]`, which generated code must have bound to a polars frame."""
+    value = namespace[name]
+    assert isinstance(value, pl.DataFrame), type(value)
+    return value
+
+
 @pytest.fixture
 def interruptible() -> Iterator[Callable[[int], Executor]]:
     """Makes an executor on a private connection running `threads` threads, under the
@@ -622,7 +629,7 @@ def test_describe_and_unknown_name() -> None:
 def test_query_polars_with_row_cap() -> None:
     ex = make()
     ex.execute("df = pl.DataFrame({'a': [5, 4, 3, 2, 1]})")
-    out = ex.query(QuerySpec(dataset="df", sort=[{"col": "a"}]))
+    out = ex.query(QuerySpec(dataset="df", sort=[Sort(col="a")]))
     assert out.rows == [{"a": 1}, {"a": 2}, {"a": 3}]
     assert out.truncated is True
     assert out.row_count == 3
@@ -654,7 +661,7 @@ def test_query_duckdb_relation() -> None:
 def test_query_duckdb_relation_truncates_at_row_cap() -> None:
     ex = make()
     ex.execute('rel = _conn.sql("SELECT range AS n FROM range(10)")')
-    out = ex.query(QuerySpec(dataset="rel", sort=[{"col": "n", "desc": True}]))
+    out = ex.query(QuerySpec(dataset="rel", sort=[Sort(col="n", desc=True)]))
     assert out.rows == [{"n": 9}, {"n": 8}, {"n": 7}]
     assert out.truncated is True
 
@@ -666,7 +673,7 @@ def test_query_duckdb_relation_pivot() -> None:
         dataset="rel",
         filters=[Filter(col="v", op="lt", value=10)],
         pivot=Pivot(index=["k"], columns="c", values="v", agg="sum"),
-        sort=[{"col": "k"}],
+        sort=[Sort(col="k")],
     )
     out = ex.query(spec)
     # The pivot runs in polars, whose integer sums are Decimal(38, 0) like DuckDB's.
@@ -790,7 +797,7 @@ def test_query_arrow_format() -> None:
     out = ex.query(QuerySpec(dataset="df", format="arrow"))
     assert out.rows is None
     assert out.arrow_base64 is not None
-    decoded = pl.read_ipc(io.BytesIO(base64.b64decode(out.arrow_base64)))
+    decoded = pl.read_ipc_stream(io.BytesIO(base64.b64decode(out.arrow_base64)))
     assert decoded["a"].to_list() == [1]
 
 
@@ -804,10 +811,10 @@ def test_query_json_rows_null_non_finite_floats_and_arrow_keeps_them() -> None:
     assert rows == [{"x": None, "x32": None, "xs": [None], "st": {"x": None}}] * 3
     arrow = ex.query(QuerySpec(dataset="f", format="arrow")).arrow_base64
     assert arrow is not None
-    decoded = pl.read_ipc(io.BytesIO(base64.b64decode(arrow)))
-    assert repr(decoded.rows()) == repr(
-        [(v, v, [v], {"x": v}) for v in (float("inf"), float("-inf"), float("nan"))]
-    )
+    decoded = pl.read_ipc_stream(io.BytesIO(base64.b64decode(arrow)))
+    # Nested columns reach the viewer as one JSON string per row.
+    pairs = ((float("inf"), "Infinity"), (float("-inf"), "-Infinity"), (float("nan"), "NaN"))
+    assert repr(decoded.rows()) == repr([(v, v, f"[{t}]", f'{{"x": {t}}}') for v, t in pairs])
 
 
 def test_query_duckdb_bigint_sum_is_an_exact_decimal_string() -> None:
@@ -869,3 +876,121 @@ def test_failed_snapshot_leaves_no_file(tmp_path: Path, monkeypatch: pytest.Monk
     with pytest.raises(OSError, match="No space left"):
         ex.snapshot("df", tmp_path / "df.parquet")
     assert list(tmp_path.iterdir()) == []
+
+
+def test_to_code_renders_each_spec_with_the_live_schema() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'ret': [0.5, 1.0], 'sym': ['a', 'b']})")
+    ex.execute(f"rel = _conn.sql({PIVOT_ROWS!r})")
+    specs = [
+        QuerySpec(dataset="df", filters=[Filter(col="ret", op="in", value=[1])]),
+        QuerySpec(dataset="rel", sort=[Sort(col="k")], limit=2),
+    ]
+    code = ex.to_code(specs).code
+    # With the schema, the integer literal is coerced to the float column's type.
+    assert "is_in([1.0])" in code
+    assert "df_1 = (" in code and "rel_2 = " in code
+    assert "DROP VIEW" in code
+    namespace = dict(ex._ns)  # the generated code must run in the step namespace
+    exec(code, namespace)  # the test executes generated code on purpose
+    assert frame_in(namespace, "df_1").height == 1 and frame_in(namespace, "rel_2").height == 2
+
+
+def test_to_code_reads_a_relation_through_its_importable_projection() -> None:
+    ex = make()
+    ex.execute('rel = _conn.sql("SELECT 1 AS n, INTERVAL 9 DAY AS span")')
+    code = ex.to_code(
+        [QuerySpec(dataset="rel", filters=[Filter(col="span", op="eq", value="9 days")])]
+    ).code
+    assert "rel.project(" in code
+    namespace = dict(ex._ns)
+    exec(code, namespace)  # the test executes generated code on purpose
+    assert frame_in(namespace, "rel_1").rows() == [(1, "9 days")]
+
+
+def test_to_code_result_names_skip_bound_read_and_chosen_names() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1, 2, 3]})")
+    ex.execute("df_1 = pl.DataFrame({'a': [10, 20]})")
+    specs = [
+        QuerySpec(dataset="df", filters=[Filter(col="a", op="eq", value=1)]),
+        QuerySpec(dataset="df_1"),
+        QuerySpec(dataset="df"),
+    ]
+    code = ex.to_code(specs).code
+    # df_1 is bound and read by the second spec; df_2 was chosen for the first.
+    assert "df_2 = (" in code and "df_1_2 = (" in code and "df_3 = (" in code
+    namespace = dict(ex._ns)
+    exec(code, namespace)  # the test executes generated code on purpose
+    assert frame_in(namespace, "df_2")["a"].to_list() == [1]
+    assert frame_in(namespace, "df_1_2")["a"].to_list() == [10, 20]
+    assert frame_in(namespace, "df_1")["a"].to_list() == [10, 20]
+    assert frame_in(namespace, "df_3").height == 3
+
+
+def test_to_code_rejects_an_import_that_would_rebind_a_dataset() -> None:
+    ex = make()
+    ex.execute("import datetime as dt\nt = pl.DataFrame({'d': [dt.date(2024, 1, 2)]})")
+    ex.execute("date = pl.DataFrame({'a': [1]})")
+    imports_date = QuerySpec(dataset="t", filters=[Filter(col="d", op="ge", value="2024-01-01")])
+    # Another block's `from datetime import date` would rebind the dataset a later block reads,
+    for specs in ([imports_date, QuerySpec(dataset="date")], [imports_date]):
+        # and rebinds the researcher's `date` even when no spec reads it.
+        with pytest.raises(QueryError, match="shadowed by a generated import") as info:
+            ex.to_code(specs)
+        assert info.value.dataset == "date"
+
+
+def test_to_code_rejects_unknown_dataset_and_bad_column() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1]})")
+    with pytest.raises(KeyError):
+        ex.to_code([QuerySpec(dataset="nope")])
+    with pytest.raises(QueryError) as info:
+        ex.to_code([QuerySpec(dataset="df", filters=[Filter(col="b", op="eq", value=1)])])
+    assert info.value.column == "b"
+
+
+def test_sql_local_table_names_are_reads() -> None:
+    conn = duckdb.connect()
+    ex = make(conn)
+    ex.execute("recent = pl.DataFrame({'a': [1, 2]})")
+    ex.execute("conn = _conn\nconn.register('recent', recent)")
+    result = ex.execute("top = _conn.sql('SELECT * FROM recent LIMIT 1').pl()")
+    assert result.reads == ["recent"] and result.writes == ["top"]
+    # A literal DuckDB cannot bind (a table function over a missing path) adds no reads and
+    # does not fail the step; an unknown plain table name binds to a placeholder and is simply
+    # not a dataset.
+    glob = "SELECT * FROM read_parquet('/nonexistent/*.parquet')"
+    bad = ex.execute(f"y = 1 if True else _conn.sql({glob!r}).pl()")
+    assert bad.status == "ok" and bad.reads == []
+
+
+def test_a_literal_duckdb_cannot_take_still_returns_the_step() -> None:
+    # The step's parser makes a lone surrogate of the escape, which pybind11 cannot pass on.
+    code = r"""y = pl.DataFrame({"a": [1]}) if True else _conn.sql("SELECT '\ud800'")"""
+    result = make().execute(code)
+    assert result.status == "ok" and result.writes == ["y"] and result.reads == []
+
+
+def test_attribute_mutation_is_a_write() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1]})")
+    result = ex.execute("df.columns = ['b']")
+    assert result.writes == ["df"] and result.reads == ["df"]
+    assert result.datasets[0].schema_[0].name == "b"
+
+
+@pytest.mark.parametrize(
+    "sql",
+    ["SELECT * FROM a JOIN b USING (k)", "SELECT * FROM a ASOF JOIN b USING (k, t)"],
+    ids=["using", "asof"],
+)
+def test_sql_join_names_both_tables(sql: str) -> None:
+    # Binding these fails on tables DuckDB cannot see, losing every read; parsing names both.
+    conn = duckdb.connect()
+    ex = make(conn)
+    ex.execute("a = pl.DataFrame({'k': [1], 't': [1]})\nb = pl.DataFrame({'k': [1], 't': [0]})")
+    ex.execute("_conn.register('a', a)\n_conn.register('b', b)")
+    result = ex.execute(f"j = _conn.sql({sql!r}).pl()")
+    assert result.status == "ok" and result.reads == ["a", "b"]

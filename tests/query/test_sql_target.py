@@ -63,7 +63,7 @@ def test_group_by_aliases() -> None:
 def test_pivot() -> None:
     spec = QuerySpec(
         dataset="trades",
-        pivot={"index": ["date"], "columns": "ticker", "values": "volume", "agg": "sum"},
+        pivot=Pivot(index=["date"], columns="ticker", values="volume", agg="sum"),
         sort=[Sort(col="date")],
     )
     out = run(to_sql(spec, "trades")).pl()

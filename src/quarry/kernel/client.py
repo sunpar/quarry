@@ -21,7 +21,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from quarry.config import ENV_API_KEY
 from quarry.kernel.datasets import DatasetMeta
-from quarry.kernel.executor import ExecResult, QueryResult
+from quarry.kernel.executor import ExecResult, QueryResult, ToCodeResult
 from quarry.kernel.protocol import (
     InterruptResult,
     Request,
@@ -148,6 +148,10 @@ class KernelClient:
         return self._call_as(
             QueryResult.model_validate, "query", {"spec": spec.model_dump(mode="json")}
         )
+
+    def to_code(self, specs: list[QuerySpec]) -> str:
+        params: dict[str, Json] = {"specs": [s.model_dump(mode="json") for s in specs]}
+        return self._call_as(ToCodeResult.model_validate, "to_code", params).code
 
     def snapshot(self, name: str, path: Path) -> DatasetMeta:
         return self._call_as(

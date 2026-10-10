@@ -1,8 +1,7 @@
 # Open items
 
-Gaps in the shipped code, work deferred to later stages, and decisions nobody
-has made yet. Decisions already made are in
-[decisions.md](context/decisions.md).
+Gaps in the shipped code, deferred work, and decisions nobody has made yet.
+Decisions already made are in [decisions.md](context/decisions.md).
 
 ## Known problems
 
@@ -54,24 +53,26 @@ has made yet. Decisions already made are in
   2^53, including sums over 128-bit columns, are JSON numbers, which JavaScript
   rounds. VARINT and BIT values arrive as base64 of DuckDB's internal bytes.
   Both silent.
-- **Lineage blind spots**: table names inside SQL strings, such as
-  `sql_local("... FROM recent")`, are not reads. Helpers bound without `def` or
-  `class` (lambdas, `partial`, imports) and attribute mutation such as
-  `df.columns = [...]` are invisible too. Silent: a saved recipe can miss a
-  source step.
+- **Lineage blind spots**: lineage reads table names only from a string literal
+  passed first to `sql_local(...)` or any `.sql(...)` call, so SQL built at run
+  time (an f-string, a variable) and literals passed to `.execute(...)` or
+  `.query(...)` add no reads. Helpers bound without `def` or `class` (lambdas,
+  `partial`, imports) are invisible, and so is in-place mutation inside a
+  function, such as a helper that sets `df.columns`. Silent: a saved recipe can
+  miss a source step.
 - **Lineage approximations**: a failed step's in-place mutation is not a write,
   while a successful step's store that never ran is one. Class bodies report
-  every name they load as a read. Silent; see
+  every name they load as a read, and a SQL literal's CTE named like a dataset
+  (`WITH df AS (...) SELECT * FROM df`) reads that dataset, since DuckDB's
+  parser does not resolve CTEs; both only add steps to a recipe. Silent; see
   [decisions](context/decisions.md#lineage).
-- **Generated relation source and INTERVAL output**: to-code on a relation query
-  that returns an INTERVAL column fails at `.pl()` with polars `ComputeError`.
-  Fails loudly.
-- **Schema-less generated source**: without `schema=`, `to_source` renders
-  numbers as given and sums plainly. `ret in [0]` on a float column then fails
-  loudly when run, and an Int64 sum can wrap silently.
-- **`to_source` errors are not `QueryError`**: a bad identifier or a malformed
-  date raises `ValueError` or `TypeError`. Fails loudly, under a type callers do
-  not expect.
+- **Exported queries render without a schema**: a notebook renders each saved
+  view query with `to_source` and no `schema=`, since only dtype strings are on
+  disk. Numbers render as given and sums plainly, so `ret in [0]` on a float
+  column fails loudly when the cell runs, and an Int64 sum can wrap silently. No
+  `relation_projection` either, since that needs the live relation, so a
+  relation query whose result holds an INTERVAL or UNION column, which `.pl()`
+  cannot import, fails loudly when the cell runs.
 - **Interrupts stop only the kernel's DuckDB connection**: DuckDB workers for a
   relation on a researcher's own `duckdb.connect()` can keep running after an
   interrupt. Silent: they hold CPU and delay that connection's next query.
@@ -131,13 +132,48 @@ has made yet. Decisions already made are in
 - **Prompt-step tracebacks land in the message**: a prompt step's error puts the
   traceback in `error.message` and leaves `traceback` empty, while manual steps
   fill `traceback`. Silent.
-- **No transpile check runs yet**: spec §8 promises a Sucrase check, but
-  `transpile-check.mjs` ships with the Stage 3 frontend, so `render_view` and
-  `write_view` accept any source until then. Silent.
+- **A view can still send rows out over WebRTC or DNS**: no CSP directive covers
+  a peer connection's ICE traffic or a DNS prefetch, so a generated view can put
+  rows in a STUN host name or a prefetched name despite the runtime CSP and the
+  host's `frame-src 'self'`. Silent.
+- **A view can mount twice**: the host sends the queued `mount` on the frame's
+  `load` when `ready` was missed, and again when a late `ready` arrives. The
+  second mount rebuilds the view with a fresh store and cache, so it transpiles
+  and queries twice and drops any state set in between. Silent.
+- **Perspective dates outside years 1 to 9999**: a Date or Datetime filter term
+  beyond them maps to a `+010000-...` ISO string, which the kernel cannot parse,
+  so the pivot's probe query and "To code" fail. Loud.
+- **Perspective `in` items on integer columns**: the mapping reads items such as
+  `1e3` or `0x10` with JavaScript's `Number()` and the engine with `stoll`, so
+  the viewer and "To code" can filter different rows. Silent.
+- **A refused column choice hides the chart pickers**: every chart built-in
+  returns early on a query error, so when the kernel refuses a saved column
+  choice, the pickers that could change it are gone. Loud, and the view stays on
+  the error.
+- **The first browser test can time out on load**: in 1 of 5 local full runs,
+  the session's first Playwright test waited 30 s for the "New session" button
+  in `open_session` and failed, before any step ran; reruns passed. The cause is
+  unknown, perhaps a cold first page load. Loud: a red e2e run on that line
+  points here first.
+- **Pivot width is unbounded**: a pivot makes one column per distinct value of
+  its `columns` key, which neither `row_cap` nor `limit` bounds, so a heatmap of
+  dates by ticker over 5,000 tickers is 5,000 columns wide. A silent cost.
+- **Large series draws only the start of a long series**: the large-series
+  built-in asks for 500,000 rows sorted by time, but the default `row_cap` of
+  50,000 cuts the answer to its first 50,000, so a longer series ends early. The
+  view says "Showing the first 50,000 rows"; raising `data.row_cap` draws more.
+- **Other local users can read the licensed libraries**: `/libs/` serves the
+  configured Highcharts and SciChart files without the token, since the
+  opaque-origin frame loads them, so on a shared machine any account that can
+  reach the loopback port can copy them while the server runs. Silent. This is
+  the Stage 3 static design; the keys stay behind the token.
 
 ## Deferred work
 
-### Stage 5
+Stage 5 was the last planned stage, so no item below belongs to a stage; take
+one up when a researcher needs it.
+
+### Any time
 
 - Sort group-by and pivot results by the group keys by default. This must land
   before views page with offsets, or pages will skip or repeat groups.
@@ -153,20 +189,17 @@ has made yet. Decisions already made are in
   relation columns, strings against integer columns, and datetime-shaped strings
   against Date columns.
 - Turn spec-caused failures into errors that name the column: malformed ISO
-  dates, unchecked nested list items and raw errors from eager pivots.
+  dates on the polars target, unchecked nested list items and raw errors from
+  eager pivots. `to_source` already raises a `QueryError` naming the column.
 - Settle the JSON row contract with the renderer, and return null for DuckDB
   `'infinity'` in TIMESTAMP_S and TIMESTAMP_NS columns.
 - Pre-aggregate relation pivots by index and pivot columns in SQL, because the
   pivot now pulls every filtered row into polars.
-- Push the data table's filters into the query spec, and keep the previous rows
-  while a sort refetches, so the grid stops flashing to "Loading".
+- Push table filters into the query spec: AG Grid's client-side filters are off
+  and the TanStack table has none, so neither table filters today. Also keep the
+  previous rows while a sort refetches, so the grid stops flashing to "Loading".
 - Restore the last snapshot's state on mount: a reload resets a view to
   `initial_state` even when `view.snapshots` has later state.
-- Detect a view frame that navigates itself (its `load` event fires a second
-  time) and tear the frame down; see [decisions](context/decisions.md#first-ui).
-- Invalidate `RequestCache` entries: a query error cached while the kernel was
-  dead stays until reload, and a later step that rebinds a dataset leaves
-  earlier views stale.
 - Make `npm run dev` views work inside the null-origin frame: Vite's dev CORS
   allowlist and its inline React preamble are both blocked there, so views
   render only from a production build today.
@@ -174,33 +207,14 @@ has made yet. Decisions already made are in
   first session.
 - Disable the view's "Fix this view" after a successful repair, and clear a
   replay-failure banner once a later restart succeeds.
-- `ErrorBoundary` resets only when the view id changes, and a store abandoned by
-  a stale mount is not disposed, so its debounced change can still post.
+- `ErrorBoundary` resets only when the view id changes.
 - The Lightweight Charts attribution link is inert under the sandbox (no
   popups).
 - Add component tests for `SessionPage` (reload keeps the session, 401 message),
   the time series success and "needs a date column" paths, and the canvas's
   debounced layout write and its flush on unmount.
-- Extend lineage to SQL strings by passing string literals given to `sql_local`,
-  `duckdb.sql` and `_conn.sql` through `duckdb.get_table_names`. Recipes from
-  `sql_local` steps miss their source step until then. Such a recipe fails in
-  the scratch kernel, so it is saved unvalidated with that reason and the gap is
-  visible. Stage 2 replay may need it sooner.
-- Cover the other lineage blind spots, helpers bound without `def` or `class`
-  and attribute mutation. A recipe they break usually fails validation the same
-  way.
 - Let a cleanly exiting kernel finish before `close()` kills it after
   `shutdown()`, so an in-flight snapshot completes.
-- To-code must pass `schema=` to `to_source`; without it, `ret in [0]` and
-  date-shaped strings on string columns fail when run.
-- Convert INTERVAL output in generated relation code while keeping it plain
-  Python.
-- Raise `QueryError` from `to_source` for spec-caused failures, not `ValueError`
-  or `TypeError`.
-- Require NFKC-stable or ASCII identifiers in `to_source`: `ｔrades` passes
-  `isidentifier()` but runs as `trades`.
-- Choose the Arrow IPC compatibility level, including view types, that
-  Perspective reads.
 - Map `anthropic.APIError` and `openai.APIError` to a non-retryable
   `ProviderError` at the provider boundary. Until then, an unmapped SDK error
   escapes a save after its pinned parquet is written.
@@ -214,14 +228,33 @@ has made yet. Decisions already made are in
   view is missing has no Remove, and recall and layout errors never clear.
 - The rail's project list does not scroll, and `SaveDialog` picks its project
   only when it opens, so a project list that arrives later leaves none chosen.
-
-### Any time
-
-- Move CI to current `actions/checkout` and `astral-sh/setup-uv` versions, and
-  add `permissions: contents: read`.
+- Count in-place mutation inside a function as a write of the frame it changes:
+  a helper that sets `df.columns` or deletes `df["k"]` is invisible to lineage,
+  as are helpers bound without `def` or `class`. Module-level attribute and
+  subscript assignment and `del` are covered. Rare in step code; revisit if a
+  recipe misses a step for that reason.
+- Read SQL built at run time (f-strings, concatenation) and literals passed to
+  `.execute(...)` or `.query(...)`: only literals given to `sql_local(...)` or
+  `.sql(...)` reach DuckDB's parser (`json_serialize_sql`). The recipe then
+  shows the missing read; a `# reads: name` comment the researcher writes is one
+  way to declare it.
+- Render exported queries against a schema: only dtype strings are on disk, and
+  mapping them back to polars dtypes is a parser nobody needs yet. The notebook
+  says so in a comment, and "To code" in a session renders against the live
+  schema.
+- Perspective shows at most 50,000 rows, the pivot built-in's limit and the
+  default `row_cap`. Server-side pivoting through the mapped spec is what "To
+  code" gives; the viewer stays a client-side explorer.
+- Perspective server mode and Arrow for every view stay deferred, as spec §16
+  records.
+- Load Highcharts modules such as indicators and annotations: only
+  `highstock.js` loads. A list of entry files per library could add them.
+- Configure SciChart 3D and a wasm fallback: the loader points `wasmUrl` at
+  `_wasm/scichart.wasm` and nothing else.
+- Export a single view with `quarry projects export`, and import a `.ipynb`.
+  Neither is in the spec.
 - Keep the version in one place: `pyproject.toml` and `src/quarry/__init__.py`
   both hold it, and the test checks only its type.
-- Run mypy on `tests` as well as `src`.
 - Open `config.toml` once in `load_config`: it checks `exists()`, opens the
   file, then stats it again for the DSN warning, so a file swapped in between is
   checked apart from what was read.
@@ -238,9 +271,8 @@ has made yet. Decisions already made are in
   equivalence `normalize` sorts rows, so order is compared only under a limit.
 - Tighten tests further: some `match=` patterns in `test_spec.py` also match
   pydantic's echoed input, and the polars target has no direct nulls-first test.
-- Close Stage 2 test gaps: nothing checks the arguments the OpenAI adapter
-  sends, that every tool schema stays strict, or that a SciChart key enables
-  SciChart.
+- Close Stage 2 test gaps: nothing checks the arguments the OpenAI adapter sends
+  or that every tool schema stays strict.
 
 ## Open questions
 
@@ -249,8 +281,9 @@ has made yet. Decisions already made are in
   is a number. A Map is an object when its key type allows one and no value
   needs converting, such as Binary to base64; otherwise it is a list of
   `{key, value}` entries, and integers above 2^53 are numbers JavaScript rounds.
-  Options: keep these and parse by schema dtype, send large integers as strings,
-  or use Arrow where exact values matter.
+  Options: keep these and parse by schema dtype, or send large integers as
+  strings. Arrow is no way out: it casts decimals, UInt64 and 128-bit integers
+  to Float64 for Perspective.
 - **Naive timestamps and offset strings**: keep DuckDB 1.5.6's per-unit rule,
   where only nanosecond columns convert an offset to UTC, or pick one rule for
   every unit? The current rule follows DuckDB's cast, which an upgrade could

@@ -1,3 +1,4 @@
+import json
 import re
 import stat
 from collections.abc import Iterator
@@ -89,3 +90,19 @@ def test_serve_leaves_an_existing_root_mode_alone(tmp_path: Path) -> None:
     root.mkdir(mode=0o755)
     assert main(["serve", "--port", "4321", "--root", str(root)]) == 0
     assert stat.S_IMODE(root.stat().st_mode) == 0o755
+
+
+def test_projects_list_and_export(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from tests.projects.test_export import project_with_saved_items
+
+    project_with_saved_items(tmp_path)
+    assert main(["projects", "list", "--root", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "momentum" in out and "Momentum" in out
+    target = tmp_path / "out.ipynb"
+    assert (
+        main(["projects", "export", "momentum", "--root", str(tmp_path), "--out", str(target)]) == 0
+    )
+    assert json.loads(target.read_text())["nbformat"] == 4
+    assert main(["projects", "export", "nope", "--root", str(tmp_path)]) == 1
+    assert "no such project" in capsys.readouterr().err

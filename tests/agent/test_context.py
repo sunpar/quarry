@@ -2,6 +2,7 @@ from pathlib import Path
 
 from quarry.agent.context import (
     SystemContext,
+    _guide_for,
     build_summary,
     build_system,
     enabled_libraries,
@@ -21,7 +22,14 @@ def test_estimate_tokens() -> None:
 def test_enabled_libraries(tmp_path: Path) -> None:
     base = enabled_libraries(QuarryConfig(root=tmp_path))
     assert "plotly" in base and "highcharts" not in base
-    cfg = QuarryConfig.model_validate({"root": tmp_path, "libraries": {"highcharts_license": "k"}})
+    key_only = {"highcharts_license": "k"}
+    cfg = QuarryConfig.model_validate({"root": tmp_path, "libraries": key_only})
+    assert "highcharts" not in enabled_libraries(cfg)
+    install = tmp_path / "highcharts"
+    install.mkdir()
+    (install / "highstock.js").write_text("// stub")
+    libraries = {**key_only, "highcharts_path": str(install)}
+    cfg = QuarryConfig.model_validate({"root": tmp_path, "libraries": libraries})
     assert "highcharts" in enabled_libraries(cfg)
 
 
@@ -41,6 +49,12 @@ def test_build_system_is_deterministic_and_filtered() -> None:
     assert "datasets: string[]" in a
     assert "@/components/ui/textarea" in a
     assert "failed to load" not in a
+
+
+def test_guide_names_the_runtime_modules() -> None:
+    assert "@quarry/perspective" in _guide_for(["perspective"])
+    highcharts = _guide_for(["highcharts"])
+    assert "@quarry/highcharts" in highcharts and "highcharts-react-official" not in highcharts
 
 
 def test_build_system_renders_partitioned_and_unpartitioned_datasets() -> None:

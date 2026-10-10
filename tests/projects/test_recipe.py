@@ -1,8 +1,9 @@
 import pytest
 
 from quarry.agent.tools import CodeRun
+from quarry.kernel.executor import Status
 from quarry.projects.recipe import raw_recipe, recipe_steps
-from quarry.server.models import Step, StepStatus
+from quarry.server.models import Step
 
 
 def step(
@@ -12,7 +13,7 @@ def step(
     reads: list[str] | None = None,
     writes: list[str] | None = None,
     defines: list[str] | None = None,
-    status: StepStatus = "ok",
+    status: Status = "ok",
     runs: list[CodeRun] | None = None,
     prompt: str | None = None,
 ) -> Step:
@@ -88,6 +89,6 @@ def test_unknown_dataset_and_unproduced_reads() -> None:
         recipe_steps(steps, "nope")
 
 
-def test_label_keeps_every_line_break_out_of_the_code() -> None:
-    steps = [step(0, "df = a()", writes=["df"], prompt="load\rimport os\nnow")]
-    assert raw_recipe(steps) == "# step 1: load import os now\ndf = a()\n"
+def test_label_keeps_every_line_break_and_unprintable_out_of_the_code() -> None:
+    steps = [step(0, "df = a()", writes=["df"], prompt="load\rimport os\nnow\x00")]
+    assert raw_recipe(steps) == "# step 1: load import os now\\u0000\ndf = a()\n"

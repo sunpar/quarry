@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import io
+import json
 import time
 import traceback
 import uuid
@@ -20,12 +21,14 @@ import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field
 
 from quarry.errors import NOT_FAILURES, exception_message
+from quarry.kernel.arrow import arrow_ipc
 from quarry.kernel.datasets import (
     Column,
     Dataset,
     DatasetMeta,
     backing_of,
     dataset_names,
+    importable_projection,
     importable_relation,
     is_dataset,
     relation_frame,
@@ -35,7 +38,8 @@ from quarry.kernel.datasets import (
 from quarry.kernel.datasets import describe as describe_dataset
 from quarry.kernel.lineage import CodeNames, analyze, dataset_reads, dataset_writes
 from quarry.query.polars_target import to_polars
-from quarry.query.spec import Json, QuerySpec
+from quarry.query.source_target import imported_names, result_names, to_source
+from quarry.query.spec import Json, QueryError, QuerySpec
 from quarry.query.sql_target import quote_ident, relation_view, split_for_relation, to_sql
 
 TAIL_BYTES: Final = 4096
@@ -78,6 +82,10 @@ class QueryResult(BaseModel):
     arrow_base64: str | None
     row_count: int
     truncated: bool
+
+
+class ToCodeResult(BaseModel):
+    code: str
 
 
 class Executor:
@@ -163,8 +171,11 @@ class Executor:
         elif status == "ok" and describe_errors:
             status, error = "error", describe_errors[0]
         defines = [] if names is None else _newly_bound(names.defines, prior, self._ns)
-        # Helpers as they were when the step started, as `before` is for datasets.
-        reads = [] if names is None else dataset_reads(names, set(before), set(self._defined))
+        reads: list[str] = []
+        if names is not None:
+            # Helpers as they were when the step started, as `before` is for datasets.
+            loaded = dataset_reads(names, set(before), set(self._defined))
+            reads = sorted({*loaded, *self._sql_table_reads(names.sql_literals, set(before))})
         # A name rebound to anything else, or deleted, no longer holds the helper a later
         # step would read.
         self._defined = {
@@ -220,6 +231,41 @@ class Executor:
             truncated=truncated,
         )
 
+    def to_code(self, specs: list[QuerySpec]) -> ToCodeResult:
+        """Each spec as Python assigning `<dataset>_<n>` (`result_names`), rendered with the
+        live schema; QueryError when a generated import would rebind a dataset."""
+        blocks: list[str] = []
+        imported: set[str] = set()
+        positions = [(n, spec.dataset) for n, spec in enumerate(specs, start=1)]
+        for spec, result_name in zip(specs, result_names(positions, self._ns), strict=True):
+            obj = self._dataset(spec.dataset)
+            projection = None
+            if isinstance(obj, duckdb.DuckDBPyRelation):
+                projection = importable_projection(obj)
+                schema = relation_frame(obj, 0).schema
+            elif isinstance(obj, pl.LazyFrame):
+                schema = obj.collect_schema()
+            else:
+                schema = obj.schema
+            backing = backing_of(obj)
+            blocks.append(
+                to_source(
+                    spec,
+                    backing,
+                    result_name=result_name,
+                    schema=schema,
+                    relation_projection=projection,
+                )
+            )
+            imported.update(imported_names(spec, backing, schema=schema))
+        # An import binds its name for every later block and in the namespace the code runs in.
+        # Every spec's dataset is among these: `_dataset` found each one.
+        shadowed = sorted(imported & dataset_names(self._ns))
+        if shadowed:
+            message = f"dataset {shadowed[0]!r} would be shadowed by a generated import; rename it"
+            raise QueryError(message, dataset=shadowed[0])
+        return ToCodeResult(code="\n".join(blocks))
+
     def snapshot(self, name: str, path: Path) -> DatasetMeta:
         """Stream `name` to parquet at `path`, which then holds all of it or what it held before.
 
@@ -262,6 +308,27 @@ class Executor:
         except BaseException as exc:
             return "error", ExecError.from_exception(exc), names, prior
         return "ok", None, names, prior
+
+    def _sql_table_reads(self, literals: frozenset[str], before: set[str]) -> set[str]:
+        """Datasets among the base tables DuckDB's parser finds in `literals`.
+
+        Parsing binds nothing and reads no files, so `a JOIN b USING (k)` names both tables even
+        where binding, which cannot see their columns, fails. A literal that is not SELECT
+        statements (PIVOT, CREATE TABLE AS) or does not parse serializes to an error with no
+        statements, so it adds nothing; so does one nested deeper than `json.loads` recurses, and
+        one holding a lone surrogate, which pybind11 refuses with a `RuntimeError`.
+        """
+        found: set[str] = set()
+        for sql in literals:
+            # A cursor leaves `_conn` holding any result the step has yet to fetch (probed).
+            # Suppressing first also covers `cursor()`: a step may have closed `_conn`.
+            with (
+                contextlib.suppress(duckdb.Error, RecursionError, RuntimeError),
+                self._conn.cursor() as cur,
+            ):
+                rows = cur.execute("SELECT json_serialize_sql(?)", [sql]).fetchall()
+                found |= _base_tables(json.loads(rows[0][0]))
+        return found & before
 
     def _describe_write(self, name: str) -> tuple[DatasetMeta, ExecError | None]:
         """`_describe_guarded`, open to the step's interrupt; once the step is interrupted, its
@@ -343,6 +410,22 @@ def _written(
     return sorted({*dataset_writes(stored, set(before), after), *rebound})
 
 
+def _base_tables(tree: object) -> set[str]:
+    """The `table_name` of every BASE_TABLE node in a `json_serialize_sql` tree, walked with a
+    stack: the tree nests as deep as the SQL does."""
+    found: set[str] = set()
+    pending = [tree]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, dict):
+            if node.get("type") == "BASE_TABLE":
+                found.add(node["table_name"])
+            pending.extend(node.values())
+        elif isinstance(node, list):
+            pending.extend(node)
+    return found
+
+
 def _newly_bound(
     names: frozenset[str], prior: Mapping[str, _IsSame], namespace: Mapping[str, object]
 ) -> list[str]:
@@ -407,6 +490,4 @@ def _write_parquet(obj: Dataset, path: Path) -> None:
 
 
 def _arrow_base64(frame: pl.DataFrame) -> str:
-    buffer = io.BytesIO()
-    frame.write_ipc(buffer)
-    return base64.b64encode(buffer.getvalue()).decode("ascii")
+    return base64.b64encode(arrow_ipc(frame)).decode("ascii")

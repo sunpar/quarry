@@ -52,6 +52,8 @@ function mount(onRepair = vi.fn()) {
     return new Response("[]", { status: 200 });
   });
   const qc = new QueryClient();
+  // ViewHost mounts once the libraries answer is in; these tests start with it cached.
+  qc.setQueryData(keys.libraries(), []);
   const api = new ApiClient("t", fetchImpl);
   const tree = (dataVersion: string) => (
     <QueryClientProvider client={qc}>
@@ -181,14 +183,14 @@ describe("ViewFrameContainer", () => {
       send({
         type: "error",
         viewId: "s1",
-        message: '"d3" is not available in views',
+        message: '"lodash" is not available in views',
       });
     });
-    expect(screen.getByText('"d3" is not available in views')).toBeTruthy();
+    expect(screen.getByText('"lodash" is not available in views')).toBeTruthy();
     screen.getByRole("button", { name: "Fix this view" }).click();
     expect(onRepair).toHaveBeenCalledWith({
       step_id: "s1",
-      error: '"d3" is not available in views',
+      error: '"lodash" is not available in views',
     });
   });
 });

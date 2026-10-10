@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -21,8 +22,10 @@ from quarry.config import QuarryConfig
 from quarry.kernel.client import KernelDead, RpcFailure
 from quarry.kernel.datasets import DatasetMeta
 from quarry.kernel.executor import QueryResult
+from quarry.libraries import LibraryStatus, library_settings, licensed_libraries
 from quarry.projects.store import ProjectStore
 from quarry.query.spec import Json, QueryError, QuerySpec
+from quarry.server.component_routes import register_component_routes
 from quarry.server.kernels import KernelManager, ReplayReport, SessionBusy
 from quarry.server.models import Session, SessionMeta, Step
 from quarry.server.project_routes import register_project_routes
@@ -39,10 +42,16 @@ from quarry.server.service import (
 )
 from quarry.server.store import SessionStore
 
+log = logging.getLogger(__name__)
+
 
 class SnapshotRequest(BaseModel):
     state: dict[str, Json] = Field(default_factory=dict)
     queries: list[dict[str, Json]] = Field(default_factory=list)
+
+
+class ToCodeRequest(BaseModel):
+    queries: list[dict[str, Json]]
 
 
 def create_app(
@@ -53,16 +62,20 @@ def create_app(
     static_dir: Path | None = None,
 ) -> FastAPI:
     static = static_dir or Path(__file__).parent.parent / "static"
-    roots = [builtin_root(), config.root / "components"]
+    licensed = licensed_libraries(config)
+    researcher_root = config.root / "components"
+    roots = [builtin_root(), researcher_root]
     if config.libraries.team_components is not None:
         roots.append(config.libraries.team_components)
+    library = ComponentLibrary(roots)
+    transpiler = default_transpiler(static)
     service = SessionService(
         config=config,
         store=SessionStore(config.root),
         kernels=KernelManager(config.root, threads=config.data.kernel_threads),
         provider_factory=provider_factory,
-        library=ComponentLibrary(roots),
-        transpiler=default_transpiler(static),
+        library=library,
+        transpiler=transpiler,
         libraries=enabled_libraries(config, runtime_libraries(static)),
     )
     projects = ProjectService(
@@ -108,6 +121,10 @@ def create_app(
     @api.get("/sessions")
     def list_sessions() -> list[SessionMeta]:
         return service.list()
+
+    @api.get("/libraries")
+    def libraries() -> list[LibraryStatus]:
+        return licensed
 
     @api.get("/sessions/{session_id}")
     def get_session(session_id: str) -> Session:
@@ -160,6 +177,18 @@ def create_app(
         except (QueryError, RpcFailure) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @api.post("/sessions/{session_id}/to-code")
+    def to_code(session_id: str, body: ToCodeRequest) -> dict[str, str]:
+        session_or_404(session_id)
+        try:
+            specs = [QuerySpec.model_validate(q) for q in body.queries]
+        except ValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            return {"code": service.to_code(session_id, specs)}
+        except (QueryError, RpcFailure) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @api.get("/sessions/{session_id}/datasets")
     def datasets(session_id: str) -> list[DatasetMeta]:
         session_or_404(session_id)
@@ -183,7 +212,24 @@ def create_app(
         return JSONResponse(status_code=503, content={"detail": f"kernel is not running: {exc}"})
 
     register_project_routes(api, projects)
+    register_component_routes(
+        api,
+        library=library,
+        researcher_root=researcher_root,
+        transpiler=transpiler,
+        sessions=service,
+    )
     app.include_router(api)
+    # Before "/", since Starlette tries mounts in order. Like the bundle's own files, a
+    # library's modules and wasm are fetched by the sandboxed frame with Origin: null.
+    for status in licensed:
+        key, path = library_settings(status.id, config)
+        if status.enabled:
+            package = CORSMiddleware(StaticFiles(directory=path), allow_origins=["*"])
+            app.mount(f"/libs/{status.id}", package, name=f"lib-{status.id}")
+        elif key:
+            # The reason names the setting at fault, never the key.
+            log.warning("%s has a license key but is disabled: %s", status.id, status.reason)
     if (static / "index.html").exists():
         # The sandboxed view frame has an opaque origin, so its module scripts, CSS and fonts
         # are fetched in CORS mode and need this header. The API router sends no CORS header.

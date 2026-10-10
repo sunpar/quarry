@@ -119,7 +119,7 @@ def test_round_trips_json() -> None:
         filters=[Filter(col="sector", op="eq", value="tech")],
         group_by=["sector"],
         aggs=[Agg(col="ret", fn="mean")],
-        sort=[{"col": "ret_mean", "desc": True}],
+        sort=[Sort(col="ret_mean", desc=True)],
         limit=10,
     )
     assert QuerySpec.model_validate_json(spec.model_dump_json()) == spec
@@ -197,10 +197,8 @@ def test_list_ops_accept_non_null_items() -> None:
     assert Filter(col="x", op="in", value=[1, 2]).value == [1, 2]
 
 
-NON_FINITE_FILTERS: list[tuple[FilterOp, Json]] = [
-    (op, value)
-    for bad in (math.inf, -math.inf, math.nan)
-    for op, value in [
+def non_finite_filters(bad: float) -> list[tuple[FilterOp, Json]]:
+    return [
         ("eq", bad),
         ("ge", bad),
         ("in", [1.0, bad]),
@@ -209,6 +207,10 @@ NON_FINITE_FILTERS: list[tuple[FilterOp, Json]] = [
         ("between", [bad, 1.0]),
         ("between", [0.0, bad]),
     ]
+
+
+NON_FINITE_FILTERS = [
+    case for bad in (math.inf, -math.inf, math.nan) for case in non_finite_filters(bad)
 ]
 
 

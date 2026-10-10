@@ -39,6 +39,7 @@ describe("data-table built-in", () => {
       schema: [{ name: "a", dtype: "Int64" }],
       rowCount: 50000,
       truncated: true,
+      arrow: null,
     });
     render(<DataTable datasets={["df"]} />);
     expect(query).toHaveBeenCalledWith(
@@ -64,6 +65,7 @@ describe("data-table built-in", () => {
       schema: [{ name: "a", dtype: "Int64" }],
       rowCount: n,
       truncated: false,
+      arrow: null,
     });
     query.mockReturnValue(page(1000));
     const { unmount } = render(<DataTable datasets={["df"]} />);

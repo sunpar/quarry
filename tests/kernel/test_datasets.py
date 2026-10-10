@@ -11,6 +11,7 @@ from quarry.kernel.datasets import (
     backing_of,
     dataset_names,
     describe,
+    importable_projection,
     is_dataset,
     relation_frame,
     to_json_rows,
@@ -97,9 +98,10 @@ def test_dataset_names_includes_underscore_names_and_skips_non_datasets() -> Non
 class Opaque:
     """A proxy whose `__class__` raises, so `isinstance` cannot be asked about it."""
 
-    @property
-    def __class__(self) -> type:
-        raise RuntimeError("no class")
+    def __getattribute__(self, name: str) -> object:
+        if name == "__class__":
+            raise RuntimeError("no class")
+        return super().__getattribute__(name)
 
 
 class OpaqueLazyFrame(Opaque, pl.LazyFrame):
@@ -115,7 +117,8 @@ def test_dataset_detection_uses_the_type_not_its_class_attribute() -> None:
 
 
 def test_dataset_names_ignores_non_string_keys() -> None:
-    ns: dict[object, object] = {1: frame(), "a": frame()}
+    ns: dict[str, object] = {"a": frame(), "pl": pl}
+    exec("globals()[1] = pl.DataFrame({'b': [1]})", ns)  # as step code can
     assert dataset_names(ns) == {"a"}
 
 
@@ -287,6 +290,15 @@ def test_relation_frame_keeps_odd_and_duplicate_names() -> None:
 def test_unique_names_are_the_names_pl_gives(names: list[str]) -> None:
     select = ", ".join(f"{n} AS {quote_ident(name)}" for n, name in enumerate(names))
     assert unique_names(names) == duckdb.connect().sql(f"SELECT {select}").pl().columns
+
+
+def test_importable_projection_renames_repeats_and_casts_unimportable_types() -> None:
+    conn = duckdb.connect()
+    assert importable_projection(conn.sql("SELECT 1 AS a, 'x' AS b")) is None
+    repeated = conn.sql('SELECT 1 AS "a", 2 AS "a", 3 AS "A"')
+    assert importable_projection(repeated) == '#1 AS "a", #2 AS "a_1", #3 AS "A_2"'
+    interval = conn.sql("SELECT INTERVAL 1 DAY AS gap, 1 AS n")
+    assert importable_projection(interval) == 'CAST(#1 AS VARCHAR) AS "gap", #2 AS "n"'
 
 
 def test_relation_frame_limit() -> None:

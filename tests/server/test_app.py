@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from starlette.routing import BaseRoute
@@ -18,11 +19,12 @@ from quarry.agent.types import AssistantTurn, Message, Provider, ToolCall, ToolD
 from quarry.config import ConfigError, DataConfig, QuarryConfig
 from quarry.kernel.client import KernelClient
 from quarry.kernel.executor import ExecResult
+from quarry.query import Json
 from quarry.server import service as service_module
 from quarry.server.app import create_app
 from quarry.server.kernels import ReplayReport
 from quarry.server.models import Step
-from quarry.server.service import ProviderFactory
+from quarry.server.service import ProviderFactory, SessionService
 from quarry.server.store import SessionStore
 
 TOKEN = "t0k3n"
@@ -56,6 +58,18 @@ def make_client(
     client = TestClient(app)
     client.headers.update({"Authorization": f"Bearer {TOKEN}"})
     return client
+
+
+def app_of(client: TestClient) -> FastAPI:
+    app = client.app
+    assert isinstance(app, FastAPI)
+    return app
+
+
+def service_of(client: TestClient) -> SessionService:
+    service = app_of(client).state.service
+    assert isinstance(service, SessionService)
+    return service
 
 
 def wait_idle(client: TestClient, sid: str, timeout: float = 30.0) -> dict[str, Any]:
@@ -98,7 +112,7 @@ def start_restart(client: TestClient, sid: str) -> Callable[[], ReplayReport]:
     """Restart on a daemon thread; the returned call waits up to 30 s for its report. It goes
     through the service, not the route: a restart that never wakes then fails the test, where a
     stuck request would hang TestClient's exit."""
-    service = client.app.state.service
+    service = service_of(client)
     reports: list[ReplayReport] = []
     thread = threading.Thread(target=lambda: reports.append(service.restart(sid)), daemon=True)
     thread.start()
@@ -148,10 +162,11 @@ def test_auth_required(tmp_path: Path) -> None:
     assert bare.get("/openapi.json").status_code == 404
     # A route registered outside the authed router would answer here without a token.
     checked: list[str] = []
-    for route in api_routes(client.app.routes):
+    for route in api_routes(app_of(client).routes):
         if route.path in {"/healthz", "/"}:
             continue
         path = re.sub(r"\{[^}]+\}", "x", route.path)
+        assert route.methods is not None
         for method in route.methods:
             assert bare.request(method, path).status_code == 401, f"{method} {route.path}"
         checked.append(route.path)
@@ -211,7 +226,7 @@ def test_datasets_origin_is_the_latest_step_that_wrote_the_name(tmp_path: Path) 
             client.post(f"/sessions/{sid}/steps/manual", json={"code": code})
             wait_idle(client, sid)
         # No step wrote this one.
-        client.app.state.service._kernels.get(sid).execute("orphan = pl.DataFrame({'a': [3]})")
+        service_of(client)._kernels.get(sid).execute("orphan = pl.DataFrame({'a': [3]})")
         ids = [s["id"] for s in client.get(f"/sessions/{sid}").json()["steps"]]
         origins = {
             d["name"]: d["origin_step"] for d in client.get(f"/sessions/{sid}/datasets").json()
@@ -259,6 +274,27 @@ def test_query_spec_validation_is_400(tmp_path: Path) -> None:
         rejected = client.post(f"/sessions/{sid}/query", json={"dataset": "df", "limit": 0})
         assert rejected.status_code == 400
         assert "limit" in rejected.json()["detail"]
+
+
+def test_to_code_route_renders_and_rejects(tmp_path: Path) -> None:
+    with make_client(tmp_path, []) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps/manual", json={"code": "df = pl.DataFrame({'a': [1]})"})
+        wait_idle(client, sid)
+        ok = client.post(f"/sessions/{sid}/to-code", json={"queries": [{"dataset": "df"}]})
+        assert ok.status_code == 200 and "df_1 = (" in ok.json()["code"]
+        bad = client.post(
+            f"/sessions/{sid}/to-code",
+            json={
+                "queries": [{"dataset": "df", "filters": [{"col": "x", "op": "eq", "value": 1}]}]
+            },
+        )
+        assert bad.status_code == 400 and "x" in bad.json()["detail"]
+        malformed = client.post(
+            f"/sessions/{sid}/to-code", json={"queries": [{"dataset": "df", "limit": 0}]}
+        )
+        assert malformed.status_code == 400
+        assert client.post("/sessions/nope/to-code", json={"queries": []}).status_code == 404
 
 
 def test_kernel_death_then_restart_replays(tmp_path: Path) -> None:
@@ -348,7 +384,7 @@ def test_restart_before_a_step_reaches_its_kernel_stops_it(
 ) -> None:
     started = tmp_path / "started"
     with make_client(tmp_path, []) as client:
-        kernels = client.app.state.service._kernels
+        kernels = service_of(client)._kernels
         sid = client.post("/sessions", json={}).json()["id"]
         if warm:
             client.post(f"/sessions/{sid}/steps/manual", json={"code": "a = 1"})
@@ -425,7 +461,7 @@ def test_restart_refuses_steps_and_restarts_while_it_replays(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with make_client(tmp_path, []) as client:
-        kernels = client.app.state.service._kernels
+        kernels = service_of(client)._kernels
         replay = kernels.restart
         replaying, finish = threading.Event(), threading.Event()
 
@@ -611,7 +647,7 @@ def test_save_failure_frees_the_session_and_kills_its_kernel(
     escaped: list[threading.ExceptHookArgs] = []
     monkeypatch.setattr(threading, "excepthook", escaped.append)
     with make_client(tmp_path, []) as client:
-        store = client.app.state.service._store
+        store = service_of(client)._store
         save = store.append_step
         failures = [OSError("disk full")]
 
@@ -648,7 +684,7 @@ def test_a_base_exception_fails_the_step(
 
     with make_client(tmp_path, []) as client:
         # Both step threads start by getting the session's kernel.
-        monkeypatch.setattr(client.app.state.service._kernels, "get", panics)
+        monkeypatch.setattr(service_of(client)._kernels, "get", panics)
         sid = client.post("/sessions", json={}).json()["id"]
         client.post(f"/sessions/{sid}/{route}", json=body)
         assert "boom" in wait_idle(client, sid, timeout=5)["last_error"]
@@ -719,7 +755,7 @@ def test_snapshot_rejected_for_step_without_view(tmp_path: Path) -> None:
     sid = client.post("/sessions", json={}).json()["id"]
     step_id = client.post(f"/sessions/{sid}/steps", json={"prompt": "x"}).json()["id"]
     wait_idle(client, sid)
-    body = {"state": {}, "queries": []}
+    body: dict[str, Json] = {"state": {}, "queries": []}
     assert client.post(f"/sessions/{sid}/steps/{step_id}/snapshots", json=body).status_code == 404
 
 
@@ -836,3 +872,17 @@ def test_a_prompt_sees_loaders_added_while_the_server_runs(tmp_path: Path) -> No
         wait_idle(client, second)
     assert "daily(tickers)" not in provider.calls[0][0]
     assert "daily(tickers)" in provider.calls[1][0]
+
+
+def test_status_reports_busy_while_a_step_runs(tmp_path: Path) -> None:
+    with make_client(tmp_path, []) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        flag = tmp_path / "flag"
+        client.post(f"/sessions/{sid}/steps/manual", json={"code": hang(flag)})
+        deadline = time.monotonic() + 10
+        while not flag.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert client.get(f"/sessions/{sid}/status").json()["busy"] is True
+        client.post(f"/sessions/{sid}/interrupt")
+        wait_idle(client, sid)
+        assert client.get(f"/sessions/{sid}/status").json()["busy"] is False

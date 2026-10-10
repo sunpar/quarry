@@ -1,0 +1,15 @@
+{
+  "id": "bar-line",
+  "name": "Bar and line",
+  "description": "Aggregate one numeric column by one category column and show it as bars or a line.",
+  "tags": ["bar", "line", "aggregate", "group", "category"],
+  "contract_version": 1,
+  "schema": {
+    "requires": [
+      { "role": "category", "dtype": "any", "min": 1 },
+      { "role": "value", "dtype": "numeric", "min": 1 }
+    ]
+  },
+  "origin": "builtin",
+  "created_at": "2026-10-09T00:00:00Z"
+}

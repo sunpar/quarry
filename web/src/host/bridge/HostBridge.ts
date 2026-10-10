@@ -5,11 +5,13 @@ import {
   type RuntimeToHost,
 } from "@/shared/bridge-types";
 import type { JsonObject } from "@/shared/json";
+import type { LicensedLibrary } from "@/shared/library-types";
 
 export interface MountSpec {
   source: string;
   initialState: JsonObject;
   datasets: string[];
+  licensed?: LicensedLibrary[];
 }
 
 export interface HostBridgeOptions {
@@ -120,13 +122,10 @@ export class HostBridge {
 
   private flushMount(): void {
     if (this.mountSpec === null) return;
-    const { source, initialState, datasets } = this.mountSpec;
     this.send({
       type: "mount",
       viewId: this.options.viewId,
-      source,
-      initialState,
-      datasets,
+      ...this.mountSpec,
     });
   }
 

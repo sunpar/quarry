@@ -2,7 +2,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { Column, QuerySpec } from "@/shared/api-types";
 import type { JsonObject } from "@/shared/json";
+import type { LibraryStatus, LicensedLibrary } from "@/shared/library-types";
 import { useApi } from "../api/context";
+import { useLibraries } from "../api/hooks";
 import { keys } from "../api/keys";
 import { HostBridge } from "../bridge/HostBridge";
 import type { SharedStateHub } from "../bridge/SharedStateHub";
@@ -53,11 +55,16 @@ export function ViewHost(props: ViewHostProps) {
   // effect keys on contentKey and reads the source, initial state, datasets and callbacks here.
   const latest = useRef(props);
   latest.current = props;
+  // The view mounts once, after the first libraries answer, error or not: `isFetched` never
+  // turns back, so a later refetch cannot remount the view and reset its state.
+  const { data: statuses, isFetched } = useLibraries();
+  const licensed = useRef<LicensedLibrary[]>([]);
+  licensed.current = toLicensed(statuses ?? []);
 
   // One bridge per iframe for its lifetime; the window listener is the effect's only job.
   useEffect(() => {
     const frame = frameRef.current;
-    if (frame === null) return;
+    if (frame === null || !isFetched) return;
     const { source, initialState, datasets } = latest.current;
     // Schemas come from the live kernel, as queries do: a later step may have redefined the
     // name. Fetched fresh so a view never sees a list from before its step ran.
@@ -91,7 +98,12 @@ export function ViewHost(props: ViewHostProps) {
       bridge.restore(state),
     );
     setError(null);
-    bridge.mount({ source, initialState, datasets });
+    bridge.mount({
+      source,
+      initialState,
+      datasets,
+      licensed: licensed.current,
+    });
     // The runtime posts `ready` once while loading, which can beat this listener; a frame
     // that has already loaded is listening, so mount now.
     if (loaded.current) bridge.frameLoaded();
@@ -100,7 +112,7 @@ export function ViewHost(props: ViewHostProps) {
       stop();
       bridgeRef.current = null;
     };
-  }, [api, queryClient, sessionId, viewId, contentKey, hub]);
+  }, [api, queryClient, sessionId, viewId, contentKey, hub, isFetched]);
 
   // A mounted view caches its answers; later steps and restarts change what the kernel holds.
   const seenVersion = useRef(dataVersion);
@@ -129,5 +141,14 @@ export function ViewHost(props: ViewHostProps) {
         bridgeRef.current?.frameLoaded();
       }}
     />
+  );
+}
+
+// Only SciChart reads its key in the frame, so Highcharts' key stays with the host.
+function toLicensed(statuses: LibraryStatus[]): LicensedLibrary[] {
+  return statuses.flatMap(({ id, enabled, entry, license }) =>
+    enabled && entry !== null
+      ? [{ id, entry, license: id === "scichart" ? license : null }]
+      : [],
   );
 }

@@ -20,12 +20,19 @@
     "paths": {
       "@/*": ["./src/*"],
       "@quarry/hooks": ["./src/runtime/hooks.ts"],
+      "@quarry/perspective": ["./src/runtime/perspective/index.ts"],
+      "@quarry/highcharts": ["./src/runtime/libs/HighchartsReact.tsx"],
       "@builtin/*": ["../src/quarry/components/builtin/*"],
       "react": ["./node_modules/@types/react"],
       "react/*": ["./node_modules/@types/react/*"],
       "ag-grid-react": ["./node_modules/ag-grid-react"],
       "ag-grid-community": ["./node_modules/ag-grid-community"],
-      "lightweight-charts": ["./node_modules/lightweight-charts"]
+      "lightweight-charts": ["./node_modules/lightweight-charts"],
+      "@tanstack/react-table": ["./node_modules/@tanstack/react-table"],
+      "recharts": ["./node_modules/recharts"],
+      "react-plotly.js": ["./node_modules/react-plotly.js"],
+      "plotly.js": ["./node_modules/@types/plotly.js"],
+      "echarts-for-react": ["./node_modules/echarts-for-react"]
     }
   },
   "include": ["src", "../src/quarry/components/builtin/**/*.tsx"]

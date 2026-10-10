@@ -135,13 +135,19 @@ def test_restart_replays_failed_runs_for_their_partial_effects(manager: KernelMa
 
 def test_restart_runs_each_run_on_its_own(manager: KernelManager) -> None:
     # Joined into one string, the future import would follow a statement: a SyntaxError.
-    runs = [("x = 1", "ok"), ("from __future__ import annotations\ny = x", "ok")]
+    runs: list[tuple[str, Status]] = [
+        ("x = 1", "ok"),
+        ("from __future__ import annotations\ny = x", "ok"),
+    ]
     report = manager.restart("s", [step(0, "", *runs)])
     assert (report.replayed, report.failed_step) == (1, None)
 
 
 def test_restart_skips_interrupted_runs(manager: KernelManager) -> None:
-    runs = [("import time\ntime.sleep(60)", "interrupted"), ("a = 1", "ok")]
+    runs: list[tuple[str, Status]] = [
+        ("import time\ntime.sleep(60)", "interrupted"),
+        ("a = 1", "ok"),
+    ]
     report = manager.restart("s", [step(0, "", *runs)])
     assert (report.replayed, report.failed_step) == (1, None)
 

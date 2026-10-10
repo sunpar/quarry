@@ -63,6 +63,7 @@ describe("time-series built-in", () => {
       ],
       rowCount: 7,
       truncated: true,
+      arrow: null,
       rows: [
         { ts: null, px: 1 },
         { ts: "2024-01-02T10:00:00", px: null },

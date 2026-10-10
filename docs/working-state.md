@@ -1,6 +1,6 @@
 # Working state
 
-Checkpoint as of 2026-10-09. This page holds temporary context: what is in
+Checkpoint as of 2026-10-10. This page holds temporary context: what is in
 flight, the latest check results and the next actions. Rewrite it at the end of
 each session and when a pull request opens or merges. Anything that will still
 be true next month belongs in [context/](context/) or
@@ -8,11 +8,10 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Start Stage 5, breadth. Stage 4, projects and the canvas, merged to `main` in
-sunpar/quarry#8. The
-[Stage 5 plan](superpowers/plans/2026-10-09-quarry-stage5-breadth.md) and
-[Stage 5 handoff](superpowers/handoffs/2026-10-09-quarry-stage5-handoff.md) are
-written.
+Finish Stage 5, breadth, the last planned stage. All 13 tasks of the
+[Stage 5 plan](superpowers/plans/2026-10-09-quarry-stage5-breadth.md) are
+committed on `claude/quarry-stage5-breadth`, and so are the fixes from the
+whole-branch review. They are in review as sunpar/quarry#9 against `main`.
 
 ## Status by stage
 
@@ -22,21 +21,20 @@ written.
 | 2. Server and agent | Merged in sunpar/quarry#2 as `7779c05` | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
 | 3. First UI         | Merged in sunpar/quarry#4 as `faf913f` | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
 | 4. Projects         | Merged in sunpar/quarry#8              | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
-| 5. Breadth          | Planned, handoff ready, next           | [Stage 5](superpowers/plans/2026-10-09-quarry-stage5-breadth.md)      |
+| 5. Breadth          | In review in sunpar/quarry#9           | [Stage 5](superpowers/plans/2026-10-09-quarry-stage5-breadth.md)      |
 
 ### Stage 1: core
 
-Done. What it left for later stages is filed by stage in
-[open-items.md](open-items.md).
+Done. What it left is filed in [open-items.md](open-items.md).
 
 ### Stage 2: server and agent
 
 Merged to `main` in sunpar/quarry#2 as `7779c05` on 2026-10-09. Its calls are
 under [server and agent](context/decisions.md#server-and-agent), and what it
-left is in [open-items.md](open-items.md#stage-2). Neither provider adapter has
-called its real API yet; see the [open questions](open-items.md#open-questions).
-The fixes for five Codex reviews landed with it, as did the Stage 2 deferred
-items, in seven reviewed tasks: config hardening, unreadable data paths, the
+left is in [open-items.md](open-items.md). Neither provider adapter has called
+its real API yet; see the [open questions](open-items.md#open-questions). The
+fixes for five Codex reviews landed with it, as did the Stage 2 deferred items,
+in seven reviewed tasks: config hardening, unreadable data paths, the
 `RLIMIT_DATA` and thread caps, kernel client failures, metadata caching, restart
 that stops a running step, and private session files with `origin_step`.
 
@@ -47,11 +45,11 @@ brought up to date with `main` after Stage 2 merged. All 12 plan tasks passed
 their task reviews, the whole-branch review's fixes are in, and the Playwright
 tests pass against the built UI. Its calls are under
 [first UI](context/decisions.md#first-ui), the modules are in the
-[code map](context/code-map.md#web), and what it left is filed under
-[Stage 5](open-items.md#stage-5). The maintainer approved the one security
-change, the `Access-Control-Allow-Origin` header on the static mount. Merged to
-`main` in sunpar/quarry#4 as `faf913f` on 2026-10-09 after a clean Codex review
-of its fifth fix round.
+[code map](context/code-map.md#web), and what it left is filed in
+[open-items.md](open-items.md). The maintainer approved the one security change,
+the `Access-Control-Allow-Origin` header on the static mount. Merged to `main`
+in sunpar/quarry#4 as `faf913f` on 2026-10-09 after a clean Codex review of its
+fifth fix round.
 
 ### Stage 4: projects and canvas
 
@@ -62,8 +60,8 @@ against the built UI. Its calls are under
 [projects](context/decisions.md#projects), with a few under
 [server and agent](context/decisions.md#server-and-agent) and
 [first UI](context/decisions.md#first-ui); the modules are in the
-[code map](context/code-map.md#quarryprojects), and what it left is filed under
-[Stage 5](open-items.md#stage-5). The final review's four Important findings and
+[code map](context/code-map.md#quarryprojects), and what it left is filed in
+[open-items.md](open-items.md). The final review's four Important findings and
 eight of its ten Minor ones are fixed; the other two, with the task reviews'
 deferred findings a researcher could hit, are filed there too. A `/simplify`
 pass then reused existing helpers and dropped the rail's per-project fetches.
@@ -73,21 +71,33 @@ Codex was out of review credits, so at the maintainer's call a whole-PR
 `@claude` review stood in for it; it came back clean, and the pull request
 merged on 2026-10-09.
 
+### Stage 5: breadth
+
+Built on `claude/quarry-stage5-breadth`, branched from the Stage 4 branch and
+brought up to date with `main` once Stage 4 merged, as one pull request. Tasks 1
+to 12 passed their task reviews, and Task 13 added the browser tests for "To
+code", the library and the new chart libraries, the CI pins, `mypy` on the tests
+and these docs. Its calls are under [views](context/decisions.md#views) and in
+the other sections the plan touched, the modules are in the
+[code map](context/code-map.md), and what it closed is gone from
+[open-items.md](open-items.md). What it deferred is under
+[Any time](open-items.md#any-time), and what the task reviews and the final
+review left is under [known problems](open-items.md#known-problems).
+
 ## Latest verification
 
-`claude/quarry-stage4-projects` at its last review fix, on 2026-10-09: CI ran
-995 tests passed and 2 skipped (the live provider tests), including the browser
-tests under `tests/e2e`, and in `web/` `npm run check`, `npm test` (92 tests)
-and `npm run build`. Locally, after the `/simplify` pass, 994 passed and 3
-skipped (the memory-cap test too), and `ruff check`, `ruff format --check`,
-`mypy src` and `uv lock --check` were clean.
+`claude/quarry-stage5-breadth` after the final review's fixes, locally on
+2026-10-10: `pytest` passed 1060 tests and skipped 3 (the live provider and
+memory-cap tests), including the 10 browser tests under `tests/e2e`.
+`ruff check`, `ruff format --check`, `mypy src tests` and `uv lock --check` were
+clean, and in `web/` `npm run check`, `npm test` (233 tests) and `npm run build`
+passed. CI runs on sunpar/quarry#9.
 
 ## Next actions
 
-1. Stage 5: on `main`, start from the
-   [Stage 5 handoff](superpowers/handoffs/2026-10-09-quarry-stage5-handoff.md),
-   which points at the plan that closes the
-   [Stage 5 items](open-items.md#stage-5).
+1. Take sunpar/quarry#9 through whole-PR `@claude` reviews (Codex is out of
+   credits until 2026-10-15) until one comes back clean, with CI green, then
+   merge it and record the merge here.
 
 ## Resuming
 

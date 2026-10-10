@@ -5,6 +5,8 @@ export class ViewStateStore {
   private readonly listeners = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private cached: JsonObject;
+  // A restored state is a snapshot already on record, so the queries it brings are not news.
+  private restored = false;
 
   constructor(
     initial: JsonObject,
@@ -22,18 +24,21 @@ export class ViewStateStore {
   set(key: string, value: Json): void {
     this.values.set(key, value);
     this.cached = this.snapshot();
+    this.restored = false;
     this.notify();
-    if (this.timer !== null) clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      this.onChange(this.cached);
-    }, this.debounceMs);
+    this.schedule();
   }
 
   replace(state: JsonObject): void {
     this.values = new Map(Object.entries(state));
     this.cached = { ...state };
+    this.restored = true;
     this.notify();
+  }
+
+  /** The view's queries changed: report the state as a change does, unless it was restored. */
+  queriesChanged(): void {
+    if (!this.restored) this.schedule();
   }
 
   /** Stable reference between changes, for useSyncExternalStore. */
@@ -44,6 +49,14 @@ export class ViewStateStore {
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  private schedule(): void {
+    if (this.timer !== null) clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      this.onChange(this.cached);
+    }, this.debounceMs);
   }
 
   private snapshot(): JsonObject {

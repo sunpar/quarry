@@ -480,8 +480,10 @@ Query keys come from one factory module. Files stay under 250 lines.
 ### Iframe runtime
 
 A second Vite entry built to its own HTML page, served with a Content
-Security Policy that forbids all network access (`default-src 'none'` with
-`script-src 'self'` and `style-src 'self' 'unsafe-inline'`). It loads once
+Security Policy that allows nothing but the Quarry server's own static files
+(`default-src 'none'`, `script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'`,
+`worker-src blob:` for Perspective's engine worker, `connect-src 'self'` for
+wasm and chunk fetches, `style-src 'self' 'unsafe-inline'`). It loads once
 per view slot and stays mounted. Its bundle contains React, shadcn, Tailwind,
 the bridge, and Sucrase. Each chart library is a separate chunk loaded by the
 runtime's import resolver the first time a component imports it. The opt-in
@@ -648,6 +650,9 @@ scichart_license = ""         # enables SciChart.js when set, with:
 scichart_path = ""            # path to a locally installed scichart npm package
 ```
 
+Each `*_path` is served whole to any origin, so it must be the package folder
+itself, never a broad folder such as `~` or `~/Downloads`.
+
 ## 12. Security
 
 - Server binds `127.0.0.1` only.
@@ -658,8 +663,9 @@ scichart_path = ""            # path to a locally installed scichart npm package
   app reads it on load and keeps it in memory only.
 - The kernel runs as the researcher's own user. It executes their code on
   their behalf, exactly as a notebook kernel does.
-- Generated TSX runs only in the iframe with a no-network CSP. The bridge is
-  the only path out and has three request types.
+- Generated TSX runs only in the iframe, whose CSP reaches nothing but the
+  server's own static files; API routes need the bearer token the frame never
+  holds. The bridge is the only path to data and has three request types.
 - `quarry serve` creates a missing quarry root owner-only, and the server
   creates session directories and writes session files owner-only, since
   several researchers share each machine.
