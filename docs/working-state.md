@@ -10,8 +10,8 @@ be true next month belongs in [context/](context/) or
 
 Finish Stage 5, breadth, the last planned stage. All 13 tasks of the
 [Stage 5 plan](superpowers/plans/2026-10-09-quarry-stage5-breadth.md) are
-committed on `claude/quarry-stage5-breadth`; the whole-branch review comes next,
-then the pull request against `main`.
+committed on `claude/quarry-stage5-breadth`, and so are the fixes from the
+whole-branch review; the pull request against `main` comes next.
 
 ## Status by stage
 
@@ -86,20 +86,16 @@ final review are [known problems](open-items.md#known-problems).
 
 ## Latest verification
 
-`claude/quarry-stage5-breadth` after Task 13, locally on 2026-10-10: `pytest`
-passed 1058 tests and skipped 3 (the live provider and memory-cap tests),
-including the browser tests under `tests/e2e`. One of five full runs hit the
-[first browser test timeout](open-items.md#known-problems). `ruff check`,
-`ruff format --check` and `mypy src tests` were clean, and in `web/`
-`npm run check`, `npm test` (232 tests) and `npm run build` passed. CI has not
-run on the branch, since no pull request is open.
+`claude/quarry-stage5-breadth` after the final review's fixes, locally on
+2026-10-10: `pytest` passed 1060 tests and skipped 3 (the live provider and
+memory-cap tests), including the 10 browser tests under `tests/e2e`.
+`ruff check`, `ruff format --check`, `mypy src tests` and `uv lock --check` were
+clean, and in `web/` `npm run check`, `npm test` (233 tests) and `npm run build`
+passed. CI has not run on the branch, since no pull request is open.
 
 ## Next actions
 
-1. Run the whole-branch final review of Stage 5 and fix what it finds, including
-   the [known problems](open-items.md#known-problems) the task reviews left for
-   it.
-2. Open the Stage 5 pull request against `main`, turn on CI Auto-fix, and review
+1. Open the Stage 5 pull request against `main`, turn on CI Auto-fix, and review
    until it is clean and CI is green.
 
 ## Resuming
