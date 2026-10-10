@@ -61,12 +61,10 @@ def test_table_view_round_trip(serve: Serve, page: Page) -> None:
 
 
 def test_refused_import_offers_fix(serve: Serve, page: Page) -> None:
-    bad = (
-        'import * as d3 from "d3";\nexport default function V() { return <div>{typeof d3}</div>; }'
-    )
+    bad = 'import _ from "lodash";\nexport default function V() { return <div>{typeof _}</div>; }'
     server = serve([py("c1", pl_df), write("c2", bad), end("drew it"), end("fixed")])
     open_session(page, server, "custom view")
-    expect(page.get_by_text('"d3" is not available in views', exact=False)).to_be_visible(
+    expect(page.get_by_text('"lodash" is not available in views', exact=False)).to_be_visible(
         timeout=30_000
     )
     page.get_by_role("button", name="Fix this view").click()

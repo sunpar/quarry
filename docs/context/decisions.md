@@ -590,6 +590,12 @@ them.
   needs a restart. The mount serves every file under `*_path` to any origin, so
   the path must be the library's package folder itself, never a broad folder
   such as `~` or `~/Downloads`; there is no guard in code.
+- **The library guide follows the installed packages**: every import a section
+  names resolves through the runtime's module table, checked against the
+  installed exports. TanStack Table v9 sorts only with `createSortedRowModel`
+  beside `rowSortingFeature`, and core rows render over `row.getAllCells()`, so
+  the guide says both; the plan named the feature alone. The current guide's
+  lightweight-charts `addSeries` and ag-grid `registerModules` sentences stay.
 
 ## First UI
 
@@ -725,7 +731,19 @@ them.
   500 until the next refetch.
 - **The dev proxy forwards `/projects`**: `web/vite.config.ts` proxies it beside
   `/sessions` and `/healthz`. The plan added project routes without it, so
-  `npm run dev` answered 404.
+  `npm run dev` answered 404. Stage 5 adds `/libraries` and `/libs` the same
+  way.
+- **Views mount once the libraries answer is in**: `ViewHost` creates its bridge
+  only after the first `GET /libraries` answer, success or error, and mounts
+  once with the enabled licensed libraries; a failed answer mounts with none. It
+  keys on React Query's `isFetched`, which stays true through any refetch, and
+  `useLibraries` does not retry. A `ready` sent before then is covered by the
+  frame's `load`. The plan mounted at once and remounted on a late answer, which
+  would reset the view to its initial state. Cost: the app's first view waits
+  for one request.
+- **Licensed loaders forget a failure**: `loadHighstock` and `loadScichart`
+  cache their promise, but clear it when the load fails, so the next view that
+  imports the library tries again instead of seeing the cached error.
 
 ## Projects
 

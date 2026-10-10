@@ -7,4 +7,5 @@ export const keys = {
   project: (slug: string) => ["projects", slug] as const,
   savedView: (slug: string, name: string) =>
     ["projects", slug, "views", name] as const,
+  libraries: () => ["libraries"] as const,
 };

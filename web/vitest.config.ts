@@ -21,6 +21,13 @@ export default defineConfig({
         replacement: path.resolve(root, "./src/runtime/perspective/index.ts"),
       },
       {
+        find: "@quarry/highcharts",
+        replacement: path.resolve(
+          root,
+          "./src/runtime/libs/HighchartsReact.tsx",
+        ),
+      },
+      {
         find: "@builtin",
         replacement: path.resolve(root, "../src/quarry/components/builtin"),
       },

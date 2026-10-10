@@ -41,6 +41,13 @@ export default defineConfig({
         replacement: path.resolve(root, "./src/runtime/perspective/index.ts"),
       },
       {
+        find: "@quarry/highcharts",
+        replacement: path.resolve(
+          root,
+          "./src/runtime/libs/HighchartsReact.tsx",
+        ),
+      },
+      {
         find: "@builtin",
         replacement: path.resolve(root, "../src/quarry/components/builtin"),
       },
@@ -52,6 +59,8 @@ export default defineConfig({
       "/sessions": `http://127.0.0.1:${apiPort}`,
       "/projects": `http://127.0.0.1:${apiPort}`,
       "/healthz": `http://127.0.0.1:${apiPort}`,
+      "/libraries": `http://127.0.0.1:${apiPort}`,
+      "/libs": `http://127.0.0.1:${apiPort}`,
     },
   },
   build: {

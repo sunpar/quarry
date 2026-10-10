@@ -4,6 +4,7 @@ import { RuntimeBridge } from "./bridge";
 import { RequestCache } from "./cache";
 import { RuntimeProvider } from "./context";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { setLicensed } from "./libs/registry";
 import { loadComponent, type ModuleTable, type ViewComponent } from "./loader";
 import { MODULES } from "./modules";
 import { ViewStateStore } from "./state";
@@ -58,6 +59,8 @@ export function createRuntime(
     const cache = new RequestCache(bridge);
     const m: Mounted = { bridge, store, cache };
     mounted = m;
+    // The licensed loaders read this while the view's imports resolve.
+    setLicensed(message.licensed ?? []);
     try {
       const component = await loadComponent(message.source, table);
       if (mounted !== m) return;

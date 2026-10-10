@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { HostToRuntime } from "@/shared/bridge-types";
+import type { LicensedLibrary } from "@/shared/library-types";
 import { HostBridge } from "./HostBridge";
 
 function setup() {
@@ -32,13 +33,17 @@ function setup() {
 describe("HostBridge", () => {
   it("mounts after ready and answers queries", async () => {
     const { bridge, posted, send, onQuery } = setup();
-    bridge.mount({ source: "x", initialState: {}, datasets: ["df"] });
+    const licensed: LicensedLibrary[] = [
+      { id: "highcharts", entry: "/libs/h.js", license: null },
+    ];
+    bridge.mount({ source: "x", initialState: {}, datasets: ["df"], licensed });
     expect(posted).toHaveLength(0);
     send({ type: "ready" });
     expect(posted[0]).toMatchObject({
       type: "mount",
       viewId: "v1",
       datasets: ["df"],
+      licensed,
     });
     send({ type: "query", viewId: "v1", id: "q1", spec: { dataset: "df" } });
     await vi.waitFor(() => expect(posted).toHaveLength(2));

@@ -1,11 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostToRuntime } from "@/shared/bridge-types";
 import type { JsonObject } from "@/shared/json";
+import type { LibraryStatus } from "@/shared/library-types";
 import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
+import { keys } from "../api/keys";
 import { HostBridge } from "../bridge/HostBridge";
 import { SharedStateHub } from "../bridge/SharedStateHub";
 import { ViewHost } from "./ViewHost";
@@ -17,9 +19,18 @@ const DATASETS = ["df"];
 
 afterEach(() => vi.restoreAllMocks());
 
-function mount(overrides: Partial<Props> = {}) {
-  const fetchImpl = vi.fn(async () => new Response("[]", { status: 200 }));
+function mount(
+  overrides: Partial<Props> = {},
+  libraries?: () => Promise<Response>,
+) {
+  const fetchImpl = vi.fn(async (url: string) =>
+    url === "/libraries" && libraries !== undefined
+      ? libraries()
+      : new Response("[]", { status: 200 }),
+  );
   const qc = new QueryClient();
+  // Every view after the app's first finds the libraries answer already cached.
+  if (libraries === undefined) qc.setQueryData(keys.libraries(), []);
   // One client for every render: `api` is a mount dependency, so a new one would remount.
   const api = new ApiClient("t", fetchImpl);
   const posted: HostToRuntime[] = [];
@@ -157,5 +168,51 @@ describe("ViewHost", () => {
     );
     expect(screen.getByText("boom")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Fix this view" })).toBeNull();
+  });
+
+  it("mounts once, after the libraries answer, with the enabled ones", async () => {
+    let answer: (response: Response) => void = () => undefined;
+    const pending = new Promise<Response>((resolve) => (answer = resolve));
+    const { load, mounts, rerender } = mount({}, () => pending);
+    await act(async () => load());
+    expect(mounts()).toHaveLength(0);
+    const statuses: LibraryStatus[] = [
+      {
+        id: "highcharts",
+        enabled: true,
+        reason: null,
+        license: "k",
+        entry: "/libs/highcharts/highstock.js",
+      },
+      {
+        id: "scichart",
+        enabled: false,
+        reason: "scichart_license is not set",
+        license: null,
+        entry: null,
+      },
+    ];
+    await act(async () => answer(new Response(JSON.stringify(statuses))));
+    await waitFor(() => expect(mounts()).toHaveLength(1));
+    expect(mounts()[0]?.licensed).toEqual([
+      {
+        id: "highcharts",
+        entry: "/libs/highcharts/highstock.js",
+        license: "k",
+      },
+    ]);
+    rerender({ source: "export default () => 1" });
+    expect(mounts()).toHaveLength(1);
+  });
+
+  it("mounts without licensed libraries when the answer fails", async () => {
+    const { load, mounts } = mount(
+      {},
+      async () => new Response("{}", { status: 500 }),
+    );
+    await act(async () => load());
+    // No retries: a failed answer must not hold the view back.
+    await waitFor(() => expect(mounts()).toHaveLength(1));
+    expect(mounts()[0]?.licensed).toEqual([]);
   });
 });

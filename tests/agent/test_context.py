@@ -2,6 +2,7 @@ from pathlib import Path
 
 from quarry.agent.context import (
     SystemContext,
+    _guide_for,
     build_summary,
     build_system,
     enabled_libraries,
@@ -48,6 +49,12 @@ def test_build_system_is_deterministic_and_filtered() -> None:
     assert "datasets: string[]" in a
     assert "@/components/ui/textarea" in a
     assert "failed to load" not in a
+
+
+def test_guide_names_the_runtime_modules() -> None:
+    assert "@quarry/perspective" in _guide_for(["perspective"])
+    highcharts = _guide_for(["highcharts"])
+    assert "@quarry/highcharts" in highcharts and "highcharts-react-official" not in highcharts
 
 
 def test_build_system_renders_partitioned_and_unpartitioned_datasets() -> None:

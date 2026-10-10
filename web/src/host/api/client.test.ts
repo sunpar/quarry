@@ -61,4 +61,13 @@ describe("ApiClient", () => {
       JSON.stringify([{ view: "v", x: 0, y: 0, w: 6, h: 8 }]),
     );
   });
+
+  it("gets the licensed library statuses", async () => {
+    const fetch = fakeFetch(200, []);
+    const client = new ApiClient("tok", fetch);
+    await expect(client.libraries()).resolves.toEqual([]);
+    const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/libraries");
+    expect(init.method).toBe("GET");
+  });
 });

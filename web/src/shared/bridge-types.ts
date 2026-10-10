@@ -1,5 +1,6 @@
 import type { Column, QueryResult, QuerySpec } from "./api-types";
 import type { JsonObject } from "./json";
+import type { LicensedLibrary } from "./library-types";
 
 export type HostToRuntime =
   | {
@@ -8,6 +9,7 @@ export type HostToRuntime =
       source: string;
       initialState: JsonObject;
       datasets: string[];
+      licensed?: LicensedLibrary[];
     }
   | { type: "restore"; viewId: string; state: JsonObject }
   /** Kernel data may have changed: refetch, keeping what is shown until answers arrive. */

@@ -52,6 +52,8 @@ function mount(onRepair = vi.fn()) {
     return new Response("[]", { status: 200 });
   });
   const qc = new QueryClient();
+  // ViewHost mounts once the libraries answer is in; these tests start with it cached.
+  qc.setQueryData(keys.libraries(), []);
   const api = new ApiClient("t", fetchImpl);
   const tree = (dataVersion: string) => (
     <QueryClientProvider client={qc}>

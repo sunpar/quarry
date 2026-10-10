@@ -1,6 +1,7 @@
 import { act, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { RuntimeToHost } from "@/shared/bridge-types";
+import { licensed } from "./libs/registry";
 import type { ModuleTable } from "./loader";
 import { createRuntime } from "./mount";
 
@@ -45,9 +46,11 @@ describe("runtime mount", () => {
         source,
         initialState: { n: 1 },
         datasets: ["df"],
+        licensed: [{ id: "highcharts", entry: "/libs/h.js", license: null }],
       });
     });
     await waitFor(() => expect(screen.getByText("df:1")).toBeTruthy());
+    expect(licensed("highcharts")?.entry).toBe("/libs/h.js");
     await act(async () => {
       runtime.handle({ type: "restore", viewId: "v1", state: { n: 7 } });
     });

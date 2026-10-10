@@ -114,6 +114,18 @@ export function useCreateProject() {
   });
 }
 
+/** Asked once per app: the server reads its library config only at startup. */
+export function useLibraries() {
+  const api = useApi();
+  return useQuery({
+    queryKey: keys.libraries(),
+    queryFn: () => api.libraries(),
+    staleTime: Infinity,
+    // Views wait for this answer before they mount, so a failure must not hold them in retries.
+    retry: false,
+  });
+}
+
 export function useSavedView(slug: string, name: string) {
   const api = useApi();
   return useQuery({

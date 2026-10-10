@@ -19,6 +19,7 @@ import type {
   StepRequest,
 } from "@/shared/api-types";
 import type { JsonObject } from "@/shared/json";
+import type { LibraryStatus } from "@/shared/library-types";
 
 export class ApiError extends Error {
   constructor(
@@ -122,6 +123,10 @@ export class ApiClient {
 
   recall(sessionId: string, body: RecallRequest): Promise<Step> {
     return this.request("POST", `/sessions/${sessionId}/recall`, body);
+  }
+
+  libraries(): Promise<LibraryStatus[]> {
+    return this.request("GET", "/libraries");
   }
 
   private async request<T>(
