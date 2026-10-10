@@ -11,17 +11,17 @@ be true next month belongs in [context/](context/) or
 Finish Stage 5, breadth, the last planned stage. All 13 tasks of the
 [Stage 5 plan](superpowers/plans/2026-10-09-quarry-stage5-breadth.md) are
 committed on `claude/quarry-stage5-breadth`, and so are the fixes from the
-whole-branch review; the pull request against `main` comes next.
+whole-branch review. They are in review as sunpar/quarry#9 against `main`.
 
 ## Status by stage
 
-| Stage               | Status                                                                   | Plan                                                                  |
-| ------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------- |
-| 1. Core             | Merged in sunpar/quarry#1 as `d00b5fa`                                   | [Stage 1](superpowers/plans/2026-10-08-quarry-stage1-core.md)         |
-| 2. Server and agent | Merged in sunpar/quarry#2 as `7779c05`                                   | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
-| 3. First UI         | Merged in sunpar/quarry#4 as `faf913f`                                   | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
-| 4. Projects         | Merged in sunpar/quarry#8                                                | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
-| 5. Breadth          | In progress on `claude/quarry-stage5-breadth`, pull request to be opened | [Stage 5](superpowers/plans/2026-10-09-quarry-stage5-breadth.md)      |
+| Stage               | Status                                 | Plan                                                                  |
+| ------------------- | -------------------------------------- | --------------------------------------------------------------------- |
+| 1. Core             | Merged in sunpar/quarry#1 as `d00b5fa` | [Stage 1](superpowers/plans/2026-10-08-quarry-stage1-core.md)         |
+| 2. Server and agent | Merged in sunpar/quarry#2 as `7779c05` | [Stage 2](superpowers/plans/2026-10-08-quarry-stage2-server-agent.md) |
+| 3. First UI         | Merged in sunpar/quarry#4 as `faf913f` | [Stage 3](superpowers/plans/2026-10-08-quarry-stage3-first-ui.md)     |
+| 4. Projects         | Merged in sunpar/quarry#8              | [Stage 4](superpowers/plans/2026-10-08-quarry-stage4-projects.md)     |
+| 5. Breadth          | In review in sunpar/quarry#9           | [Stage 5](superpowers/plans/2026-10-09-quarry-stage5-breadth.md)      |
 
 ### Stage 1: core
 
@@ -91,12 +91,13 @@ review left is under [known problems](open-items.md#known-problems).
 memory-cap tests), including the 10 browser tests under `tests/e2e`.
 `ruff check`, `ruff format --check`, `mypy src tests` and `uv lock --check` were
 clean, and in `web/` `npm run check`, `npm test` (233 tests) and `npm run build`
-passed. CI has not run on the branch, since no pull request is open.
+passed. CI runs on sunpar/quarry#9.
 
 ## Next actions
 
-1. Open the Stage 5 pull request against `main`, turn on CI Auto-fix, and review
-   until it is clean and CI is green.
+1. Take sunpar/quarry#9 through whole-PR `@claude` reviews (Codex is out of
+   credits until 2026-10-15) until one comes back clean, with CI green, then
+   merge it and record the merge here.
 
 ## Resuming
 
