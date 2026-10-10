@@ -19,6 +19,10 @@ describe("built-ins under the runtime's transform", () => {
         "pivot",
         "data-table-tanstack",
         "ohlc",
+        "bar-line",
+        "scatter",
+        "heatmap",
+        "large-series",
       ]),
     );
   });

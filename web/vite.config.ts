@@ -28,8 +28,13 @@ export default defineConfig({
     alias: [
       // Built-ins live outside web/, so bare imports from them need an explicit home.
       {
-        find: /^(react|ag-grid-react|ag-grid-community|lightweight-charts|@tanstack\/react-table)(\/.*)?$/,
+        find: /^(react|ag-grid-react|ag-grid-community|lightweight-charts|@tanstack\/react-table|recharts|echarts-for-react)(\/.*)?$/,
         replacement: `${path.resolve(root, "node_modules")}/$1$2`,
+      },
+      // Exact: the app imports `react-plotly.js/factory` through the package exports map.
+      {
+        find: /^react-plotly\.js$/,
+        replacement: path.resolve(root, "node_modules/react-plotly.js"),
       },
       { find: "@", replacement: path.resolve(root, "./src") },
       {

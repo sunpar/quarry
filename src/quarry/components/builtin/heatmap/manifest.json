@@ -1,0 +1,15 @@
+{
+  "id": "heatmap",
+  "name": "Heatmap",
+  "description": "Plotly heatmap of an aggregated value pivoted by a row column and a column column.",
+  "tags": ["heatmap", "pivot", "matrix", "plotly"],
+  "contract_version": 1,
+  "schema": {
+    "requires": [
+      { "role": "keys", "dtype": "any", "min": 2 },
+      { "role": "value", "dtype": "numeric", "min": 1 }
+    ]
+  },
+  "origin": "builtin",
+  "created_at": "2026-10-09T00:00:00Z"
+}

@@ -85,6 +85,18 @@ describe("pivot built-in", () => {
     for (const [spec] of query.mock.calls) expect(spec).toEqual(source);
   });
 
+  it("says how many rows the viewer holds when it may not hold them all", () => {
+    state.delete("perspective");
+    query.mockReturnValue({ ...success, rowCount: 50000 });
+    const { unmount } = render(<Pivot datasets={["df"]} />);
+    expect(screen.getByText("Showing the first 50,000 rows.")).toBeTruthy();
+    unmount();
+    // The server's row cap can sit below the viewer's limit.
+    query.mockReturnValue({ ...success, rowCount: 7, truncated: true });
+    render(<Pivot datasets={["df"]} />);
+    expect(screen.getByText("Showing the first 7 rows.")).toBeTruthy();
+  });
+
   it("saves the viewer's layout and what to code will leave out", () => {
     state.delete("perspective");
     state.delete("dropped");

@@ -51,14 +51,14 @@ export default function Pivot({ datasets }: Props) {
     if (nextDropped.join("\n") !== dropped.join("\n")) setDropped(nextDropped);
   };
 
+  // `truncated` means only that the server's row cap cut the rows; a full page may be cut too.
+  const capped = data.truncated || data.rowCount >= ROWS;
   return (
     <div className="flex h-full flex-col">
-      {(data.truncated ||
-        mapped.dropped.length > 0 ||
-        probe.status === "error") && (
+      {(capped || mapped.dropped.length > 0 || probe.status === "error") && (
         <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
-          {data.truncated &&
-            `Showing the first ${ROWS.toLocaleString()} of ${data.rowCount.toLocaleString()} rows. `}
+          {capped &&
+            `Showing the first ${data.rowCount.toLocaleString()} rows. `}
           {mapped.dropped.length > 0 &&
             `To code will leave out: ${mapped.dropped.join(", ")}. `}
           {probe.status === "error" &&

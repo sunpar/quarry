@@ -701,9 +701,15 @@ them.
   manifest fails startup loudly, since the build writes it.
 - **Built-ins live outside `web/`**:
   `src/quarry/components/builtin/*/component.tsx` resolve `react`, `ag-grid-*`,
-  `lightweight-charts` and `@tanstack/react-table` through a regex alias to
-  `web/node_modules` in the vite and vitest configs and through `paths` in
-  `tsconfig.app.json`, and the prettier scripts include that directory.
+  `lightweight-charts`, `@tanstack/react-table`, `recharts` and
+  `echarts-for-react` through a regex alias to `web/node_modules` in the vite
+  and vitest configs and through `paths` in `tsconfig.app.json`, and the
+  prettier scripts include that directory. `react-plotly.js` has an exact alias
+  of its own, since the app imports `react-plotly.js/factory` through the
+  package's exports map, which a path alias would bypass. Its `paths` entry
+  takes the package's own v4 types; `plotly.js` maps to `@types/plotly.js`,
+  because the npm override puts `plotly.js-dist-min`, which has no types, at
+  `node_modules/plotly.js`.
 - **TypeScript config departures**: `erasableSyntaxOnly` is off because the
   plan's classes use constructor parameter properties, and `baseUrl` is dropped
   because TypeScript 6 rejects it (TS5101); `paths` resolve relative to the
@@ -1000,6 +1006,36 @@ them.
   the query selects it once, since the kernel refuses a repeated `select` name.
   The chart effect is keyed on the rows and the five names, so a re-render with
   the same result keeps the chart.
+
+### Recharts, Plotly and ECharts
+
+- **No invented zeros**: the bar and line, scatter, heatmap and large series
+  built-ins read values with the time series' `parseValue`, never `Number()`,
+  which turns `null` into 0. A null aggregate stays `null`, so Recharts leaves
+  a gap; a scatter point whose x or y is not finite is dropped; a null or
+  non-numeric heatmap cell is NaN, which Plotly leaves blank; a large series
+  row whose time or value is not finite is dropped.
+- **The large series plots UTC epoch milliseconds**: points are
+  `[epochMs, value]` pairs read with the time series' `parseTime`, so a naive
+  datetime is UTC, and the option sets `useUTC: true`. Given strings, ECharts
+  reads a naive datetime as browser-local time, which shifts it around DST
+  changes. The plan's `large: true` stays, but ECharts line series ignore it
+  (`LineSeriesOption` has no `large`); `sampling: "lttb"` and
+  `showSymbol: false` are what keep 50,000 points fast.
+- **No two roles share a column**: a saved column counts only while the live
+  schema offers it, so a stale choice falls back to the default instead of
+  failing the query. In the scatter, y and the color column skip any column an
+  earlier role holds, compared ignoring case as the kernel compares `select`
+  names; in the heatmap, the column key skips the row key, since a column
+  pivoted against itself is only a diagonal, and the value skips both. The
+  pickers offer only the free columns.
+- **Truncation banners give no total**: `row_count` counts the rows returned
+  and `truncated` is set only when the server's row cap cut them, so each of
+  these built-ins shows "Showing the first N rows." when the result fills its
+  limit or the cap cut it. The pivot's banner said "of {rowCount} rows", which
+  repeated its own count, and fired only on the cap; it now reads the same way.
+- **The bar and line chart names its series as the kernel does**: the
+  aggregate column is `<value>_<fn>`, `Agg.name` without an alias.
 
 ## Packaging and CI
 
