@@ -105,7 +105,8 @@ them.
 - **Clashing names are rejected**: relation to-code needs a result name other
   than the dataset's, because the view drop runs through the dataset afterwards.
   A polars dataset named `date`, `datetime` or `ZoneInfo` is rejected when a
-  generated import would rebind it.
+  generated import would rebind it. A dataset named `pl` is not checked, since
+  rebinding `pl` breaks the researcher's own steps first.
 
 ## Kernel and executor
 
@@ -268,10 +269,14 @@ them.
   `get_table_names` failed on any `JOIN ... USING`, `ASOF JOIN` or `UNPIVOT`
   over tables it could not see, losing every read in the literal, and it globbed
   parquet and sniffed CSVs after the step (probed). A literal that does not
-  parse silently adds no reads. Cost: a literal that is not SELECT statements
-  (PIVOT, CREATE TABLE AS) adds no reads, a CTE that shares a dataset's name
-  counts as a read of it, and SQL built at run time (an f-string, a variable) is
-  not read.
+  parse silently adds no reads, and so does one whose parse tree nests too deep
+  for `json.loads` (`RecursionError`) or one holding a lone surrogate, which
+  DuckDB's Python binding refuses with a `RuntimeError`: lineage must never fail
+  a step that ran. Cost: a literal that is not SELECT statements (PIVOT, CREATE
+  TABLE AS) adds no reads, a CTE that shares a dataset's name counts as a read
+  of it, a schema-qualified `main.prices` counts as `prices`, every statement of
+  a multi-statement literal adds its reads, and SQL built at run time (an
+  f-string, a variable) is not read.
 - **In-place assignment stores its root name**: at module level, assigning to or
   deleting an attribute or subscript (`df.columns = ...`, `df["k"] = ...`,
   `del df["k"]`, also as an unpacking, `for` or `with` target) stores the name
@@ -623,7 +628,11 @@ them.
   both exist, so a crash between them leaves nothing listed. Cost: that crash,
   or any failed write after the folder exists, leaves a folder that refuses the
   id until it is removed. The id pattern ends in `\Z`, not the plan's `$`, which
-  in Python also matches before a trailing newline.
+  in Python also matches before a trailing newline, and the id reaches the path
+  through `child`. A save that names only one of `session_id` and `dataset`
+  answers 422, since a half binding had saved `requires: []`, and "no such
+  session" (404) comes only from the session lookup: a `KeyError` from deeper in
+  had read as one. A missing dataset is its own 404.
 - **Licensed library status lives in `quarry/libraries.py`**: `LibraryStatus`
   and `licensed_libraries` import only the config and pydantic, because
   `enabled_libraries` in `quarry.agent` needs them and `quarry.server` already
@@ -686,7 +695,8 @@ them.
   pins the refusal. The bridge being the only path to data (spec §12) is still
   defence in depth, not a guarantee: WebRTC and DNS prefetch stay
   [open](../open-items.md#known-problems), and the kernel already has the
-  network.
+  network. Cost: only Chromium's enforcement is tested; Firefox and Safari are
+  unverified.
 - **The token stays in the URL fragment and in memory**: the host reads
   `#token=` once into state, never stores it, and writes the active session id
   back as `#token=...&session=...` with `replaceState` so a reload keeps both. A
@@ -765,6 +775,8 @@ them.
   refused module is refused even when nothing uses it. A type-only value import
   of a non-allowlisted path is refused too. The allowlist is checked with
   `Object.hasOwn`, so `import x from "constructor"` is refused like any other.
+  The server's TSX check, `web/tools/transpile-check.ts`, calls the same
+  `transpile()`, so the check and the frame agree on what a view imports.
 - **Mount is queued and resent**: the host sends `mount` only after the runtime
   posts `ready`, keeps the spec and resends it on every later `ready`; the
   runtime drops a mount that an even newer mount has overtaken. A reloaded frame
@@ -788,6 +800,10 @@ them.
   takes the package's own v4 types; `plotly.js` maps to `@types/plotly.js`,
   because the npm override puts `plotly.js-dist-min`, which has no types, at
   `node_modules/plotly.js`.
+- **The module table keeps the Stage 3 UI components**: Stage 5 grew `MODULES`
+  to the spec's library list and kept `@/components/ui/textarea` and
+  `@/components/ui/scroll-area`, which the view contract advertises and the
+  plan's table left out.
 - **TypeScript config departures**: `erasableSyntaxOnly` is off because the
   plan's classes use constructor parameter properties, and `baseUrl` is dropped
   because TypeScript 6 rejects it (TS5101); `paths` resolve relative to the
@@ -831,6 +847,10 @@ them.
   cache their promise, but clear it when the load fails, so the next view that
   imports the library tries again instead of seeing the cached error.
   `loadHighstock` also removes the failed `<script>`, so retries leave one tag.
+- **"Save to library" binds the view's first dataset or none**: the request
+  sends `session_id` with the view's first dataset, or neither for a view with
+  no datasets, since the server refuses one without the other. The button shows
+  only under inline views, the only ones with generated source to save.
 
 ## Projects
 
@@ -953,11 +973,13 @@ them.
   range the grid depends on, since a bare install added 4.0.2 as a second copy.
   Cost if wrong: moving to `react-resizable` 4 waits on the grid.
 - **The notebook is built by hand and validated only in tests**:
-  `quarry.projects.export` writes nbformat 4.5 JSON itself, with cell ids,
-  `kernelspec` and `language_info`, and `nbformat` is a dev dependency that the
-  export tests validate against. The wheel then needs no Jupyter package. Saved
-  queries render without a schema, since only dtype strings are on disk; the
-  cell's first comment says so. Cost if wrong: a format change goes unnoticed
+  `quarry.projects.export` writes nbformat 4.5 JSON itself, with `kernelspec`,
+  `language_info` and deterministic `cell-<n>` ids, so the same project exports
+  the same file, and `nbformat` is a dev dependency that the export tests
+  validate against. The wheel then needs no Jupyter package. Saved queries
+  render without a schema, since only dtype strings are on disk; the cell's
+  first comment says so, and a view's TSX sits in a fence one backtick longer
+  than any run in its source. Cost if wrong: a format change goes unnoticed
   until a test validates it.
 - **Exports rebuild the kernel namespace**: a recipe is step code, so it calls
   the kernel's preloads (`pl`, `duckdb`, `pq`, `sql`, `sql_local`, `loaders`)
@@ -1000,6 +1022,11 @@ them.
   recipe that does not parse constrains nothing. The plan emitted recipes in
   saved order. Cost if wrong: datasets no longer appear in name order, and a
   cycle's warning asks the researcher to sort it out.
+- **Download names survive any project or dataset name**: `Content-Disposition`
+  carries an ASCII `filename` and an RFC 6266 `filename*=UTF-8''...`, built from
+  the project's slug for a notebook and the dataset's name for a recipe.
+  Starlette encodes headers as latin-1, so a recipe for a dataset named `数据`
+  had answered 500.
 
 ## Views
 
@@ -1180,4 +1207,52 @@ them.
   `plotly.js` with `npm:plotly.js-dist-min@4.1.2`, so react-plotly.js's peer no
   longer installs the full 98 MB source package and its 211 lock entries, which
   nothing imports. The runtime uses `react-plotly.js/factory` with the dist
-  build either way.
+  build either way. The override pins 4.1.2 and the direct dependency allows
+  `^4.1.2`, so the two must move together.
+- **CI pins current action majors**: `actions/checkout@v7`,
+  `actions/setup-node@v7` and `astral-sh/setup-uv@v10.3.0`, an exact tag because
+  setup-uv stopped publishing major tags at v8. The workflow's token is
+  read-only (`permissions: contents: read`).
+- **mypy checks the tests**: CI and `.verify.toml` run `mypy src tests` strict,
+  and the tests hold no `type: ignore`.
+- **Vitest runs in a non-UTC zone**: `web/vitest.config.ts` sets
+  `process.env.TZ = "America/New_York"` before the workers start, so the tests
+  that read naive datetimes as UTC can fail on CI's UTC runner. Only an
+  assignment in the parent process reaches the workers.
+- **Built-ins are tested through the frame's transpile**:
+  `web/src/builtins/transpile.test.ts` runs every built-in through the loader's
+  Sucrase transform and checks each import against `MODULES`, since vitest's own
+  transform is not the frame's.
+- **Browser tests load the bundled chart libraries**: Playwright mounts the
+  scatter (Plotly) and large series (ECharts) built-ins under the runtime CSP,
+  beside the Perspective test. Highstock and SciChart need a licensed install,
+  so no browser test loads them.
+
+## Build process
+
+- **Subagents run on the session's model**: every Stage 5 implementer and
+  reviewer ran on Opus at xhigh effort, as the handoff asked, rather than the
+  development skill's cheaper tiers. Cost: more tokens.
+- **One pull request to `main`**: the plan allowed two. Stage 4 merged before
+  Stage 5 finished, so the branch took `main` by merge, never by rebase, and
+  shipped as one pull request. Cost: one large review.
+- **Reviews**: every task had a spec and quality review, then the branch had a
+  whole-branch review and one fix wave. Codex had no review credits, so whole-PR
+  `@claude` reviews stood in for it on Stages 4 and 5; a Codex pass over them is
+  [open](../open-items.md#any-time).
+- **Plan corrections that change no behavior**: tests went where the code is
+  (the hook test into `hooks.test.tsx`, the nine-built-in test in place of Stage
+  3's list test, the identifier test matching the new ASCII message),
+  `ProjectService.store` exposes the store to the export routes, and expected
+  strings that the plan's Markdown had broken were rewritten.
+- **Unused code goes**: the host's `useComponents`, `listComponents` and
+  `keys.components` had no consumer, since `search_components` runs on the
+  server, so Stage 5 deleted them.
+- **Review leftovers are filed**: every finding a review deferred that a
+  researcher could hit, every one carried to the final review, and the test gaps
+  are in [open items](../open-items.md). Style nits are not.
+- **Long commit subjects stay**: 17 of Stage 5's 46 commits have subjects over
+  the 50-character limit. Rewording them would change hashes the docs cite, so
+  the merge kept them.
+- **The Stage 5 merge record went straight to `main`**: it is docs only, as the
+  handoffs and plans were, and had no review.

@@ -58,8 +58,9 @@ Decisions already made are in [decisions.md](context/decisions.md).
   time (an f-string, a variable) and literals passed to `.execute(...)` or
   `.query(...)` add no reads. Helpers bound without `def` or `class` (lambdas,
   `partial`, imports) are invisible, and so is in-place mutation inside a
-  function, such as a helper that sets `df.columns`. Silent: a saved recipe can
-  miss a source step.
+  function, such as a helper that sets `df.columns`. A literal reading
+  `FROM RECENT` is not matched to dataset `recent`, though DuckDB's catalog
+  ignores case. Silent: a saved recipe can miss a source step.
 - **Lineage approximations**: a failed step's in-place mutation is not a write,
   while a successful step's store that never ran is one. Class bodies report
   every name they load as a read, and a SQL literal's CTE named like a dataset
@@ -167,6 +168,52 @@ Decisions already made are in [decisions.md](context/decisions.md).
   opaque-origin frame loads them, so on a shared machine any account that can
   reach the loopback port can copy them while the server runs. Silent. This is
   the Stage 3 static design; the keys stay behind the token.
+- **"To code" can rebind a plain `date`**: its generated
+  `from datetime import date` (or `datetime`, `ZoneInfo`) is refused only when
+  it would rebind a dataset, so a non-dataset global of that name, such as a
+  string, is replaced when the step runs. Silent.
+- **Perspective rounds large integers**: Arrow sends UInt64, Decimal and 128-bit
+  integers as Float64, so values past 2^53 round in the pivot, and a filter term
+  the viewer writes for one may not match the exact integer "To code" filters
+  on. Silent.
+- **Nested values in the pivot are loose JSON**: Arrow sends nested values as
+  JSON strings, which can hold `NaN` or `Infinity`, and nested bytes show as a
+  Python repr while top-level Binary is base64. Silent.
+- **Smaller Perspective mapping gaps**: `!= null` under "or" is not counted
+  toward `filter_op "or"`; a filter on a column the schema lacks reaches the
+  kernel and fails with a `QueryError`; `in` items on a Decimal column are not
+  coerced to Decimal; and sub-millisecond datetime comparisons can differ
+  between the viewer and the kernel. Mostly silent.
+- **Scrubbing can keep a later pivot layout**: `PerspectiveViewer` ignores a
+  missing `config`, so a snapshot from before the first layout keeps the later
+  one. Changing the viewer's settings, theme or title also writes view state.
+  Silent.
+- **A failed Perspective engine start sticks**: `ensureEngine` caches its
+  promise, so once the wasm fetch or the worker start fails, every pivot in that
+  frame fails until the frame reloads. Loud.
+- **A corrupt Arrow answer leaves a view loading**: `cache.ts` decodes
+  `arrow_base64` inside the success callback, so a decode error skips the error
+  branch and the query stays "Loading". Silent.
+- **A hung `GET /libraries` never mounts a view**: `ViewHost` waits for that one
+  answer with no timeout. Silent: the frame stays empty.
+- **OHLC fails on a case-only name clash**: `Close` and `close` in one dataset
+  make its select fail, and the error hides the pickers. Loud. A table's saved
+  sort also goes out before the schema loads, so a sort on a dropped column
+  fails that first query.
+- **Picked snapshots are not what "To code" and "Save view" use**: after a pick
+  in the scrubber, both use the newest snapshot. Silent.
+- **Snapshots can repeat**: switching a view A to B to A within one report
+  window appends a duplicate snapshot, and an inline view that queries from
+  local state appends one per change. Silent cost toward the 500 cap.
+- **Component save messages mislead**: a busy session answers `POST /components`
+  with 409, the code an existing id gets; `<root>/components` as a regular file
+  makes every save a 409 "folder already exists"; and "Save to library" stays
+  disabled with no message for an id over 64 characters. Loud but misleading.
+- **The CLI writes notebooks at the umask**: `quarry projects export` writes the
+  notebook with default permissions, not 0600 as project files are. Silent.
+- **An export can fail on a pathological recipe**: `export._stores` catches only
+  `SyntaxError`, so a recipe that makes `analyze` raise `RecursionError` or
+  `MemoryError` fails the export; `tidy._binds` shares the pattern. Loud.
 
 ## Deferred work
 
@@ -261,8 +308,6 @@ one up when a researcher needs it.
 - Count output tails in bytes, as the spec's "last 4 KB" says.
 - Type the op sets in `quarry/query/spec.py` as `frozenset[FilterOp]` rather
   than `frozenset[str]`.
-- Remove the second literal coercion in `_imported_names` in `source_target.py`,
-  which repeats the filter rendering's work.
 - Keep TIMETZ offsets in JSON rows, and fix the Duration comment in
   `_json_native`, which says milliseconds though the guard covers every unit.
 - Smoke-test `sql()` against the firm's SQL Server with `VARCHAR(MAX)` columns,
@@ -273,6 +318,50 @@ one up when a researcher needs it.
   pydantic's echoed input, and the polars target has no direct nulls-first test.
 - Close Stage 2 test gaps: nothing checks the arguments the OpenAI adapter sends
   or that every tool schema stays strict.
+- Run a Codex review over Stages 4 and 5. Codex had no review credits until
+  2026-10-15, so whole-PR `@claude` reviews stood in for it.
+- Check that the host's `frame-src 'self'` stops a view frame's own navigation
+  in Firefox and Safari; the Playwright test runs Chromium only.
+- Review the chart built-ins' visuals and accessibility, which no Stage 5 review
+  covered: table header sorts are mouse-only, and OHLC shows a blank pane while
+  loading.
+- Small host fixes from the Stage 5 reviews: clicking "To code" again replaces
+  code edited in the drawer, a 409's message stays while the id is edited, Stop
+  shows during a hold, "Save to library" keeps duplicate tags, and a dead
+  `basis-full`/`w-[40rem]` class remains.
+- Tidy Stage 5 code: the library statuses are computed twice at startup
+  (`create_app` and `enabled_libraries`); `to_code` builds the importable
+  projection twice per relation and runs `_imported_names` twice per polars
+  spec, and `_imported_names` repeats the filter rendering's literal coercion;
+  the Arrow cache keeps both the base64 and the decoded buffer;
+  `PerspectiveViewer` writes `latest.current` during render, as the plan wrote
+  it; `_sql_table_reads` lists `RecursionError` beside `RuntimeError`, its base
+  class; `arrow.py` and `datasets.py` repeat the `enumerate` and `pl.nth` idiom;
+  `tidy._binds` accepts a recipe whose only mention of `df` is an attribute
+  store or `del df["k"]`, which validation still catches; and
+  `@types/d3-selection` resolves to 1.0.10 through Perspective, hidden by
+  `skipLibCheck`.
+- Close Stage 5 test gaps:
+  - Server: no busy test covers a hold. Nothing pins the `RecursionError`
+    suppress in `_sql_table_reads`. The component routes lack tests for a save
+    without a dataset, a team-root 409, the 0700 folder mode and built-ins
+    listed after a save, and the transpile test's skip copies
+    `default_transpiler`'s logic.
+  - Export and CLI: the export route test's view has no queries. The CLI's
+    no-subcommand, default `--out` and write-failure paths are untested.
+  - Other server tests: the library warning test checks only the library's name,
+    and no test checks that `/libraries` sends no CORS header. The to-code 400
+    test asserts only `"x" in detail`. `kept_default_connection` restores only
+    the uncapped settings, so a capped caller would leak them. There is no
+    regression test for `arrow.py`'s `pl.nth` fix, and no test sends an all-null
+    column to Perspective.
+  - Web and browser tests: the Perspective cache-hit test checks React's row
+    count, not the viewer's table. `ViewHost.test.tsx` is at 240 lines with
+    fixed 20 ms sleeps. `state.test.ts` uses fake timers without `try/finally`,
+    `mount.queries.test` leaves roots mounted, and two tests leave `URL`
+    patched. The ECharts browser assertion passes with zero points, and the
+    Plotly one depends on the plot's width. OHLC has no non-zero-offset or
+    microsecond case, and no browser test loads Highstock or SciChart.
 
 ## Open questions
 
