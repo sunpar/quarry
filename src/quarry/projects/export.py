@@ -79,23 +79,32 @@ def _recipe_order(names: list[str], recipes: list[str]) -> list[tuple[int, list[
 
     A raw recipe replays its upstream steps, so it can rebind another saved dataset to data
     from before a later step changed it. A recipe that assigns another saved dataset therefore
-    runs before that dataset's own recipe, which binds it last. Recipes that assign each other,
-    directly or around a cycle, keep saved order among themselves, as does every recipe that
-    nothing constrains.
+    runs before that dataset's own recipe, which binds it last. Recipes in a cycle, which assign
+    each other directly or around it, run in saved order among themselves, even when a recipe
+    outside the cycle must run before one of them. Every other choice takes the earliest saved
+    recipe that can run.
     """
+    n = len(names)
     index = {name: i for i, name in enumerate(names)}
     assigns = [
         {index[n] for n in _stores(recipe) if n in index} - {i} for i, recipe in enumerate(recipes)
     ]
-    reaches = [_reachable(assigns, i) for i in range(len(names))]
-    # i runs before j when i's recipe assigns j, unless j's reaches back to i.
+    reaches = [_reachable(assigns, i) for i in range(n)]
+    # i runs before j when i's recipe assigns j and j's does not reach back to i. Inside a cycle,
+    # where each reaches the other, i runs before j when it was saved first: one total order per
+    # cycle, so the graph stays acyclic.
     after = [
-        {i for i, targets in enumerate(assigns) if j in targets and i not in reaches[j]}
-        for j in range(len(names))
+        {
+            i
+            for i in range(n)
+            if (j in assigns[i] and i not in reaches[j])
+            or (i < j and j in reaches[i] and i in reaches[j])
+        }
+        for j in range(n)
     ]
     order: list[int] = []
-    while len(order) < len(names):
-        ready = (j for j in range(len(names)) if j not in order and after[j].issubset(order))
+    while len(order) < n:
+        ready = (j for j in range(n) if j not in order and after[j].issubset(order))
         order.append(min(ready))
     return [
         (j, [names[i] for i in sorted(assigns[j]) if i in order[:k]]) for k, j in enumerate(order)

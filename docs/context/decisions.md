@@ -858,8 +858,9 @@ them.
   therefore runs a recipe that assigns another saved dataset, by
   `analyze(recipe).stores`, before that dataset's own recipe, and keeps saved
   order wherever nothing constrains it; each dataset's heading moves with its
-  recipe, and every dataset still precedes every view. Recipes that assign each
-  other, directly or around a cycle, keep saved order among themselves, and a
+  recipe, and every dataset still precedes every view. Recipes in a cycle, which
+  assign each other directly or around it, run in saved order among themselves,
+  even when a recipe outside the cycle must run before one of them, and a
   recipe that runs after a saved dataset it assigns opens with a comment naming
   it. A recipe that does not parse constrains nothing. The plan emitted recipes
   in saved order. Cost if wrong: datasets no longer appear in name order, and a

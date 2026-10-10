@@ -231,3 +231,19 @@ def test_the_view_source_fence_outlasts_its_backticks(tmp_path: Path) -> None:
     )
     fence = notebook(store.get("momentum"), store)["cells"][-1]["source"]
     assert fence == f"`````tsx\n{source}\n`````\n"
+
+
+def test_a_cycle_keeps_saved_order_when_an_outside_recipe_assigns_a_member(
+    tmp_path: Path,
+) -> None:
+    store = project_with_saved_items(tmp_path)
+    save_another_dataset(store, "alpha", "alpha = 1\nbeta = 1\n")
+    save_another_dataset(store, "beta", "beta = 1\nalpha = 1\n")
+    save_another_dataset(store, "xray", "xray = 1\nalpha = 1\n")
+    doc = notebook(store.get("momentum"), store)
+    headings = [c["source"].split("\n")[0] for c in doc["cells"] if c["cell_type"] == "markdown"]
+    # xray runs before alpha, which it assigns; alpha still runs before beta, as saved.
+    assert headings[1:5] == ["## prices", "## xray", "## alpha", "## beta"]
+    code = [c["source"] for c in doc["cells"] if c["cell_type"] == "code"]
+    assert code[3].startswith("# This recipe also assigns alpha, which an earlier cell loaded")
+    assert not any(source.startswith("# This recipe") for source in code[:3])
