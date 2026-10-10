@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { SessionMeta, SessionStatus } from "@/shared/api-types";
+import type { SessionMeta, SessionStatus, Step } from "@/shared/api-types";
 import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
 import { SessionPage } from "./SessionPage";
@@ -21,12 +21,36 @@ const status = (busy: boolean, runningStep: string | null): SessionStatus => ({
   last_error: null,
 });
 
+const finished: Step = {
+  id: "st1",
+  index: 0,
+  kind: "manual",
+  prompt: null,
+  code: "x = 1",
+  status: "ok",
+  error: null,
+  note: "",
+  stdout_tail: "",
+  stderr_tail: "",
+  reads: [],
+  writes: [],
+  defines: [],
+  datasets: [],
+  view: null,
+  created_at: "",
+  duration_ms: 0,
+};
+
 const json = (body: unknown) => new Response(JSON.stringify(body));
 
-function setup(busy: boolean, runningStep: string | null = null) {
+function setup(
+  busy: boolean,
+  runningStep: string | null = null,
+  steps: Step[] = [],
+) {
   const fetchImpl = async (path: string) => {
     if (path === "/sessions") return json([meta]);
-    if (path === "/sessions/s1") return json({ meta, steps: [] });
+    if (path === "/sessions/s1") return json({ meta, steps });
     if (path === "/sessions/s1/status") return json(status(busy, runningStep));
     if (path === "/projects") return json([]);
     return new Response(null, { status: 404 });
@@ -62,11 +86,19 @@ describe("SessionPage prompt box", () => {
 
   // The status poll slows once the step ends, so its last answer can predate the end.
   it("stays open on a status taken while a finished step still ran", async () => {
-    const qc = setup(true, "st1");
+    const qc = setup(true, "st1", [finished]);
     const box = await screen.findByRole("textbox");
     await waitFor(() =>
       expect(qc.getQueryData(["sessions", "s1", "status"])).toBeDefined(),
     );
     expect((box as HTMLTextAreaElement).disabled).toBe(false);
+  });
+
+  it("locks for a step this page has not seen, from another tab or the CLI", async () => {
+    setup(true, "elsewhere", [finished]);
+    const box = await screen.findByRole("textbox");
+    await waitFor(() =>
+      expect((box as HTMLTextAreaElement).disabled).toBe(true),
+    );
   });
 });

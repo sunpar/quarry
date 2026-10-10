@@ -31,7 +31,7 @@ describe("SaveComponentDialog", () => {
       description: "",
       tags: ["scatter", "returns"],
     });
-    expect(dialog).toBeTruthy();
+    expect(document.body.contains(dialog)).toBe(true);
   });
 
   it("keeps the save button disabled until the id is valid", () => {

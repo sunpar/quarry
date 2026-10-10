@@ -144,20 +144,10 @@ export function useLibraries() {
   });
 }
 
-export function useComponents() {
-  const api = useApi();
-  return useQuery({
-    queryKey: keys.components(),
-    queryFn: () => api.listComponents(),
-  });
-}
-
 export function useSaveComponent() {
   const api = useApi();
-  const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: SaveComponentRequest) => api.saveComponent(body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.components() }),
   });
 }
 

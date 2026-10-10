@@ -96,10 +96,12 @@ function SessionColumn({ id }: { id: string }) {
   const steps = session.data?.steps ?? [];
   const running = sessionRunning(session.data) || submit.isPending;
   const status = useSessionStatus(id, running);
-  // A save or restart holds the session too; a prompt sent then would get a 409. Only a hold
-  // with no running step counts: the poll slows once a step ends, so its last answer may
-  // still name that step. The poll stays keyed on `running`, not on its own answer.
-  const held = status.data?.busy === true && status.data.running_step === null;
+  // A save, a restart or a step this page has not seen holds the session too; a prompt sent
+  // then would get a 409. A step the page knows is covered by `running`, and the poll slows
+  // once it ends, so its last answer may still name it. The poll stays keyed on `running`.
+  const held =
+    status.data?.busy === true &&
+    !steps.some((s) => s.id === status.data?.running_step);
   const busy = running || held;
   const version = dataVersion(steps, status.data?.kernel.pid);
   const [notice, setNotice] = useState<string | null>(null);

@@ -32,7 +32,7 @@ export default function Pivot({ datasets }: Props) {
     () => perspectiveToSpec(dataset, config ?? {}, schema ?? []),
     [dataset, config, schema],
   );
-  // One-row probe: the kernel validates the mapped spec and it is recorded for "to code".
+  // One-row probe: the kernel validates the mapped spec and lineage records it.
   // Until the rows arrive it repeats the arrow query, so no untyped mapping is recorded.
   const probe = useQuery(
     schema === null ? source : { ...mapped.spec, limit: 1 },

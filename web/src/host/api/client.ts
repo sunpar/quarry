@@ -138,10 +138,6 @@ export class ApiClient {
     return this.request("POST", `/sessions/${sessionId}/to-code`, { queries });
   }
 
-  listComponents(): Promise<ComponentManifest[]> {
-    return this.request("GET", "/components");
-  }
-
   saveComponent(body: SaveComponentRequest): Promise<ComponentManifest> {
     return this.request("POST", "/components", body);
   }

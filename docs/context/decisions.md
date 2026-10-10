@@ -482,6 +482,17 @@ them.
   it. The plan's version refused a running step, which would have undone Stage
   2's restart that stops one. Cost if wrong: a restart clicked during the
   seconds a save holds the kernel answers 409 and must be retried.
+- **The prompt locks while the server holds the session**: the prompt box is
+  disabled while a step this page knows is running, and also when
+  `SessionStatus.busy` is true and `running_step` is not one of the page's
+  steps. That covers a save hold and a restart, which report
+  `running_step: None` (`running_step` comes only from steps begun by `_begin`;
+  `restart` waits for them to end before it replays, and `hold` touches only
+  `_holds`), and a step started from another tab or the CLI. Plain `busy` was
+  the plan's rule, but the server also reports `busy` while a step runs, and the
+  status poll slows from 750 ms to 5 s once the page sees its step end, so its
+  last answer, taken while the step ran, locked the prompt for up to 5 s after
+  many steps.
 - **Recall is a manual step**: `start_recall` creates a `recall` step, carrying
   the saved view for a view recall, and runs it on the manual-step path, so
   `runs` is filled, lineage records the writes and restart replays it. `_begin`
@@ -974,10 +985,10 @@ them.
   "or", two or more remaining filters are all dropped, listed once as
   `filter_op "or"`, and a lone filter maps as under "and".
 - **The pivot shows 50,000 rows and probes the mapped spec**: Perspective shows
-  up to 50,000 rows; the probe query with `limit: 1` is how the mapped spec
-  reaches lineage and to code. Until the arrow rows arrive the probe repeats
-  the arrow query, so no spec mapped without dtypes is recorded. A probe the
-  kernel refuses shows its error above the viewer.
+  up to 50,000 rows; the probe query with `limit: 1` is how the kernel validates
+  the mapped spec and how it reaches lineage. Until the arrow rows arrive the
+  probe repeats the arrow query, so no spec mapped without dtypes is recorded. A
+  probe the kernel refuses shows its error above the viewer.
 - **The viewer restores a changed `config` only after its first load**: the
   plan's effect restored on mount, before any table was loaded, racing the
   load. The load path restores the latest config itself and records it, as it
@@ -987,12 +998,13 @@ them.
 - **The saved config is a `JsonObject` in view state**: Perspective's types
   allow `undefined` values, which `useViewState`'s `Json` bound refuses, so the
   pivot casts at the boundary, as the plan allowed.
-- **To code renders the pivot's mapped spec, not its recorded queries**: the
-  pivot also keeps the mapped spec, without `limit`, under `spec` in view state,
-  written beside `dropped`, and "To code" renders `[spec]` when the latest
-  snapshot holds one; its recorded queries are the 50,000-row arrow load and the
-  one-row probe, which would render as `.head(1)`. Other views render their
-  recorded queries, and a saved view's export still does.
+- **A view may publish its to-code spec under `spec`**: "To code" renders
+  `[spec]` when the latest snapshot's state holds a `spec` object with a string
+  `dataset`, for any view, and the snapshot's queries otherwise. The pivot
+  publishes its mapped spec there, without `limit`, written beside `dropped`;
+  its queries are the 50,000-row arrow load and the one-row probe, which would
+  render as `.head(1)`. A saved view's export still renders the recorded
+  queries.
 
 ### TanStack table and OHLC
 

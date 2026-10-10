@@ -18,8 +18,8 @@ const isSpec = (value: unknown): value is QuerySpec =>
   typeof (value as { dataset?: unknown }).dataset === "string";
 
 /**
- * What "To code" renders for a view's latest snapshot. The pivot publishes its mapped spec
- * under `spec`, which wins over its recorded queries: an arrow load and a one-row probe.
+ * What "To code" renders for a view's latest snapshot. A view may publish its to-code spec
+ * under `spec`, which wins over its queries; the pivot's are an arrow load and a probe.
  */
 export function toCodeSource(snapshot: Snapshot | undefined): {
   queries: QuerySpec[];
