@@ -1,3 +1,4 @@
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -39,7 +40,7 @@ def test_default_transpiler_warns_when_node_is_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     (tmp_path / "transpile-check.mjs").write_text("")
-    monkeypatch.setattr(transpile.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
     with caplog.at_level("WARNING"):
         assert isinstance(default_transpiler(tmp_path), NoopTranspiler)
     assert "node is not on PATH" in caplog.text

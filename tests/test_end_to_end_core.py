@@ -5,7 +5,7 @@ import polars as pl
 import pytest
 
 from quarry.kernel.client import KernelClient
-from quarry.query import Filter, QuerySpec, to_source
+from quarry.query import Filter, QuerySpec, Sort, to_source
 
 
 def build_cache(root: Path) -> None:
@@ -44,7 +44,7 @@ def test_core_path(kernel: KernelClient, tmp_path: Path) -> None:
     spec_rel = QuerySpec(
         dataset="prices",
         filters=[Filter(col="year", op="eq", value=2023)],
-        sort=[{"col": "ticker"}],
+        sort=[Sort(col="ticker")],
     )
     assert [r["px"] for r in kernel.query(spec_rel).rows or []] == [2023.0, 4046.0]
 

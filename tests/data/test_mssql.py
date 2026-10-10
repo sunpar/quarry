@@ -35,7 +35,8 @@ def test_sql_with_no_rows_keeps_the_schema() -> None:
     schema = pa.schema([("ticker", pa.string()), ("px", pa.float64())])
 
     def no_rows(query: str, dsn: str, params: Sequence[object] | None) -> Iterable[pa.RecordBatch]:
-        return pa.RecordBatchReader.from_batches(schema, [])
+        reader: Iterable[pa.RecordBatch] = pa.RecordBatchReader.from_batches(schema, [])
+        return reader
 
     df = make_sql("dsn-x", reader=no_rows)("SELECT ticker, px FROM prices WHERE 1 = 0")
     assert df.height == 0

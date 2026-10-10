@@ -98,9 +98,10 @@ def test_dataset_names_includes_underscore_names_and_skips_non_datasets() -> Non
 class Opaque:
     """A proxy whose `__class__` raises, so `isinstance` cannot be asked about it."""
 
-    @property
-    def __class__(self) -> type:
-        raise RuntimeError("no class")
+    def __getattribute__(self, name: str) -> object:
+        if name == "__class__":
+            raise RuntimeError("no class")
+        return super().__getattribute__(name)
 
 
 class OpaqueLazyFrame(Opaque, pl.LazyFrame):
@@ -116,7 +117,8 @@ def test_dataset_detection_uses_the_type_not_its_class_attribute() -> None:
 
 
 def test_dataset_names_ignores_non_string_keys() -> None:
-    ns: dict[object, object] = {1: frame(), "a": frame()}
+    ns: dict[str, object] = {"a": frame(), "pl": pl}
+    exec("globals()[1] = pl.DataFrame({'b': [1]})", ns)  # as step code can
     assert dataset_names(ns) == {"a"}
 
 

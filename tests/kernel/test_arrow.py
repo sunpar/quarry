@@ -35,20 +35,20 @@ def test_for_viewer_casts_every_unsupported_dtype() -> None:
     out = for_viewer(mixed())
     assert out.schema == pl.Schema(
         {
-            "s": pl.String,
-            "d": pl.Date,
+            "s": pl.String(),
+            "d": pl.Date(),
             "ts": pl.Datetime("us"),
             "z": pl.Datetime("us", "America/New_York"),
-            "dec": pl.Float64,
-            "cat": pl.String,
-            "dur": pl.String,
-            "t": pl.String,
-            "b": pl.String,
-            "l": pl.String,
-            "st": pl.String,
-            "big": pl.Float64,
-            "u": pl.UInt64,
-            "f": pl.Float64,
+            "dec": pl.Float64(),
+            "cat": pl.String(),
+            "dur": pl.String(),
+            "t": pl.String(),
+            "b": pl.String(),
+            "l": pl.String(),
+            "st": pl.String(),
+            "big": pl.Float64(),
+            "u": pl.UInt64(),
+            "f": pl.Float64(),
         }
     )
     row = out.row(0, named=True)

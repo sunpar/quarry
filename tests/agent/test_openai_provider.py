@@ -28,15 +28,17 @@ def test_to_openai_messages_shapes() -> None:
         ),
         Message(role="user", tool_results=[ToolResult(call_id="c1", content="{}", is_error=True)]),
     ]
-    api = to_openai_messages("sys", msgs)
-    assert api[0] == {"role": "system", "content": "sys"}
-    assert api[1] == {"role": "user", "content": "load it"}
-    assert api[2]["role"] == "assistant"
-    assert api[2]["tool_calls"][0]["function"] == {
-        "name": "run_python",
-        "arguments": json.dumps({"code": "x=1"}),
-    }
-    assert api[3] == {"role": "tool", "tool_call_id": "c1", "content": "{}"}
+    call = {"name": "run_python", "arguments": json.dumps({"code": "x=1"})}
+    assert to_openai_messages("sys", msgs) == [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "load it"},
+        {
+            "role": "assistant",
+            "content": "ok",
+            "tool_calls": [{"id": "c1", "type": "function", "function": call}],
+        },
+        {"role": "tool", "tool_call_id": "c1", "content": "{}"},
+    ]
 
 
 def test_to_openai_tools() -> None:
@@ -47,10 +49,13 @@ def test_to_openai_tools() -> None:
             input_schema={"type": "object", "properties": {}, "required": []},
         )
     ]
-    api = to_openai_tools(tools)
-    assert api[0]["type"] == "function"
-    assert api[0]["function"]["parameters"]["additionalProperties"] is False
-    assert api[0]["function"]["strict"] is True
+    schema = {"type": "object", "properties": {}, "required": [], "additionalProperties": False}
+    assert to_openai_tools(tools) == [
+        {
+            "type": "function",
+            "function": {"name": "t", "description": "d", "parameters": schema, "strict": True},
+        }
+    ]
 
 
 def test_from_openai_response_tool_calls() -> None:

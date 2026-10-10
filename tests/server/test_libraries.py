@@ -11,7 +11,7 @@ from tests.server.test_app import make_client
 
 
 def config_with(tmp_path: Path, **libraries: str | Path) -> QuarryConfig:
-    return QuarryConfig(root=tmp_path, libraries=LibrariesConfig(**libraries))
+    return QuarryConfig(root=tmp_path, libraries=LibrariesConfig.model_validate(libraries))
 
 
 def fake_package(root: Path, name: str, entry: str) -> Path:

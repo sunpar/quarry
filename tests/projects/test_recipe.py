@@ -1,8 +1,9 @@
 import pytest
 
 from quarry.agent.tools import CodeRun
+from quarry.kernel.executor import Status
 from quarry.projects.recipe import raw_recipe, recipe_steps
-from quarry.server.models import Step, StepStatus
+from quarry.server.models import Step
 
 
 def step(
@@ -12,7 +13,7 @@ def step(
     reads: list[str] | None = None,
     writes: list[str] | None = None,
     defines: list[str] | None = None,
-    status: StepStatus = "ok",
+    status: Status = "ok",
     runs: list[CodeRun] | None = None,
     prompt: str | None = None,
 ) -> Step:

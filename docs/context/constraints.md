@@ -48,7 +48,7 @@ made and could revisit belongs in [decisions](decisions.md) instead.
 ## Quality gates
 
 - CI runs `pytest`, `ruff check`, `ruff format --check` and strict `mypy` on
-  `src`, and all four must pass (spec §14). The commands are in the
+  `src` and `tests`, and all four must pass (spec §14). The commands are in the
   [README](../../README.md#development).
 - For every spec in the equivalence fixtures, `to_polars`, `to_sql` and the
   executed `to_source` output must return equal results (spec §14).

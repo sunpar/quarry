@@ -27,22 +27,22 @@ def test_to_api_messages_shapes() -> None:
         ),
         Message(role="user", tool_results=[ToolResult(call_id="c1", content="{}", is_error=True)]),
     ]
-    api = to_api_messages(msgs)
-    assert api[0] == {"role": "user", "content": "load it"}
-    assert api[1]["role"] == "assistant"
-    assert api[1]["content"][0] == {"type": "text", "text": "ok"}
-    assert api[1]["content"][1] == {
-        "type": "tool_use",
-        "id": "c1",
-        "name": "run_python",
-        "input": {"code": "x=1"},
-    }
-    assert api[2]["content"][0] == {
-        "type": "tool_result",
-        "tool_use_id": "c1",
-        "content": "{}",
-        "is_error": True,
-    }
+    assert to_api_messages(msgs) == [
+        {"role": "user", "content": "load it"},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "ok"},
+                {"type": "tool_use", "id": "c1", "name": "run_python", "input": {"code": "x=1"}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "c1", "content": "{}", "is_error": True}
+            ],
+        },
+    ]
 
 
 def test_to_api_tools_are_strict() -> None:
@@ -57,9 +57,14 @@ def test_to_api_tools_are_strict() -> None:
             },
         )
     ]
-    api = to_api_tools(tools)
-    assert api[0]["strict"] is True
-    assert api[0]["input_schema"]["additionalProperties"] is False
+    [api] = to_api_tools(tools)
+    assert api["strict"] is True
+    assert api["input_schema"] == {
+        "type": "object",
+        "properties": {"a": {"type": "string"}},
+        "required": ["a"],
+        "additionalProperties": False,
+    }
 
 
 def test_from_api_response_tool_use() -> None:

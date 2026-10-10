@@ -56,7 +56,7 @@ ignore = ["ANN401"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-packages = ["quarry"]
+files = ["src", "tests"]
 mypy_path = "src"
 
 [[tool.mypy.overrides]]

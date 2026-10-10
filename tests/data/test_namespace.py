@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import duckdb
 import polars as pl
@@ -95,7 +96,9 @@ def test_namespace_has_expected_names(tmp_path: Path) -> None:
     ns = build_namespace(QuarryConfig(root=tmp_path), tmp_path)
     assert {"pl", "duckdb", "loaders", "sql", "pq", "sql_local"} <= set(ns)
     assert ns["pl"] is pl
-    assert ns["loaders"].daily_returns(["X"])["ticker"].to_list() == ["X"]
+    loaders = ns["loaders"]
+    assert isinstance(loaders, SimpleNamespace)
+    assert loaders.daily_returns(["X"])["ticker"].to_list() == ["X"]
     # A view it registered shadowed the name's later rebindings; sql_local reads them by name.
     assert "catalog" not in ns
 
@@ -110,7 +113,8 @@ def test_sql_local_sees_step_frames_by_name(tmp_path: Path) -> None:
     ex.execute("df_r18 = pl.DataFrame({'a': [1, 2]})")
     r = ex.execute("s_r18 = sql_local('SELECT sum(a) AS s FROM df_r18').pl()")
     assert r.status == "ok"
-    assert ns["s_r18"]["s"].to_list() == [3]
+    total = ns["s_r18"]
+    assert isinstance(total, pl.DataFrame) and total["s"].to_list() == [3]
     rebind = ex.execute("df_r18 = None")
     assert rebind.status == "ok"
     gone = ex.execute("t_r18 = sql_local('SELECT sum(a) AS s FROM df_r18').pl()")
@@ -127,7 +131,8 @@ def test_pq_relations_are_visible_to_duckdb_sql(tmp_path: Path) -> None:
     ex.execute("rel_r15 = pq('px_r15/*.parquet')")
     r = ex.execute("n_r15 = duckdb.sql('SELECT count(*) AS n FROM rel_r15').pl()")
     assert r.status == "ok"
-    assert ns["n_r15"]["n"].to_list() == [3]
+    count = ns["n_r15"]
+    assert isinstance(count, pl.DataFrame) and count["n"].to_list() == [3]
 
 
 def test_namespace_builds_when_loaders_toml_is_malformed(tmp_path: Path) -> None:

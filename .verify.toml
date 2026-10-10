@@ -8,7 +8,7 @@ run = "uv run ruff format --check src tests"
 
 [[step]]
 name = "mypy"
-run = "uv run mypy src"
+run = "uv run mypy src tests"
 
 [[step]]
 name = "pytest"

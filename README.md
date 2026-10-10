@@ -12,7 +12,7 @@ Project docs, starting with the current working state, are indexed in
 uv sync --all-extras
 uv run pytest
 uv run ruff check src tests && uv run ruff format --check src tests
-uv run mypy src
+uv run mypy src tests
 ```
 
 ## Using the core from a REPL (Stage 1)

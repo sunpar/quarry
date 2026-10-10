@@ -13,6 +13,7 @@ from quarry.kernel.protocol import (
     encode,
 )
 from quarry.kernel.service import KernelService
+from quarry.query import Json
 
 
 def service() -> KernelService:
@@ -91,7 +92,7 @@ def test_missing_params_is_error_not_crash(method: str) -> None:
 def test_polars_compute_error_is_error_response() -> None:
     svc = service()
     svc.handle(Request(id=1, method="execute", params={"code": "df = pl.DataFrame({'a': [1]})"}))
-    spec = {"dataset": "df", "filters": [{"col": "a", "op": "contains", "value": "x"}]}
+    spec: Json = {"dataset": "df", "filters": [{"col": "a", "op": "contains", "value": "x"}]}
     resp = svc.handle(Request(id=2, method="query", params={"spec": spec}))
     assert resp.result is None
     assert resp.error is not None

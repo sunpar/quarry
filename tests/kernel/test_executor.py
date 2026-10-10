@@ -69,6 +69,13 @@ def make(conn: duckdb.DuckDBPyConnection | None = None) -> Executor:
     return Executor({"pl": pl, "duckdb": duckdb, "_conn": conn}, conn=conn, row_cap=3)
 
 
+def frame_in(namespace: dict[str, object], name: str) -> pl.DataFrame:
+    """`namespace[name]`, which generated code must have bound to a polars frame."""
+    value = namespace[name]
+    assert isinstance(value, pl.DataFrame), type(value)
+    return value
+
+
 @pytest.fixture
 def interruptible() -> Iterator[Callable[[int], Executor]]:
     """Makes an executor on a private connection running `threads` threads, under the
@@ -622,7 +629,7 @@ def test_describe_and_unknown_name() -> None:
 def test_query_polars_with_row_cap() -> None:
     ex = make()
     ex.execute("df = pl.DataFrame({'a': [5, 4, 3, 2, 1]})")
-    out = ex.query(QuerySpec(dataset="df", sort=[{"col": "a"}]))
+    out = ex.query(QuerySpec(dataset="df", sort=[Sort(col="a")]))
     assert out.rows == [{"a": 1}, {"a": 2}, {"a": 3}]
     assert out.truncated is True
     assert out.row_count == 3
@@ -654,7 +661,7 @@ def test_query_duckdb_relation() -> None:
 def test_query_duckdb_relation_truncates_at_row_cap() -> None:
     ex = make()
     ex.execute('rel = _conn.sql("SELECT range AS n FROM range(10)")')
-    out = ex.query(QuerySpec(dataset="rel", sort=[{"col": "n", "desc": True}]))
+    out = ex.query(QuerySpec(dataset="rel", sort=[Sort(col="n", desc=True)]))
     assert out.rows == [{"n": 9}, {"n": 8}, {"n": 7}]
     assert out.truncated is True
 
@@ -666,7 +673,7 @@ def test_query_duckdb_relation_pivot() -> None:
         dataset="rel",
         filters=[Filter(col="v", op="lt", value=10)],
         pivot=Pivot(index=["k"], columns="c", values="v", agg="sum"),
-        sort=[{"col": "k"}],
+        sort=[Sort(col="k")],
     )
     out = ex.query(spec)
     # The pivot runs in polars, whose integer sums are Decimal(38, 0) like DuckDB's.
@@ -886,7 +893,7 @@ def test_to_code_renders_each_spec_with_the_live_schema() -> None:
     assert "DROP VIEW" in code
     namespace = dict(ex._ns)  # the generated code must run in the step namespace
     exec(code, namespace)  # the test executes generated code on purpose
-    assert namespace["df_1"].height == 1 and namespace["rel_2"].height == 2
+    assert frame_in(namespace, "df_1").height == 1 and frame_in(namespace, "rel_2").height == 2
 
 
 def test_to_code_reads_a_relation_through_its_importable_projection() -> None:
@@ -898,7 +905,7 @@ def test_to_code_reads_a_relation_through_its_importable_projection() -> None:
     assert "rel.project(" in code
     namespace = dict(ex._ns)
     exec(code, namespace)  # the test executes generated code on purpose
-    assert namespace["rel_1"].rows() == [(1, "9 days")]
+    assert frame_in(namespace, "rel_1").rows() == [(1, "9 days")]
 
 
 def test_to_code_result_names_skip_bound_read_and_chosen_names() -> None:
@@ -915,10 +922,10 @@ def test_to_code_result_names_skip_bound_read_and_chosen_names() -> None:
     assert "df_2 = (" in code and "df_1_2 = (" in code and "df_3 = (" in code
     namespace = dict(ex._ns)
     exec(code, namespace)  # the test executes generated code on purpose
-    assert namespace["df_2"]["a"].to_list() == [1]
-    assert namespace["df_1_2"]["a"].to_list() == [10, 20]
-    assert namespace["df_1"]["a"].to_list() == [10, 20]
-    assert namespace["df_3"].height == 3
+    assert frame_in(namespace, "df_2")["a"].to_list() == [1]
+    assert frame_in(namespace, "df_1_2")["a"].to_list() == [10, 20]
+    assert frame_in(namespace, "df_1")["a"].to_list() == [10, 20]
+    assert frame_in(namespace, "df_3").height == 3
 
 
 def test_to_code_rejects_an_import_that_would_rebind_a_dataset() -> None:
