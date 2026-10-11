@@ -216,6 +216,14 @@ def test_dataset_script_has_a_header_and_the_recipe(tmp_path: Path) -> None:
     assert (ran.returncode, ran.stdout) == (0, "1\n"), ran.stderr
 
 
+def test_a_dataset_script_puts_the_recipes_future_import_first(tmp_path: Path) -> None:
+    store = project_with_saved_items(tmp_path)
+    save_another_dataset(store, "later", "from __future__ import annotations\nlater: int = 1\n")
+    script = dataset_script(store.get("momentum"), store, "later")
+    assert script.startswith("from __future__ import annotations\n")
+    compile(script, "later.py", "exec")
+
+
 def test_pinned_dataset_script_mentions_the_parquet(tmp_path: Path) -> None:
     store = project_with_saved_items(tmp_path)
     saved = store.get("momentum").datasets[0].model_copy(update={"mode": "pinned"})

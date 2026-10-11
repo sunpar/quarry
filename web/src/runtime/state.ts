@@ -36,6 +36,15 @@ export class ViewStateStore {
     this.notify();
   }
 
+  /** Set `patch`'s keys and keep the rest; like a restore, it is not reported as a change. */
+  merge(patch: JsonObject): void {
+    for (const [key, value] of Object.entries(patch))
+      this.values.set(key, value);
+    this.cached = this.snapshot();
+    this.restored = true;
+    this.notify();
+  }
+
   /** The view's queries changed: report the state as a change does, unless it was restored. */
   queriesChanged(): void {
     if (!this.restored) this.schedule();

@@ -12,6 +12,8 @@ export type HostToRuntime =
       licensed?: LicensedLibrary[];
     }
   | { type: "restore"; viewId: string; state: JsonObject }
+  /** Linked keys another canvas card changed: set them, keeping the rest of the state. */
+  | { type: "merge"; viewId: string; state: JsonObject }
   /** Kernel data may have changed: refetch, keeping what is shown until answers arrive. */
   | { type: "refresh"; viewId: string }
   | {

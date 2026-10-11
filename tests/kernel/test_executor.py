@@ -143,6 +143,12 @@ def test_execute_registers_dataset_and_reports_lineage() -> None:
     assert second.writes == ["top"]
 
 
+def test_a_function_rebound_to_its_result_is_a_write_not_a_define() -> None:
+    ex = make()
+    result = ex.execute("def df():\n    return pl.DataFrame({'a': [1]})\n\n\ndf = df()")
+    assert result.status == "ok" and result.writes == ["df"] and result.defines == []
+
+
 def test_execute_captures_stdout_tail() -> None:
     ex = make()
     result = ex.execute("print('x' * 10000)")

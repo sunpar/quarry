@@ -170,7 +170,12 @@ class Executor:
             status, error = "interrupted", None
         elif status == "ok" and describe_errors:
             status, error = "error", describe_errors[0]
-        defines = [] if names is None else _newly_bound(names.defines, prior, self._ns)
+        # A function name the step then bound to a dataset, as `df = df()` does, is a write.
+        defines = (
+            []
+            if names is None
+            else [n for n in _newly_bound(names.defines, prior, self._ns) if n not in writes]
+        )
         reads: list[str] = []
         if names is not None:
             # Helpers as they were when the step started, as `before` is for datasets.

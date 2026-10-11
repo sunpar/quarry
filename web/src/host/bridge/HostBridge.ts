@@ -62,6 +62,10 @@ export class HostBridge {
     this.send({ type: "restore", viewId: this.options.viewId, state });
   }
 
+  merge(state: JsonObject): void {
+    this.send({ type: "merge", viewId: this.options.viewId, state });
+  }
+
   private receive(message: RuntimeToHost): void {
     if (message.type === "ready") {
       this.ready = true;

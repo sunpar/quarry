@@ -45,17 +45,16 @@ def raw_recipe(steps: list[Step]) -> str:
             continue
         label = py_comment(f"step {step.index + 1}: {step.prompt or step.kind}")
         blocks.append(f"{label}\n{code}\n")
-    return "\n".join(blocks)
+    return hoist_future("\n".join(blocks))
 
 
 def scoped_recipe(recipe: str, name: str) -> str:
-    """`recipe` as code that binds only `name` where it runs: the recipe runs in a function of
-    its own, so the other datasets it makes on the way stay local to that function. Its
-    `from __future__` imports stay at module level, the only place Python takes them."""
-    helper = f"_recall_{name}"
+    """`recipe` as code that binds only `name` where it runs: the recipe runs in a function
+    named `name`, which the result then replaces, so the other datasets it makes on the way
+    stay local to it. Its `from __future__` imports stay at module level, the only place Python
+    takes them."""
     future, rest = _split_future(recipe)
-    body = f"{_indent(rest)}    return {name}\n"
-    return f"{future}def {helper}():\n{body}\n\n{name} = {helper}()\ndel {helper}\n"
+    return f"{future}def {name}():\n{_indent(rest)}    return {name}\n\n\n{name} = {name}()\n"
 
 
 def hoist_future(code: str) -> str:

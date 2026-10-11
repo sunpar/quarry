@@ -96,10 +96,10 @@ def test_label_keeps_every_line_break_and_unprintable_out_of_the_code() -> None:
 
 def test_scoped_recipe_binds_only_its_dataset() -> None:
     recipe = "prices = [1, 2]\nreturns = [p * 2 for p in prices]"
-    namespace: dict[str, object] = {"prices": "the session's own"}
+    namespace: dict[str, object] = {"prices": "the session's own", "_recall_returns": 1}
     exec(scoped_recipe(recipe, "returns"), namespace)
     assert namespace["returns"] == [2, 4] and namespace["prices"] == "the session's own"
-    assert "_recall_returns" not in namespace
+    assert namespace["_recall_returns"] == 1  # no helper name is bound, or freed
 
 
 def test_scoped_recipe_keeps_multiline_strings() -> None:
@@ -128,3 +128,13 @@ def test_future_imports_stay_first_in_scoped_and_joined_recipes() -> None:
     namespace: dict[str, object] = {}
     exec(compile(hoist_future(f"# dataset a\n{a}\n# dataset b\n{b}"), "recall", "exec"), namespace)
     assert namespace["a"] == 1 and namespace["b"] == 2
+
+
+def test_raw_recipe_puts_a_later_steps_future_import_first() -> None:
+    steps = [
+        step(0, "a = 1", writes=["a"]),
+        step(1, "from __future__ import annotations\nb: int = a", reads=["a"], writes=["b"]),
+    ]
+    namespace: dict[str, object] = {}
+    exec(compile(raw_recipe(steps), "recipe", "exec"), namespace)
+    assert namespace["b"] == 1

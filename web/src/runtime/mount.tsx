@@ -92,6 +92,7 @@ export function createRuntime(
       if (mounted === null) return;
       mounted.bridge.handle(message, (control) => {
         if (control.type === "restore") mounted?.store.replace(control.state);
+        if (control.type === "merge") mounted?.store.merge(control.state);
         if (control.type === "refresh") mounted?.cache.refresh();
       });
     },

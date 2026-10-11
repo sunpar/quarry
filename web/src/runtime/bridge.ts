@@ -62,7 +62,7 @@ export class RuntimeBridge {
     this.post({ type: "error", viewId: this.viewId, message, stack });
   }
 
-  /** Routes a host message; `onControl` receives mount and restore. */
+  /** Routes a host message; `onControl` receives mount, restore, merge and refresh. */
   handle(message: HostToRuntime, onControl?: (m: HostToRuntime) => void): void {
     if (message.viewId !== this.viewId) return;
     if (message.type === "queryResult" || message.type === "schemaResult") {
