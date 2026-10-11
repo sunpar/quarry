@@ -920,6 +920,15 @@ them.
   not ask, because a view recall loads only the datasets the session lacks. Cost
   if wrong: the session's own binding is gone until the step that made it runs
   again.
+- **A recalled recipe binds only its dataset**: a live recipe remakes every
+  dataset its target depends on, so recall runs it inside a function that
+  returns the target (`def _recall_returns(): ...`), and the session keeps its
+  own `prices` while `returns` is recalled. Lines inside a multi-line string are
+  left unindented, so the string keeps its text. Pinned recalls read one parquet
+  file and need no function. Run in the session's namespace, a view recall had
+  replaced datasets the session already held, though the view loads only the
+  ones it lacks. Cost if wrong: a recipe that declares `global` or imports with
+  `*` does not run this way.
 - **View recall checks the kernel inside a hold**: a view recall lists the
   session's datasets inside `hold`, so it answers 409 at once while a step,
   restart or save runs, and its step loads only the datasets the session lacks.
@@ -936,6 +945,12 @@ them.
   pin finish; the result then replaces the notice. A save is a provider call and
   one or two scratch kernels per dataset, which can take a minute, and a second
   click started a second save of the same files.
+- **One save per target at a time**: a save of a dataset or a view into a
+  project answers 409 while another save of the same name into it runs, from its
+  first check through the last file it writes. A pinned save releases the kernel
+  after its snapshot and validates for a minute, and a live save in that time
+  deleted the snapshot, so the pinned metadata pointed at a missing file. A view
+  save holds its own name and each dataset it saves.
 - **A view is on a canvas once**: cards are keyed by view name, so `set_canvas`
   answers 400 for a canvas that repeats a view, and "Pin to canvas" adds a card
   only for a view the project's canvas lacks, read from the project rather than
@@ -1035,31 +1050,36 @@ them.
 - **Perspective's config maps to a query spec, and the mapping is lossy**:
   `perspectiveToSpec` turns the viewer's saved config into a `QuerySpec` the
   kernel accepts and lists what the spec cannot say in `dropped`, which the
-  pivot built-in keeps in view state for "to code". Filters `==`, `!=`, `<`,
-  `<=`, `>` and `>=` become `eq`, `ne`, `lt`, `le`, `gt` and `ge`; `in` and
-  `not in` become `in` and `not_in`; `contains` and `begins with` become
-  `contains` and `starts_with`; `is null` and `is not null` become `is_null` and
-  `not_null`. Any other operator, such as `ends with` or `is true`, is dropped.
-  Under `group_by`, each other column becomes one `Agg`: `sum`, `mean`, `min`,
-  `max`, `count`, `median`, `first` and `last` keep their names, `avg` becomes
-  `mean`, `high` becomes `max` and `low` becomes `min`; any other aggregate is
-  dropped. `stddev` is dropped too, though the spec has `std`: Perspective's is
-  the population figure (1.5 for 1 and 4) and the kernel's the sample one
-  (2.12), so "to code" would print different numbers. A column with no aggregate
-  set takes Perspective's default, which the saved config leaves out
-  (`aggregates` stays `{}`; the defaults go only into the copy passed to
-  `table.view()`): `sum` for a numeric dtype, matched as the other built-ins
-  match it (`/^(Int|UInt|Float|Decimal)/`, and Decimal and 128-bit integers
-  reach Perspective as floats), and `count` for everything else; Perspective
-  3.8.0 counts Boolean, Date and Datetime columns too. A column missing from the
-  schema counts. Exactly one `split_by` with exactly one aggregated column
-  becomes a `pivot` indexed by the group keys; two or more `split_by`, or a
-  split over several aggregated columns, drops the split and keeps the grouping.
-  When every column is a group key, the spec counts the first key, since
-  `group_by` needs an aggregate. Without `group_by`, `columns` becomes `select`,
-  skipping nulls and expression names, and any `split_by` is dropped.
-  Expressions are dropped, and so are filters, sorts, group keys and split keys
-  on them.
+  pivot built-in keeps in view state for "to code". A filter or aggregate maps
+  only where the kernel computes what Perspective 3.8.0 does, nulls included.
+  Filters `==`, `<`, `<=`, `>` and `>=` become `eq`, `lt`, `le`, `gt` and `ge`;
+  `in` stays `in`; `contains` and `begins with` become `contains` and
+  `starts_with`; `is null` and `is not null` become `is_null` and `not_null`.
+  `!=` and `not in` are dropped: Perspective keeps the rows whose value is null,
+  which `ne` and `not_in` skip, and the spec has no "or" to add them back. Any
+  other operator, such as `ends with` or `is true`, is dropped. Under
+  `group_by`, each other column becomes one `Agg`: `sum`, `mean`, `min`, `first`
+  and `last` keep their names and `avg` becomes `mean`; any other aggregate is
+  dropped. Probed against 3.8.0: `count` counts nulls, where the kernel counts
+  values; `median` takes the upper middle of an even integer group (4 for 1
+  and 4) and shifts once a group holds a null; `max` and `high` turn null once a
+  group holds a null; `low` gives 0 for an all-null group; and `stddev` is the
+  population figure (1.5 for 1 and 4) where the kernel's `std` is the sample one
+  (2.12). `sum` stays though it differs on one input: an all-null group sums to
+  0 in Perspective and to null in the kernel. A column with no aggregate set
+  takes Perspective's default, which the saved config leaves out (`aggregates`
+  stays `{}`; the defaults go only into the copy passed to `table.view()`):
+  `sum` for a numeric dtype, matched as the other built-ins match it
+  (`/^(Int|UInt|Float|Decimal)/`, and Decimal and 128-bit integers reach
+  Perspective as floats), and `count` for everything else, which is then dropped
+  like any `count`. A column missing from the schema counts too. Exactly one
+  `split_by` with exactly one aggregated column becomes a `pivot` indexed by the
+  group keys; two or more `split_by`, or a split over several aggregated
+  columns, drops the split and keeps the grouping. When every column is a group
+  key, the spec counts the first key, since `group_by` needs an aggregate.
+  Without `group_by`, `columns` becomes `select`, skipping nulls and expression
+  names, and any `split_by` is dropped. Expressions are dropped, and so are
+  filters, sorts, group keys and split keys on them.
 - **Sorts name output columns**: sort and select run on the grouped output, so
   under `group_by` a sort on an aggregated column becomes that aggregate's
   output name (`v_sum`), a sort on a group key stays, and any other sort is

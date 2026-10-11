@@ -4,15 +4,14 @@ import type { Json } from "@/shared/json";
 
 type Term = string | number | boolean | null;
 
+// Not `!=` or `not in`: Perspective keeps the null rows they skip, and the kernel drops them.
 const OPS: Record<string, Filter["op"]> = {
   "==": "eq",
-  "!=": "ne",
   "<": "lt",
   "<=": "le",
   ">": "gt",
   ">=": "ge",
   in: "in",
-  "not in": "not_in",
   contains: "contains",
   "begins with": "starts_with",
   "is null": "is_null",
@@ -38,7 +37,7 @@ export function mapFilters(
   for (const [col, op, term] of config.filter ?? []) {
     const label = `filter ${col} "${op}"`;
     const mapped = OPS[op];
-    const list = mapped === "in" || mapped === "not_in";
+    const list = mapped === "in";
     const valued = mapped !== "is_null" && mapped !== "not_null";
     if (
       (mapped !== undefined && valued && term === null) ||
@@ -73,7 +72,7 @@ function toFilter(
   dtype: string | undefined,
 ): Filter | undefined {
   if (op === "is_null" || op === "not_null") return { col, op };
-  if (op === "in" || op === "not_in") {
+  if (op === "in") {
     // polars `is_in` refuses Float64 items against a Decimal column.
     if (!Array.isArray(term) || dtype?.startsWith("Decimal")) return undefined;
     const value: Json[] = [];

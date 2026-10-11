@@ -2,17 +2,16 @@ import type { ViewerConfigUpdate } from "@finos/perspective-viewer";
 import type { Agg, Column, QuerySpec, Sort } from "@/shared/api-types";
 import { mapFilters } from "./filters";
 
-// No `stddev`: Perspective's is the population figure, the kernel's `std` the sample one.
+// Only the aggregates the kernel computes as Perspective 3.8 does, nulls included. Not
+// `stddev` (the population figure, the kernel's `std` the sample one), `median` (the upper
+// middle of an even integer group), `max` and `high` (null once a group holds a null), `low`
+// (0 for an all-null group) or `count` (which counts nulls). `sum` differs only on an
+// all-null group, 0 to the kernel's null.
 const AGGS: Record<string, Agg["fn"]> = {
   sum: "sum",
   avg: "mean",
   mean: "mean",
   min: "min",
-  low: "min",
-  max: "max",
-  high: "max",
-  count: "count",
-  median: "median",
   first: "first",
   last: "last",
 };

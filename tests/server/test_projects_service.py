@@ -1,3 +1,4 @@
+import threading
 import time
 from pathlib import Path
 
@@ -11,7 +12,12 @@ from quarry.config import ConfigError, QuarryConfig
 from quarry.projects.store import ProjectStore
 from quarry.query.spec import Json
 from quarry.server.kernels import KernelManager, SessionBusy
-from quarry.server.projects import ProjectService, SaveDatasetRequest, SaveViewRequest
+from quarry.server.projects import (
+    ProjectService,
+    SaveDatasetRequest,
+    SaveRunning,
+    SaveViewRequest,
+)
 from quarry.server.service import SessionService
 from quarry.server.store import SessionStore
 from tests.fixtures import umask
@@ -256,4 +262,34 @@ def test_hold_refuses_steps_and_restarts(tmp_path: Path) -> None:
             pass
     sessions.start_manual(sid, "x = 1")
     wait_idle(sessions, sid)
+    sessions.shutdown()
+
+
+def test_a_second_save_of_a_dataset_is_refused_until_the_first_ends(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = FakeProvider([py("c1", PRICES), end()])
+    sessions, projects = build(tmp_path, provider)
+    sid, _ = run_prices(sessions)
+    slug = projects.create("p", "").slug
+    tidying, release = threading.Event(), threading.Event()
+
+    def slow_tidy(_raw: str, _dataset: str) -> None:
+        tidying.set()
+        release.wait(30)
+
+    monkeypatch.setattr(projects, "_tidy", slow_tidy)
+    pinned = SaveDatasetRequest(session_id=sid, dataset="prices", mode="pinned")
+    first = threading.Thread(target=projects.save_dataset, args=(slug, pinned))
+    first.start()
+    assert tidying.wait(30)
+    # A live save would delete the snapshot the pinned one is about to record.
+    with pytest.raises(SaveRunning):
+        projects.save_dataset(slug, pinned.model_copy(update={"mode": "live"}))
+    release.set()
+    first.join(30)
+    saved = projects.get(slug).datasets[0]
+    assert saved.mode == "pinned" and projects.store.parquet_path(slug, "prices").exists()
+    later = projects.save_dataset(slug, pinned.model_copy(update={"mode": "live"}))
+    assert later.mode == "live"
     sessions.shutdown()

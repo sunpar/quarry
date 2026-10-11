@@ -84,11 +84,6 @@ describe("perspectiveToSpec", () => {
       avg: "mean",
       mean: "mean",
       min: "min",
-      low: "min",
-      max: "max",
-      high: "max",
-      count: "count",
-      median: "median",
       first: "first",
       last: "last",
     }),
@@ -101,15 +96,18 @@ describe("perspectiveToSpec", () => {
     expect(spec.aggs).toEqual([{ col: "v", fn }]);
   });
 
-  it("drops stddev, which Perspective takes over the population", () => {
-    const { spec, dropped } = perspectiveToSpec("t", {
-      group_by: ["k"],
-      columns: ["v"],
-      aggregates: { v: "stddev" },
-    });
-    expect(spec.aggs).toEqual([{ col: "k", fn: "count" }]);
-    expect(dropped).toEqual(['aggregate v "stddev"']);
-  });
+  it.each(["stddev", "median", "max", "high", "low", "count"])(
+    "drops %s, which Perspective computes otherwise",
+    (aggregate) => {
+      const { spec, dropped } = perspectiveToSpec("t", {
+        group_by: ["k"],
+        columns: ["v"],
+        aggregates: { v: aggregate },
+      });
+      expect(spec.aggs).toEqual([{ col: "k", fn: "count" }]);
+      expect(dropped).toEqual([`aggregate v "${aggregate}"`]);
+    },
+  );
 
   it("leaves expression columns out of select, filters and sorts", () => {
     const { spec, dropped } = perspectiveToSpec("t", {
@@ -130,16 +128,17 @@ describe("perspectiveToSpec", () => {
     expect(spec.aggs).toEqual([{ col: "k", fn: "count" }]);
   });
 
-  it("defaults the aggregate to count when none is set", () => {
-    const { spec } = perspectiveToSpec("t", {
+  it("drops the default count of a column with no aggregate set", () => {
+    const { spec, dropped } = perspectiveToSpec("t", {
       group_by: ["k"],
       columns: ["v"],
     });
-    expect(spec.aggs).toEqual([{ col: "v", fn: "count" }]);
+    expect(spec.aggs).toEqual([{ col: "k", fn: "count" }]);
+    expect(dropped).toEqual(['aggregate v "count"']);
   });
 
   it("sums numeric columns by default, as Perspective does", () => {
-    const { spec } = perspectiveToSpec(
+    const { spec, dropped } = perspectiveToSpec(
       "t",
       { group_by: ["k"], columns: ["i", "p", "d", "s", "gone"] },
       [
@@ -152,9 +151,11 @@ describe("perspectiveToSpec", () => {
     expect(spec.aggs).toEqual([
       { col: "i", fn: "sum" },
       { col: "p", fn: "sum" },
-      { col: "d", fn: "count" },
-      { col: "s", fn: "count" },
-      { col: "gone", fn: "count" },
+    ]);
+    expect(dropped).toEqual([
+      'aggregate d "count"',
+      'aggregate s "count"',
+      'aggregate gone "count"',
     ]);
   });
 

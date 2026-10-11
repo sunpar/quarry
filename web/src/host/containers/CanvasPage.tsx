@@ -4,6 +4,7 @@ import type { CanvasCard, Project } from "@/shared/api-types";
 import {
   dataVersion,
   sessionRunning,
+  useDatasets,
   useRecall,
   useSavedView,
   useSession,
@@ -71,8 +72,14 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
   const running = sessionRunning(session.data);
   const status = useSessionStatus(sessionId, running || recall.isPending);
   const version = dataVersion(steps, status.data?.kernel.pid);
-  const present = new Set(steps.flatMap((s) => s.writes));
-  const error = recall.error ?? setCanvas.error;
+  // What the kernel holds now: a step's writes can be deleted or rebound since, and a reopened
+  // session's kernel holds nothing until its steps replay.
+  const datasets = useDatasets(sessionId, version);
+  const present =
+    datasets.data === undefined
+      ? undefined
+      : new Set(datasets.data.map((d) => d.name));
+  const error = recall.error ?? setCanvas.error ?? datasets.error;
 
   // react-grid-layout fires onLayoutChange once on mount after compaction; only a real
   // change in positions or sizes is worth a PUT.
@@ -116,7 +123,11 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
             {layout.map((item) => {
               const view = project.views.find((v) => v.name === item.i);
               if (view === undefined) return <div key={item.i} />;
-              const missing = view.datasets.filter((d) => !present.has(d));
+              // Until the kernel answers, a card shows neither its view nor "Load".
+              const missing =
+                present === undefined
+                  ? []
+                  : view.datasets.filter((d) => !present.has(d));
               return (
                 <div key={item.i}>
                   <CanvasCardFrame
@@ -133,13 +144,15 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
                     }
                     onRemove={() => remove(view.name)}
                   >
-                    <CanvasCardView
-                      slug={slug}
-                      view={view.name}
-                      sessionId={sessionId}
-                      dataVersion={version}
-                      hub={hub}
-                    />
+                    {present !== undefined && (
+                      <CanvasCardView
+                        slug={slug}
+                        view={view.name}
+                        sessionId={sessionId}
+                        dataVersion={version}
+                        hub={hub}
+                      />
+                    )}
                   </CanvasCardFrame>
                 </div>
               );

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import builtins
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Literal
 
 from pydantic import BaseModel
@@ -20,7 +23,7 @@ from quarry.projects.models import (
     SavedViewMeta,
     SaveMode,
 )
-from quarry.projects.recipe import raw_recipe, recipe_steps
+from quarry.projects.recipe import raw_recipe, recipe_steps, scoped_recipe
 from quarry.projects.store import ProjectStore, check_view_name
 from quarry.projects.tidy import tidy_recipe
 from quarry.projects.validate import validate_recipe
@@ -53,6 +56,10 @@ class UnknownDataset(Exception):
     pass
 
 
+class SaveRunning(Exception):
+    """A save of the same dataset or view into the project has not finished."""
+
+
 SavedView = SavedViewFiles  # the API returns the saved view exactly as stored
 
 
@@ -69,6 +76,8 @@ class ProjectService:
         self._store = store
         self._sessions = sessions
         self._provider_factory = provider_factory
+        self._saving: set[tuple[str, str, str]] = set()
+        self._saving_lock = threading.Lock()
 
     @property
     def store(self) -> ProjectStore:
@@ -90,6 +99,14 @@ class ProjectService:
         return self._store.read_view(slug, name)
 
     def save_dataset(self, slug: str, req: SaveDatasetRequest) -> SavedDatasetMeta:
+        with self._only_save(slug, "dataset", req.dataset):
+            return self._save_dataset(slug, req)
+
+    def save_view(self, slug: str, req: SaveViewRequest) -> SavedViewMeta:
+        with self._only_save(slug, "view", req.name):
+            return self._save_view(slug, req)
+
+    def _save_dataset(self, slug: str, req: SaveDatasetRequest) -> SavedDatasetMeta:
         self._store.meta(slug)  # KeyError for an unknown project before touching the session
         # KeyError for an unknown session before any kernel starts for it: KernelManager.get
         # spawns a kernel for any id.
@@ -136,7 +153,7 @@ class ProjectService:
         self._store.write_dataset(slug, meta, recipe=recipe, raw=raw)
         return meta
 
-    def save_view(self, slug: str, req: SaveViewRequest) -> SavedViewMeta:
+    def _save_view(self, slug: str, req: SaveViewRequest) -> SavedViewMeta:
         check_view_name(req.name)  # before any dataset save spends a kernel
         step = self._sessions.step(req.session_id, req.step_id)
         if step.view is None:
@@ -206,7 +223,23 @@ class ProjectService:
         if saved.mode == "pinned":
             path = self._store.parquet_path(project.meta.slug, name)
             return f"import polars as pl\n{name} = pl.read_parquet({str(path)!r})\n"
-        return self._store.read_recipe(project.meta.slug, name)
+        # A recipe remakes every dataset its target depends on; the session keeps its own.
+        return scoped_recipe(self._store.read_recipe(project.meta.slug, name), name)
+
+    @contextmanager
+    def _only_save(self, slug: str, kind: str, name: str) -> Iterator[None]:
+        """Refuse a second save of one target until the first has written its files: a live
+        save deletes the rows a pinned one is still validating, and two saves interleave."""
+        target = (slug, kind, name)
+        with self._saving_lock:
+            if target in self._saving:
+                raise SaveRunning(f"{kind} {name} is still being saved")
+            self._saving.add(target)
+        try:
+            yield
+        finally:
+            with self._saving_lock:
+                self._saving.discard(target)
 
     def _tidy(self, raw: str, dataset: str) -> str | None:
         """The tidied recipe, or None when no provider is configured: a save never needs one."""

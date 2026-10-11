@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type {
   CanvasCard,
   Project,
@@ -49,6 +54,17 @@ export function useSessionStatus(id: string, running: boolean) {
     queryKey: keys.status(id),
     queryFn: () => api.getStatus(id),
     refetchInterval: running ? POLL_MS : 5000,
+  });
+}
+
+/** The kernel's datasets, listed again whenever `version` (see `dataVersion`) changes. */
+export function useDatasets(id: string, version: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: [...keys.datasets(id), version],
+    queryFn: () => api.datasets(id),
+    // The last list stays while the next loads, so a step ending does not remount every card.
+    placeholderData: keepPreviousData,
   });
 }
 
