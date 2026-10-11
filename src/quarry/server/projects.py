@@ -107,7 +107,6 @@ class ProjectService:
             return self._save_view(slug, req)
 
     def _save_dataset(self, slug: str, req: SaveDatasetRequest) -> SavedDatasetMeta:
-        self._store.meta(slug)  # KeyError for an unknown project before touching the session
         # KeyError for an unknown session before any kernel starts for it: KernelManager.get
         # spawns a kernel for any id.
         self._sessions.get(req.session_id)
@@ -229,8 +228,10 @@ class ProjectService:
     @contextmanager
     def _only_save(self, slug: str, kind: str, name: str) -> Iterator[None]:
         """Refuse a second save of one target until the first has written its files: a live
-        save deletes the rows a pinned one is still validating, and two saves interleave."""
-        target = (slug, kind, name)
+        save deletes the rows a pinned one is still validating, and two saves interleave. The key
+        holds the stored slug, which a case-insensitive filesystem also finds under another case.
+        KeyError for an unknown project, before a save touches its session."""
+        target = (self._store.meta(slug).slug, kind, name)
         with self._saving_lock:
             if target in self._saving:
                 raise SaveRunning(f"{kind} {name} is still being saved")

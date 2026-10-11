@@ -256,15 +256,20 @@ them.
   define. A helper is forgotten once its name is rebound or deleted, so later
   reads are not credited to it. A function name the step then binds to a
   dataset, as `df = df()` does, is a write only.
-- **A helper reads where it is called**: a step that calls a helper defined by
+- **A helper reads where it is called**: a step that names a helper defined by
   an earlier step also reads what the helper's body reads when called: its free
   names, the tables in its SQL literals, and the same for each helper it calls.
   Each helper's body names are kept from the step that defined it, and the
   datasets among them are taken when the call runs. Default arguments,
-  decorators and annotations are read where the helper is defined. With only the
-  defining step's reads, `out = get_data()` after `df` was rebound recreated the
-  old `df`, which validation passed on its unchanged schema and row count, and a
-  helper defined before its data existed left that data out.
+  decorators and annotations are read where the helper is defined, and so is a
+  class's own body, since it runs with the definition; only its methods' names
+  wait for the call. When a step defines a name twice, the last definition, the
+  one Python keeps, is the one kept. With only the defining step's reads,
+  `out = get_data()` after `df` was rebound recreated the old `df`, which
+  validation passed on its unchanged schema and row count, and a helper defined
+  before its data existed left that data out. Any load of the name counts, not
+  only a call: `df.pipe(get_data)` and `map(get_data, ...)` call it out of
+  sight, and an extra read only adds a producer to the recipe.
 - **Exception aliases are not datasets**: a module-level `except ... as name`
   does not store `name`, and loading it in the handler is not a read. Python
   deletes the alias when the handler ends.
@@ -969,7 +974,9 @@ them.
   first check through the last file it writes. A pinned save releases the kernel
   after its snapshot and validates for a minute, and a live save in that time
   deleted the snapshot, so the pinned metadata pointed at a missing file. A view
-  save holds its own name and each dataset it saves.
+  save holds its own name and each dataset it saves. The guard keys on the slug
+  stored in `project.json`, since a case-insensitive filesystem finds the
+  project under `P` as well as `p`.
 - **A view is on a canvas once**: cards are keyed by view name, so `set_canvas`
   answers 400 for a canvas that repeats a view, and "Pin to canvas" adds a card
   only for a view the project's canvas lacks, read from the project rather than
@@ -1025,15 +1032,16 @@ them.
   the kernel's preloads (`pl`, `duckdb`, `pq`, `sql`, `sql_local`, `loaders`)
   without importing them, and an export without them failed on its first cell.
   The notebook's first code cell, and the script's first lines after its header
-  and any `from __future__` imports that open its recipe, which Python takes
-  only first, import `load_config` and `build_namespace` from `quarry` and bind
-  the namespace built for the export's Quarry root, written in as an absolute
-  path, with DuckDB spilling under a new `tempfile.mkdtemp()` directory. An
-  export therefore needs `quarry` importable, in a Jupyter kernel too. The cells
-  stay the plain Python the spec's goals (§1) promise, and only this setup leans
-  on Quarry; "To code" output needs none of it. Cost if wrong: an export moved
-  to another machine needs that root's `config.toml` and `loaders.toml` there,
-  or an edit to the path, and the file names where the root lives.
+  and any `from __future__` imports that open its recipe, after an optional
+  docstring, which Python takes only first, import `load_config` and
+  `build_namespace` from `quarry` and bind the namespace built for the export's
+  Quarry root, written in as an absolute path, with DuckDB spilling under a new
+  `tempfile.mkdtemp()` directory. An export therefore needs `quarry` importable,
+  in a Jupyter kernel too. The cells stay the plain Python the spec's goals (§1)
+  promise, and only this setup leans on Quarry; "To code" output needs none of
+  it. Cost if wrong: an export moved to another machine needs that root's
+  `config.toml` and `loaders.toml` there, or an edit to the path, and the file
+  names where the root lives.
 - **Export names results across the whole notebook**: a view's queries assign
   `<dataset>_<n>`, n being the query's position in its view, through
   `result_names` in `quarry.query.source_target`, which "To code" uses too. The

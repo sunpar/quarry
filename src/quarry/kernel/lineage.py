@@ -26,8 +26,9 @@ class CodeNames:
     # String literals handed to `sql_local(...)` or `<anything>.sql(...)`: DuckDB can name the
     # tables they read, which the executor turns into dataset reads.
     sql_literals: frozenset[str] = frozenset()
-    # For each function or class the code defines at module level, the free names its body
-    # loads and the SQL literals it passes: what it reads when called, not where it is defined.
+    # For each function or class the code defines at module level, the free names and SQL
+    # literals it reads when called, not where it is defined: a function's whole body, but only a
+    # class's methods, since its own body runs with the definition.
     helper_loads: Mapping[str, frozenset[str]] = field(default_factory=dict)
     helper_sql: Mapping[str, frozenset[str]] = field(default_factory=dict)
 
@@ -46,7 +47,7 @@ def analyze(code: str) -> CodeNames:
         frozenset(module.loads),
         frozenset(visitor.defines),
         frozenset(visitor.sql_literals),
-        {name: frozenset(scope.free_names()) for name, scope in visitor.helpers.items()},
+        {name: frozenset(scope.called_names()) for name, scope in visitor.helpers.items()},
         {name: frozenset(sql) for name, sql in visitor.helper_sql.items()},
     )
 
@@ -71,6 +72,9 @@ class _Scope:
     # Set on an `except ... as alias` handler's body, which shares its parent's kind, `bound`
     # and `declared`: only the alias is its own.
     alias: str | None = None
+    # Free names of the functions inside this scope: read when those are called, not when this
+    # scope's own code runs.
+    deferred: set[str] = field(default_factory=set)
 
     def free_names(self) -> set[str]:
         if self.alias is not None:
@@ -79,10 +83,16 @@ class _Scope:
             return self.loads
         return self.loads - (self.bound - self.declared)
 
+    def called_names(self) -> set[str]:
+        """The free names read only when this scope is called: all of a function's, and of any
+        other scope just those its functions read."""
+        return self.free_names() if self.kind == "function" else self.deferred
+
     def close(self) -> None:
         """Hand this scope's free names to the scope that encloses it."""
         if self.parent is not None:
             self.parent.loads |= self.free_names()
+            self.parent.deferred |= self.called_names()
 
 
 class _ScopeVisitor(ast.NodeVisitor):
@@ -142,10 +152,16 @@ class _ScopeVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def _helper_around(self) -> str | None:
-        """The module-level helper whose body the walk is in, if any."""
-        scope = self._scope
-        while scope.parent is not None and scope.parent.kind != "module":
+        """The module-level helper whose call runs the walk's current point: any point in a
+        function, but in a class only a point inside one of its methods."""
+        scope, called = self._scope, False
+        while scope.parent is not None:
+            called = called or scope.kind == "function"
+            if scope.parent.kind == "module":
+                break
             scope = scope.parent
+        if not called:
+            return None
         return next((n for n, s in self.helpers.items() if s is scope), None)
 
     def visit_AugAssign(self, node: ast.AugAssign) -> None:
@@ -252,8 +268,9 @@ class _ScopeVisitor(ast.NodeVisitor):
         self._visit_scope("comprehension", body)
 
     def _helper(self, name: str, scope: _Scope) -> None:
+        # The walk meets statements last first, so the definition kept is the one that wins.
         if scope.parent is self.module:
-            self.helpers[name] = scope
+            self.helpers.setdefault(name, scope)
 
     def _define(self, name: str) -> None:
         if self._scope.kind == "module":

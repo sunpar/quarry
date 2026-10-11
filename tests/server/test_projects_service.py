@@ -265,13 +265,19 @@ def test_hold_refuses_steps_and_restarts(tmp_path: Path) -> None:
     sessions.shutdown()
 
 
+@pytest.mark.parametrize("again", ["p", "P"])
 def test_a_second_save_of_a_dataset_is_refused_until_the_first_ends(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, again: str
 ) -> None:
     provider = FakeProvider([py("c1", PRICES), end()])
     sessions, projects = build(tmp_path, provider)
     sid, _ = run_prices(sessions)
     slug = projects.create("p", "").slug
+    try:
+        projects.get(again)
+    except KeyError:
+        sessions.shutdown()
+        pytest.skip("this filesystem tells the two spellings apart")
     tidying, release = threading.Event(), threading.Event()
 
     def slow_tidy(_raw: str, _dataset: str) -> None:
@@ -285,7 +291,7 @@ def test_a_second_save_of_a_dataset_is_refused_until_the_first_ends(
     assert tidying.wait(30)
     # A live save would delete the snapshot the pinned one is about to record.
     with pytest.raises(SaveRunning):
-        projects.save_dataset(slug, pinned.model_copy(update={"mode": "live"}))
+        projects.save_dataset(again, pinned.model_copy(update={"mode": "live"}))
     release.set()
     first.join(30)
     saved = projects.get(slug).datasets[0]

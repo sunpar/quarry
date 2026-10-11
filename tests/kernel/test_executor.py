@@ -372,6 +372,25 @@ def test_calling_a_helper_reads_its_sql_tables_and_the_helpers_it_calls() -> Non
     assert ex.execute("out = outer().pl()").reads == ["inner", "outer", "t"]
 
 
+def test_a_class_body_is_read_where_the_class_is_defined() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1]})")
+    defined = ex.execute(
+        "class Factory:\n    kept = df\n    def make(self):\n        return prices\n"
+    )
+    assert defined.reads == ["df"]
+    ex.execute("prices = pl.DataFrame({'a': [2]})\ndf = pl.DataFrame({'a': [3]})")
+    # The class captured the first df; only its method reads at the call.
+    assert ex.execute("out = Factory().make()").reads == ["Factory", "prices"]
+
+
+def test_a_call_reads_what_the_helpers_last_definition_reads() -> None:
+    ex = make()
+    ex.execute("def get_data():\n    return first\ndef get_data():\n    return second\n")
+    ex.execute("first = pl.DataFrame({'a': [1]})\nsecond = pl.DataFrame({'a': [2]})")
+    assert ex.execute("out = get_data()").reads == ["get_data", "second"]
+
+
 def test_a_default_argument_is_read_where_the_helper_is_defined() -> None:
     ex = make()
     ex.execute("df = pl.DataFrame({'a': [1]})")

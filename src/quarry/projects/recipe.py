@@ -59,10 +59,18 @@ def scoped_recipe(recipe: str, name: str) -> str:
 def split_leading_future(code: str) -> tuple[str, str]:
     """The lines up to the last of `code`'s leading `from __future__` imports, and the rest.
     Code put before `code` must go after the first part, since Python takes those imports only
-    first. A later one stays where it is: moving it would change how earlier lines compile."""
+    first, after an optional docstring. A later one stays where it is: moving it would change how
+    earlier lines compile."""
     end = 0
-    for node in ast.parse(code).body:
-        if not (isinstance(node, ast.ImportFrom) and node.module == "__future__"):
+    for i, node in enumerate(ast.parse(code).body):
+        docstring = (
+            i == 0
+            and isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        )
+        future = isinstance(node, ast.ImportFrom) and node.module == "__future__"
+        if not (docstring or future):
             break
         end = node.end_lineno or node.lineno
     lines = _lines(code)
