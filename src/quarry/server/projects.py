@@ -23,7 +23,7 @@ from quarry.projects.models import (
     SavedViewMeta,
     SaveMode,
 )
-from quarry.projects.recipe import raw_recipe, recipe_steps, scoped_recipe
+from quarry.projects.recipe import hoist_future, raw_recipe, recipe_steps, scoped_recipe
 from quarry.projects.store import ProjectStore, check_view_name
 from quarry.projects.tidy import tidy_recipe
 from quarry.projects.validate import validate_recipe
@@ -200,8 +200,11 @@ class ProjectService:
             for name in meta.datasets
             if name not in present
         ]
+        # A later block's `from __future__` import must still come first.
         code = (
-            "\n".join(blocks) if blocks else "# every dataset this view needs is already loaded\n"
+            hoist_future("\n".join(blocks))
+            if blocks
+            else "# every dataset this view needs is already loaded\n"
         )
         pending = PendingView(
             component_id=meta.component_id,

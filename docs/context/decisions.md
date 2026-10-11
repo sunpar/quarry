@@ -255,6 +255,11 @@ them.
   when the step newly bound or rebound it, so a `def` that never ran is not a
   define. A helper is forgotten once its name is rebound or deleted, so later
   reads are not credited to it.
+- **A helper reads where it is called**: a recipe walk resolves the reads of the
+  step that defined a helper both before that step and before each step that
+  calls it, since a function reads its globals when it runs. With only the
+  first, `out = get_data()` after `df` was rebound recreated the old `df`, and
+  validation passed on its unchanged schema and row count.
 - **Exception aliases are not datasets**: a module-level `except ... as name`
   does not store `name`, and loading it in the handler is not a read. Python
   deletes the alias when the handler ends.
@@ -924,11 +929,12 @@ them.
   dataset its target depends on, so recall runs it inside a function that
   returns the target (`def _recall_returns(): ...`), and the session keeps its
   own `prices` while `returns` is recalled. Lines inside a multi-line string are
-  left unindented, so the string keeps its text. Pinned recalls read one parquet
-  file and need no function. Run in the session's namespace, a view recall had
-  replaced datasets the session already held, though the view loads only the
-  ones it lacks. Cost if wrong: a recipe that declares `global` or imports with
-  `*` does not run this way.
+  left unindented, so the string keeps its text, and `from __future__` imports
+  stay at module level, moved first when a view joins several recipes. Pinned
+  recalls read one parquet file and need no function. Run in the session's
+  namespace, a view recall had replaced datasets the session already held,
+  though the view loads only the ones it lacks. Cost if wrong: a recipe that
+  declares `global` or imports with `*` does not run this way.
 - **View recall checks the kernel inside a hold**: a view recall lists the
   session's datasets inside `hold`, so it answers 409 at once while a step,
   restart or save runs, and its step loads only the datasets the session lacks.
@@ -1127,8 +1133,9 @@ them.
   `dataset`, for any view, and the snapshot's queries otherwise. The pivot
   publishes its mapped spec there, without `limit`, written beside `dropped`;
   its queries are the 50,000-row arrow load and the one-row probe, which would
-  render as `.head(1)`. A saved view's export still renders the recorded
-  queries.
+  render as `.head(1)`. A saved view's export reads its saved state the same way
+  and notes what `dropped` lists; it had rendered the probe, so an exported
+  pivot gave one row.
 
 ### TanStack table and OHLC
 

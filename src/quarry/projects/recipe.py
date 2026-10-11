@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import io
 import tokenize
 
@@ -16,17 +17,23 @@ def recipe_steps(steps: list[Step], dataset: str) -> list[Step]:
     if root is None:
         raise KeyError(dataset)
     chosen: dict[int, Step] = {}
-    pending = [root]
+    # Each step with the position its reads resolve before: its own, or for a helper's step
+    # also that of each step calling it, since a function reads its globals when called.
+    pending = [(root, ordered.index(root))]
+    seen: set[tuple[int, int]] = set()
     while pending:
-        step = pending.pop()
-        if step.index in chosen:
+        step, at = pending.pop()
+        if (step.index, at) in seen:
             continue
+        seen.add((step.index, at))
         chosen[step.index] = step
-        position = ordered.index(step)
         for name in step.reads:
-            producer = _producer(ordered, name, before=position)
-            if producer is not None and producer.index not in chosen:
-                pending.append(producer)
+            producer = _producer(ordered, name, before=at)
+            if producer is None:
+                continue
+            pending.append((producer, ordered.index(producer)))
+            if name in producer.defines:
+                pending.append((producer, at))
     return [chosen[i] for i in sorted(chosen)]
 
 
@@ -43,10 +50,34 @@ def raw_recipe(steps: list[Step]) -> str:
 
 def scoped_recipe(recipe: str, name: str) -> str:
     """`recipe` as code that binds only `name` where it runs: the recipe runs in a function of
-    its own, so the other datasets it makes on the way stay local to that function."""
+    its own, so the other datasets it makes on the way stay local to that function. Its
+    `from __future__` imports stay at module level, the only place Python takes them."""
     helper = f"_recall_{name}"
-    body = f"{_indent(recipe)}    return {name}\n"
-    return f"def {helper}():\n{body}\n\n{name} = {helper}()\ndel {helper}\n"
+    future, rest = _split_future(recipe)
+    body = f"{_indent(rest)}    return {name}\n"
+    return f"{future}def {helper}():\n{body}\n\n{name} = {helper}()\ndel {helper}\n"
+
+
+def hoist_future(code: str) -> str:
+    """`code` with every `from __future__` import first, as joined recipes need: Python refuses
+    one after any other statement."""
+    future, rest = _split_future(code)
+    return future + rest
+
+
+def _split_future(code: str) -> tuple[str, str]:
+    """The lines holding module-level `from __future__` imports, and the rest of `code`."""
+    tree = ast.parse(code)
+    lines = code.splitlines(keepends=True)
+    moved = {
+        i
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom) and node.module == "__future__"
+        for i in range(node.lineno - 1, node.end_lineno or node.lineno)
+    }
+    future = "".join(lines[i] for i in sorted(moved))
+    rest = "".join(line for i, line in enumerate(lines) if i not in moved)
+    return future, rest
 
 
 # 3.12 tokenizes f-strings in parts, and 3.14 t-strings too.

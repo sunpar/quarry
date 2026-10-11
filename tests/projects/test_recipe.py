@@ -2,7 +2,7 @@ import pytest
 
 from quarry.agent.tools import CodeRun
 from quarry.kernel.executor import Status
-from quarry.projects.recipe import raw_recipe, recipe_steps, scoped_recipe
+from quarry.projects.recipe import hoist_future, raw_recipe, recipe_steps, scoped_recipe
 from quarry.server.models import Step
 
 
@@ -107,3 +107,24 @@ def test_scoped_recipe_keeps_multiline_strings() -> None:
     namespace: dict[str, object] = {}
     exec(scoped_recipe(recipe, "r"), namespace)
     assert namespace["r"] == "x\n  select\n  1\nend"
+
+
+def test_a_helper_reads_the_data_bound_where_it_is_called() -> None:
+    steps = [
+        step(0, "df = load()", writes=["df"]),
+        step(1, "def get_data():\n    return df", reads=["df"], defines=["get_data"]),
+        step(2, "df = load_again()", writes=["df"]),
+        step(3, "out = get_data()", reads=["get_data"], writes=["out"]),
+    ]
+    # get_data reads df when step 3 calls it, by then the df of step 2.
+    assert [s.index for s in recipe_steps(steps, "out")] == [0, 1, 2, 3]
+
+
+def test_future_imports_stay_first_in_scoped_and_joined_recipes() -> None:
+    future = "from __future__ import annotations\n"
+    a = scoped_recipe(future + "a: int = 1\n", "a")
+    b = scoped_recipe(future + "def f(x: Undefined) -> int:\n    return 2\nb = f(0)\n", "b")
+    assert a.startswith(future)
+    namespace: dict[str, object] = {}
+    exec(compile(hoist_future(f"# dataset a\n{a}\n# dataset b\n{b}"), "recall", "exec"), namespace)
+    assert namespace["a"] == 1 and namespace["b"] == 2
