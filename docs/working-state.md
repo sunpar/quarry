@@ -8,14 +8,9 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Merge the fixes from a Codex review of Stages 4 and 5, on
-`claude/quarry-stage4-5-review-fixes`. Codex (`gpt-6-astra`) reviewed the branch
-diff from `6bc133e`, the `main` before Stage 4, four times; each round's
-findings were fixed, tested and recorded in [decisions](context/decisions.md),
-and a `/simplify` pass followed. The fourth round still had findings, and its
-fixes have had no Codex review yet, so the pull request's `@claude` and `@codex`
-reviews are the gate. What the reviews suggested and the branch left is under
-[Any time](open-items.md#any-time).
+Pick the next work from [open-items.md](open-items.md). The fixes from a Codex
+review of Stages 4 and 5 merged in sunpar/quarry#11 as `5b2ac3e`; see
+[the review below](#stages-4-and-5-review).
 
 ## Status by stage
 
@@ -94,20 +89,31 @@ merged on 2026-10-10. How the stage was run (models, reviews, the long commit
 subjects kept, the merge record pushed straight to `main`) is under
 [build process](context/decisions.md#build-process).
 
+### Stages 4 and 5 review
+
+Built on `claude/quarry-stage4-5-review-fixes`. Codex (`gpt-6-astra`) reviewed
+the branch diff from `6bc133e`, the `main` before Stage 4, four times, and each
+round's findings were fixed, tested and recorded in
+[decisions](context/decisions.md); a `/simplify` pass followed. On the pull
+request, five rounds of `@claude` and `@codex` reviews followed, and both came
+back clean on `8b54708` with CI green. Two Codex points stayed as recorded
+decisions: any load of a helper's name counts as a call, and recall calls
+`exec`, `dict` and `globals` from the session. What the reviews suggested and
+the branch left is under [Any time](open-items.md#any-time). The pull request
+merged on 2026-10-11.
+
 ## Latest verification
 
-`claude/quarry-stage4-5-review-fixes` after the fourth pull request reviews,
-locally on 2026-10-11: `pytest` passed 1079 tests and skipped 3 (the live
-provider and memory-cap tests), including the browser tests under `tests/e2e`
-against a fresh build. `ruff check`, `ruff format --check`, `mypy src tests` and
+`claude/quarry-stage4-5-review-fixes` at `8b54708`, before it merged, locally on
+2026-10-11: `pytest` passed 1079 tests and skipped 3 (the live provider and
+memory-cap tests), including the browser tests under `tests/e2e` against a fresh
+build. `ruff check`, `ruff format --check`, `mypy src tests` and
 `uv lock --check` were clean, and in `web/` `npm run check`, `npm test` (239
 tests) and `npm run build` passed.
 
 ## Next actions
 
-1. Iterate the pull request's `@claude` and `@codex` reviews until both come
-   back clean, then merge.
-2. Pick the next work from [open-items.md](open-items.md), starting with its
+1. Pick the next work from [open-items.md](open-items.md), starting with its
    known problems.
 
 ## Resuming
