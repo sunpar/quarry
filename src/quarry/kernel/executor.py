@@ -170,14 +170,11 @@ class Executor:
             status, error = "interrupted", None
         elif status == "ok" and describe_errors:
             status, error = "error", describe_errors[0]
-        # A function name the step then bound to a dataset, as `df = df()` does, is a write.
-        defines = (
-            []
-            if names is None
-            else [n for n in _newly_bound(names.defines, prior, self._ns) if n not in writes]
-        )
+        defines: list[str] = []
         reads: list[str] = []
         if names is not None:
+            # A function name the step then bound to a dataset, as `df = df()` does, is a write.
+            defines = [n for n in _newly_bound(names.defines, prior, self._ns) if n not in writes]
             # Helpers as they were when the step started, as `before` is for datasets.
             loaded = dataset_reads(names, set(before), set(self._defined))
             reads = sorted({*loaded, *self._sql_table_reads(names.sql_literals, set(before))})

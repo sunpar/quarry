@@ -64,7 +64,9 @@ export function useDatasets(id: string, version: string) {
   return useQuery({
     queryKey: [...keys.datasets(id), version],
     queryFn: () => api.datasets(id),
-    // The last list stays while the next loads, so a step ending does not remount every card.
+    // One version's list never changes; the last one stays while the next loads, so a step
+    // ending does not remount every card.
+    staleTime: Infinity,
     placeholderData: keepPreviousData,
   });
 }
@@ -226,10 +228,8 @@ async function pinView(
   if (current.some((c) => c.view === view)) return;
   const y = current.reduce((max, c) => Math.max(max, c.y + c.h), 0);
   const cards = [...current, { view, x: 0, y, w: 6, h: 8 }];
-  const meta = await api.setCanvas(slug, cards);
-  qc.setQueryData(keys.project(slug), (old: Project | undefined) =>
-    old ? { ...old, meta } : old,
-  );
+  // The save's success refetches the project, canvas included.
+  await api.setCanvas(slug, cards);
 }
 
 export function useSetCanvas() {

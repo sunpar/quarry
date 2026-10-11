@@ -107,6 +107,9 @@ def test_scoped_recipe_keeps_multiline_strings() -> None:
     namespace: dict[str, object] = {}
     exec(scoped_recipe(recipe, "r"), namespace)
     assert namespace["r"] == "x\n  select\n  1\nend"
+    # A line separator inside a literal is no line break to Python.
+    exec(hoist_future(scoped_recipe('s = "a\u2028b"\n', "s")), namespace)
+    assert namespace["s"] == "a\u2028b"
 
 
 def test_a_helper_reads_the_data_bound_where_it_is_called() -> None:

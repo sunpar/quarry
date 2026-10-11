@@ -166,9 +166,10 @@ def _to_code_input(saved: SavedViewFiles) -> tuple[list[dict[str, Json]], list[s
     `dropped` lists what that spec leaves out."""
     spec, dropped = saved.state.get("spec"), saved.state.get("dropped")
     named = isinstance(spec, dict) and isinstance(spec.get("dataset"), str)
-    queries = [spec] if isinstance(spec, dict) and named else saved.queries
-    listed = isinstance(dropped, list) and all(isinstance(d, str) for d in dropped)
-    return queries, [str(d) for d in dropped] if isinstance(dropped, list) and listed else []
+    queries = [spec] if named and isinstance(spec, dict) else saved.queries
+    if isinstance(dropped, list) and all(isinstance(d, str) for d in dropped):
+        return queries, [str(d) for d in dropped]
+    return queries, []
 
 
 def _queries_source(

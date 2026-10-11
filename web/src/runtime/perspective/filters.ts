@@ -37,11 +37,10 @@ export function mapFilters(
   for (const [col, op, term] of config.filter ?? []) {
     const label = `filter ${col} "${op}"`;
     const mapped = OPS[op];
-    const list = mapped === "in";
     const valued = mapped !== "is_null" && mapped !== "not_null";
     if (
       (mapped !== undefined && valued && term === null) ||
-      (list &&
+      (mapped === "in" &&
         !(Array.isArray(term) && term.length > 0 && !term.includes(null)))
     ) {
       dropped.push(label);

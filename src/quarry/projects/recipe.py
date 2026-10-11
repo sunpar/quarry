@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 import io
 import tokenize
-from collections.abc import Iterable
 
 from quarry.kernel.lineage import analyze
 from quarry.query.source_target import py_comment
@@ -18,27 +17,29 @@ def recipe_steps(steps: list[Step], dataset: str) -> list[Step]:
     root = _producer(ordered, dataset, before=len(ordered))
     if root is None:
         raise KeyError(dataset)
-    chosen: dict[int, Step] = {}
-    # Each step with the names it reads and the position they resolve before: its own reads at
-    # its own position, and for a helper's step also every name its code loads, at the position
-    # of each step calling the helper. A function reads its globals when called, including names
+    # Pairs of a step's position and the position its names resolve before. At its own, a step
+    # resolves its reads; a helper's step also resolves every name its code loads before each
+    # step calling the helper, since a function reads its globals when called, including names
     # that did not exist yet when it was defined, which its step's reads leave out.
-    pending: list[tuple[Step, int, Iterable[str]]] = [(root, ordered.index(root), root.reads)]
+    pending = [(root, root)]
     seen: set[tuple[int, int]] = set()
+    loads: dict[int, frozenset[str]] = {}
     while pending:
-        step, at, names = pending.pop()
-        if (step.index, at) in seen:
+        pos, at = pending.pop()
+        if (pos, at) in seen:
             continue
-        seen.add((step.index, at))
-        chosen[step.index] = step
-        for name in names:
+        seen.add((pos, at))
+        step = ordered[pos]
+        if at != pos and pos not in loads:
+            loads[pos] = _loads(step)
+        for name in step.reads if at == pos else loads[pos]:
             producer = _producer(ordered, name, before=at)
             if producer is None:
                 continue
-            pending.append((producer, ordered.index(producer), producer.reads))
-            if name in producer.defines:
-                pending.append((producer, at, _loads(producer)))
-    return [chosen[i] for i in sorted(chosen)]
+            pending.append((producer, producer))
+            if name in ordered[producer].defines:
+                pending.append((producer, at))
+    return [ordered[pos] for pos in sorted({pos for pos, _ in seen})]
 
 
 def raw_recipe(steps: list[Step]) -> str:
@@ -71,7 +72,7 @@ def hoist_future(code: str) -> str:
 def _split_future(code: str) -> tuple[str, str]:
     """The lines holding module-level `from __future__` imports, and the rest of `code`."""
     tree = ast.parse(code)
-    lines = code.splitlines(keepends=True)
+    lines = _lines(code)
     moved = {
         i
         for node in tree.body
@@ -107,11 +108,16 @@ def _indent(code: str) -> str:
         else:
             continue
         inside.update(range(first + 1, tok.end[0] + 1))
-    lines = code.splitlines(keepends=True)
     return "".join(
         line if n in inside or line.strip() == "" else "    " + line
-        for n, line in enumerate(lines, start=1)
+        for n, line in enumerate(_lines(code), start=1)
     )
+
+
+def _lines(code: str) -> list[str]:
+    """`code`'s lines as `ast` and `tokenize` count them: `str.splitlines` also breaks at
+    characters such as U+2028, which a string literal may hold."""
+    return io.StringIO(code).readlines()
 
 
 def _loads(step: Step) -> frozenset[str]:
@@ -119,9 +125,9 @@ def _loads(step: Step) -> frozenset[str]:
     return frozenset().union(*(analyze(run.code).loads for run in step.runs if run.status == "ok"))
 
 
-def _producer(ordered: list[Step], name: str, *, before: int) -> Step | None:
-    """The latest step before position `before` that wrote or defined `name`."""
-    for step in reversed(ordered[:before]):
-        if name in step.writes or name in step.defines:
-            return step
+def _producer(ordered: list[Step], name: str, *, before: int) -> int | None:
+    """The position of the latest step before position `before` that wrote or defined `name`."""
+    for pos in range(before - 1, -1, -1):
+        if name in ordered[pos].writes or name in ordered[pos].defines:
+            return pos
     return None
