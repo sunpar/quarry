@@ -953,7 +953,9 @@ them.
   `_recall_returns` helper had replaced a session variable of that name; and a
   function wrapping the recipe refused `import *` and broke a name shadowing a
   preload. Pinned recalls read one parquet file and need none of this. The cost
-  is a recall step whose code holds the recipe as strings.
+  is a recall step whose code holds the recipe as strings, and calls `exec`,
+  `dict` and `globals` from the session, so a session that rebinds one of them
+  breaks recall as it breaks its own code that calls it.
 - **View recall checks the kernel inside a hold**: a view recall lists the
   session's datasets inside `hold`, so it answers 409 at once while a step,
   restart or save runs, and its step loads only the datasets the session lacks.
@@ -971,8 +973,9 @@ them.
   one or two scratch kernels per dataset, which can take a minute, and a second
   click started a second save of the same files.
 - **A saved dataset's name is one code can bind**: the store refuses a name that
-  is not an identifier or is a keyword, since recall and export write
-  `<name> = ...`; step code binds `class` only through `globals()`.
+  is not an identifier, is a keyword or changes under NFKC, since recall and
+  export write `<name> = ...`: step code binds `class` only through `globals()`,
+  and Python reads `ｅ` as `e`.
 - **One save per target at a time**: a save of a dataset or a view into a
   project answers 409 while another save of the same name into it runs, from its
   first check through the last file it writes. A pinned save releases the kernel

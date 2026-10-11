@@ -7,6 +7,7 @@ import json
 import keyword
 import re
 import threading
+import unicodedata
 from pathlib import Path
 from typing import TypeVar
 
@@ -156,9 +157,14 @@ class ProjectStore:
         )
 
     def _dataset_dir(self, slug: str, name: str) -> Path:
-        # Recall and export bind the name in code, so a keyword, which step code can bind only
-        # through `globals()`, cannot be saved.
-        if not name.isidentifier() or keyword.iskeyword(name):
+        # Recall and export bind the name in code, so it must parse as itself: not a keyword,
+        # which step code binds only through `globals()`, and unchanged by the NFKC folding
+        # Python applies to identifiers, which reads fullwidth `e` as `e`.
+        if (
+            not name.isidentifier()
+            or keyword.iskeyword(name)
+            or unicodedata.normalize("NFKC", name) != name
+        ):
             raise ValueError(f"{name!r} is not a dataset name")
         return self._project_dir(slug) / "datasets" / name
 
