@@ -17,20 +17,29 @@ describe("perspectiveToSpec filters", () => {
   it.each(
     Object.entries({
       "==": "eq",
-      "!=": "ne",
       "<": "lt",
       "<=": "le",
       ">": "gt",
       ">=": "ge",
       in: "in",
-      "not in": "not_in",
       contains: "contains",
       "begins with": "starts_with",
     }),
   )("maps the %s filter to %s", (op, mapped) => {
-    const term = op === "in" || op === "not in" ? ["x"] : "x";
+    const term = op === "in" ? ["x"] : "x";
     const { spec } = perspectiveToSpec("t", { filter: [["a", op, term]] });
     expect(spec.filters).toEqual([{ col: "a", op: mapped, value: term }]);
+  });
+
+  it("drops != and not in, which keep null rows the kernel would skip", () => {
+    const { spec, dropped } = perspectiveToSpec("t", {
+      filter: [
+        ["a", "!=", "x"],
+        ["a", "not in", ["x"]],
+      ],
+    });
+    expect(spec.filters).toBeUndefined();
+    expect(dropped).toEqual(['filter a "!="', 'filter a "not in"']);
   });
 
   it("maps a not-null filter without a value", () => {
@@ -66,7 +75,7 @@ describe("perspectiveToSpec filters", () => {
         ["a", "==", null],
         ["b", "in", []],
         ["c", "in", ["x", null]],
-        ["d", "not in", "x"],
+        ["d", "in", "x"],
         ["e", ">", 1],
       ],
     });
@@ -75,7 +84,7 @@ describe("perspectiveToSpec filters", () => {
       'filter a "=="',
       'filter b "in"',
       'filter c "in"',
-      'filter d "not in"',
+      'filter d "in"',
     ]);
   });
 
@@ -96,7 +105,7 @@ describe("perspectiveToSpec filters", () => {
       {
         filter: [
           ["i", "in", ["1", " 2"]],
-          ["f", "not in", ["1.5"]],
+          ["f", "in", ["1.5"]],
           ["b", "in", ["true", "no"]],
           ["s", "in", ["1"]],
           ["i", "in", ["1.5"]],
@@ -108,7 +117,7 @@ describe("perspectiveToSpec filters", () => {
     );
     expect(spec.filters).toEqual([
       { col: "i", op: "in", value: [1, 2] },
-      { col: "f", op: "not_in", value: [1.5] },
+      { col: "f", op: "in", value: [1.5] },
       { col: "b", op: "in", value: [true, false] },
       { col: "s", op: "in", value: ["1"] },
     ]);

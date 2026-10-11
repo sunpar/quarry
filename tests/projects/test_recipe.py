@@ -2,7 +2,7 @@ import pytest
 
 from quarry.agent.tools import CodeRun
 from quarry.kernel.executor import Status
-from quarry.projects.recipe import raw_recipe, recipe_steps
+from quarry.projects.recipe import raw_recipe, recipe_steps, scoped_recipe
 from quarry.server.models import Step
 
 
@@ -92,3 +92,27 @@ def test_unknown_dataset_and_unproduced_reads() -> None:
 def test_label_keeps_every_line_break_and_unprintable_out_of_the_code() -> None:
     steps = [step(0, "df = a()", writes=["df"], prompt="load\rimport os\nnow\x00")]
     assert raw_recipe(steps) == "# step 1: load import os now\\u0000\ndf = a()\n"
+
+
+def test_scoped_recipe_binds_only_its_dataset() -> None:
+    recipe = "prices = [1, 2]\nreturns = [p * 2 for p in prices]"
+    namespace: dict[str, object] = {"prices": "the session's own", "_recall_returns": 1}
+    exec(scoped_recipe(recipe, "returns"), namespace)
+    assert namespace["returns"] == [2, 4] and namespace["prices"] == "the session's own"
+    assert namespace["_recall_returns"] == 1  # no helper name is bound, or freed
+
+
+def test_scoped_recipe_runs_the_recipe_as_its_own_module() -> None:
+    recipe = (
+        "from __future__ import annotations\n"
+        "from math import *\n"
+        "sql = sql('q')\n"
+        'r = f"""{sql}\n  {floor(1.5)}"""\n'
+        's = "a\u2028b"\n'
+    )
+    namespace: dict[str, object] = {"sql": str.upper}
+    exec(scoped_recipe(recipe, "r"), namespace)
+    # A star import, a future import and a preload it shadows all work as at module level.
+    assert namespace["r"] == "Q\n  1" and namespace["sql"] is str.upper
+    exec(scoped_recipe(recipe, "s"), namespace)
+    assert namespace["s"] == "a\u2028b"

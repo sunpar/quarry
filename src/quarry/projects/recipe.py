@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import ast
+import io
+
 from quarry.query.source_target import py_comment
 from quarry.server.models import Step
 
@@ -36,6 +39,55 @@ def raw_recipe(steps: list[Step]) -> str:
         label = py_comment(f"step {step.index + 1}: {step.prompt or step.kind}")
         blocks.append(f"{label}\n{code}\n")
     return "\n".join(blocks)
+
+
+def scoped_recipe(recipe: str, name: str) -> str:
+    """`recipe` as code that binds only `name` where it runs. The recipe runs as a module of its
+    own, in a copy of the namespace, so the other datasets it makes stay in the copy, and it runs
+    as validation ran it: its `from __future__` imports, `import *`, `global` and names that
+    shadow a preload, such as `sql = sql(...)`, all mean what they meant there. A lambda binds
+    nothing more, and nothing loads `name` before the recipe has made it."""
+    lines = "\n".join(f"        {line!r}" for line in _lines(recipe))
+    return (
+        f"{name} = (\n"
+        f"    lambda scope: exec(\n{lines},\n        scope,\n    )\n"
+        f"    or scope[{name!r}]\n"
+        ")(dict(globals()))\n"
+    )
+
+
+def split_leading_future(code: str) -> tuple[str, str]:
+    """`code` up to the end of its leading `from __future__` imports, and the rest. Code put
+    before `code` must go after the first part, since Python takes those imports only first,
+    after an optional docstring. A later one stays where it is: moving it would change how
+    earlier lines compile."""
+    end: tuple[int, int] | None = None
+    for i, node in enumerate(ast.parse(code).body):
+        docstring = (
+            i == 0
+            and isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        )
+        future = isinstance(node, ast.ImportFrom) and node.module == "__future__"
+        if not (docstring or future):
+            break
+        end = (node.end_lineno or node.lineno, node.end_col_offset or 0)
+    if end is None:
+        return "", code
+    row, col = end
+    lines = _lines(code)
+    last = lines[row - 1].encode()  # `ast` counts columns in UTF-8 bytes
+    # A statement after a `;` on the import's line belongs to the rest.
+    tail = last[col:].decode().lstrip(" \t;")
+    head = "".join(lines[: row - 1]) + last[:col].decode() + "\n"
+    return head, (tail if tail.strip() else "") + "".join(lines[row:])
+
+
+def _lines(code: str) -> list[str]:
+    """`code`'s lines as `ast` counts them: `str.splitlines` also breaks at characters such as
+    U+2028, which a string literal may hold."""
+    return io.StringIO(code).readlines()
 
 
 def _producer(ordered: list[Step], name: str, *, before: int) -> Step | None:

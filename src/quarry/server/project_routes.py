@@ -24,6 +24,7 @@ from quarry.server.projects import (
     RecallRequest,
     SaveDatasetRequest,
     SavedView,
+    SaveRunning,
     SaveViewRequest,
     UnknownDataset,
 )
@@ -110,5 +111,7 @@ def _saving(call: Callable[[], T]) -> T:
         return _found(call)
     except (UnknownDataset, StepNotFound) as exc:
         raise HTTPException(status_code=404, detail=f"not found: {exc}") from exc
+    except SaveRunning as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -1,4 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  type QueryClient,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type {
   CanvasCard,
   Project,
@@ -49,6 +55,19 @@ export function useSessionStatus(id: string, running: boolean) {
     queryKey: keys.status(id),
     queryFn: () => api.getStatus(id),
     refetchInterval: running ? POLL_MS : 5000,
+  });
+}
+
+/** The kernel's datasets, listed again whenever `version` (see `dataVersion`) changes. */
+export function useDatasets(id: string, version: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: [...keys.datasets(id), version],
+    queryFn: () => api.datasets(id),
+    // One version's list never changes; the last one stays while the next loads, so a step
+    // ending does not remount every card.
+    staleTime: Infinity,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -171,15 +190,47 @@ export function useSaveDataset() {
   });
 }
 
+interface SaveViewVariables {
+  slug: string;
+  body: SaveViewRequest;
+  pin?: boolean;
+}
+
+/**
+ * Saves a view and, with `pin`, adds its card to the canvas, as one mutation: the step card
+ * that asked can unmount before the save ends, which drops `mutate`'s own callbacks, while the
+ * mutation runs on.
+ */
 export function useSaveView() {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ slug, body }: { slug: string; body: SaveViewRequest }) =>
-      api.saveView(slug, body),
-    onSuccess: (_meta, { slug }) =>
+    mutationFn: async ({ slug, body, pin }: SaveViewVariables) => {
+      const meta = await api.saveView(slug, body);
+      if (pin) await pinView(api, qc, slug, meta.name);
+      return meta;
+    },
+    // Settled, not succeeded: a pin that fails still leaves the view saved.
+    onSettled: (_meta, _error, { slug }) =>
       qc.invalidateQueries({ queryKey: keys.project(slug) }),
   });
+}
+
+// The project itself, not the list, holds the canvas this pin extends.
+async function pinView(
+  api: ApiClient,
+  qc: QueryClient,
+  slug: string,
+  view: string,
+): Promise<void> {
+  const project = await qc.fetchQuery(projectQuery(api, slug));
+  const current = project.meta.canvas;
+  // The save already refreshed an existing card through its saved_at.
+  if (current.some((c) => c.view === view)) return;
+  const y = current.reduce((max, c) => Math.max(max, c.y + c.h), 0);
+  const cards = [...current, { view, x: 0, y, w: 6, h: 8 }];
+  // The save's success refetches the project, canvas included.
+  await api.setCanvas(slug, cards);
 }
 
 export function useSetCanvas() {

@@ -10,7 +10,8 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from quarry.kernel.lineage import analyze
-from quarry.projects.models import Project, SavedDatasetMeta, SavedViewMeta
+from quarry.projects.models import Project, SavedDatasetMeta, SavedViewFiles, SavedViewMeta
+from quarry.projects.recipe import split_leading_future
 from quarry.projects.store import ProjectStore
 from quarry.query.source_target import imported_names, py_comment, result_names, to_source
 from quarry.query.spec import Backing, Json, QueryError, QuerySpec
@@ -40,7 +41,9 @@ def notebook(project: Project, store: ProjectStore) -> dict[str, Json]:
     for view in project.views:
         saved = store.read_view(slug, view.name)
         cells.append(_markdown(_view_heading(view)))
-        cells.append(_code(_queries_source(saved.queries, backings, taken)))
+        queries, dropped = _to_code_input(saved)
+        left_out = py_comment(f"To code leaves out: {', '.join(dropped)}") + "\n" if dropped else ""
+        cells.append(_code(left_out + _queries_source(queries, backings, taken)))
         cells.append(_markdown(_fenced("tsx", saved.source.rstrip())))
     numbered: list[Json] = [{"id": f"cell-{n}", **cell} for n, cell in enumerate(cells)]
     return {
@@ -73,7 +76,8 @@ def dataset_script(project: Project, store: ProjectStore, name: str) -> str:
     if not saved.validated:
         lines.append(py_comment(f"Not validated: {saved.validation_error}"))
     setup = _setup(store.root)
-    return "\n".join(lines) + "\n\n" + setup + "\n" + store.read_recipe(project.meta.slug, name)
+    future, recipe = split_leading_future(store.read_recipe(project.meta.slug, name))
+    return "\n".join(lines) + "\n\n" + future + setup + "\n" + recipe
 
 
 def _setup(root: Path) -> str:
@@ -153,6 +157,18 @@ def _rebind_warning(rebinds: list[str]) -> str:
     names = ", ".join(rebinds)
     warning = f"This recipe also assigns {names}, which an earlier cell loaded, and may rebind it"
     return py_comment(warning) + "\n"
+
+
+def _to_code_input(saved: SavedViewFiles) -> tuple[list[dict[str, Json]], list[str]]:
+    """What "To code" renders for the view, as the UI's `toCodeSource` reads it: a `spec` in its
+    state wins over its queries, which for the pivot are an arrow load and a one-row probe, and
+    `dropped` lists what that spec leaves out."""
+    spec, dropped = saved.state.get("spec"), saved.state.get("dropped")
+    named = isinstance(spec, dict) and isinstance(spec.get("dataset"), str)
+    queries = [spec] if named and isinstance(spec, dict) else saved.queries
+    if isinstance(dropped, list) and all(isinstance(d, str) for d in dropped):
+        return queries, [str(d) for d in dropped]
+    return queries, []
 
 
 def _queries_source(

@@ -119,8 +119,8 @@ describe("ViewHost", () => {
 
   it("fans shared keys out through the hub, both ways", async () => {
     const hub = new SharedStateHub();
-    const otherRestore = vi.fn();
-    hub.register("other", { mine: true }, otherRestore);
+    const otherMerge = vi.fn();
+    hub.register("other", {}, otherMerge);
     const { posted, send } = mount({ hub });
     await act(async () => send({ type: "ready" }));
     await act(async () =>
@@ -131,10 +131,10 @@ describe("ViewHost", () => {
         queries: [],
       }),
     );
-    expect(otherRestore).toHaveBeenCalledWith({ mine: true, "shared:k": 1 });
+    expect(otherMerge).toHaveBeenCalledWith({ "shared:k": 1 });
     hub.report("other", { "shared:k": 2 });
     expect(posted.at(-1)).toMatchObject({
-      type: "restore",
+      type: "merge",
       viewId: "v1",
       state: { "shared:k": 2 },
     });
@@ -144,14 +144,14 @@ describe("ViewHost", () => {
     const hub = new SharedStateHub();
     hub.register("other", {}, () => undefined);
     // Watched on the bridge, not the frame: an unmounted iframe has no window to post to.
-    const restore = vi.spyOn(HostBridge.prototype, "restore");
+    const merge = vi.spyOn(HostBridge.prototype, "merge");
     const { send, unmount } = mount({ hub });
     await act(async () => send({ type: "ready" }));
     hub.report("other", { "shared:k": 1 });
-    expect(restore).toHaveBeenCalledTimes(1);
+    expect(merge).toHaveBeenCalledTimes(1);
     unmount();
     hub.report("other", { "shared:k": 2 });
-    expect(restore).toHaveBeenCalledTimes(1);
+    expect(merge).toHaveBeenCalledTimes(1);
   });
 
   it("fills its container instead of the fixed height with fill", () => {

@@ -11,7 +11,7 @@ loading it is not a read. Assigning to or deleting an attribute or subscript in 
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -26,6 +26,11 @@ class CodeNames:
     # String literals handed to `sql_local(...)` or `<anything>.sql(...)`: DuckDB can name the
     # tables they read, which the executor turns into dataset reads.
     sql_literals: frozenset[str] = frozenset()
+    # For each function or class the code defines at module level, the free names and SQL
+    # literals it reads when called, not where it is defined: a function's whole body, but only a
+    # class's methods, since its own body runs with the definition.
+    helper_loads: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    helper_sql: Mapping[str, frozenset[str]] = field(default_factory=dict)
 
 
 def analyze(code: str) -> CodeNames:
@@ -42,6 +47,8 @@ def analyze(code: str) -> CodeNames:
         frozenset(module.loads),
         frozenset(visitor.defines),
         frozenset(visitor.sql_literals),
+        visitor.helper_loads(),
+        {name: frozenset(sql) for name, sql in visitor.helper_sql.items()},
     )
 
 
@@ -65,6 +72,9 @@ class _Scope:
     # Set on an `except ... as alias` handler's body, which shares its parent's kind, `bound`
     # and `declared`: only the alias is its own.
     alias: str | None = None
+    # Free names of the functions inside this scope: read when those are called, not when this
+    # scope's own code runs.
+    deferred: set[str] = field(default_factory=set)
 
     def free_names(self) -> set[str]:
         if self.alias is not None:
@@ -73,10 +83,16 @@ class _Scope:
             return self.loads
         return self.loads - (self.bound - self.declared)
 
+    def called_names(self) -> set[str]:
+        """The free names read only when this scope is called: all of a function's, and of any
+        other scope just those its functions read."""
+        return self.free_names() if self.kind == "function" else self.deferred
+
     def close(self) -> None:
         """Hand this scope's free names to the scope that encloses it."""
         if self.parent is not None:
             self.parent.loads |= self.free_names()
+            self.parent.deferred |= self.called_names()
 
 
 class _ScopeVisitor(ast.NodeVisitor):
@@ -86,6 +102,10 @@ class _ScopeVisitor(ast.NodeVisitor):
         self.module = _Scope("module")
         self.defines: set[str] = set()
         self.sql_literals: set[str] = set()
+        # Each module-level function and class. A name defined twice, as in both branches of an
+        # `if`, reads what each definition reads, since either may be the one that ran.
+        self.helpers: list[tuple[str, _Scope]] = []
+        self.helper_sql: dict[str, set[str]] = {}
         self._scope = self.module
         self._pending: list[tuple[ast.AST, _Scope] | _Scope] = []
 
@@ -128,7 +148,29 @@ class _ScopeVisitor(ast.NodeVisitor):
             first = node.args[0]
             if isinstance(first, ast.Constant) and isinstance(first.value, str):
                 self.sql_literals.add(first.value)
+                helper = self._helper_around()
+                if helper is not None:
+                    self.helper_sql.setdefault(helper, set()).add(first.value)
         self.generic_visit(node)
+
+    def _helper_around(self) -> str | None:
+        """The module-level helper whose call runs the walk's current point: any point in a
+        function, but in a class only a point inside one of its methods."""
+        scope, called = self._scope, False
+        while scope.parent is not None:
+            called = called or scope.kind == "function"
+            if scope.parent.kind == "module":
+                break
+            scope = scope.parent
+        if not called:
+            return None
+        return next((n for n, s in self.helpers if s is scope), None)
+
+    def helper_loads(self) -> dict[str, frozenset[str]]:
+        loads: dict[str, frozenset[str]] = {}
+        for name, scope in self.helpers:
+            loads[name] = loads.get(name, frozenset()) | scope.called_names()
+        return loads
 
     def visit_AugAssign(self, node: ast.AugAssign) -> None:
         if isinstance(node.target, ast.Name):
@@ -203,7 +245,7 @@ class _ScopeVisitor(ast.NodeVisitor):
         self.visit(node.args)  # defaults and annotations are evaluated where the def runs
         if node.returns is not None:
             self.visit(node.returns)
-        self._visit_scope("function", node.body, bound=_parameters(node.args))
+        self._helper(node.name, self._visit_scope("function", node.body, _parameters(node.args)))
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
@@ -211,7 +253,7 @@ class _ScopeVisitor(ast.NodeVisitor):
         self._define(node.name)
         for expr in [*node.decorator_list, *node.bases, *node.keywords]:
             self.visit(expr)
-        self._visit_scope("class", node.body)
+        self._helper(node.name, self._visit_scope("class", node.body))
 
     def visit_Lambda(self, node: ast.Lambda) -> None:
         self.visit(node.args)
@@ -233,6 +275,10 @@ class _ScopeVisitor(ast.NodeVisitor):
         body: list[ast.AST] = [outermost.target, *outermost.ifs, *inner, *results]
         self._visit_scope("comprehension", body)
 
+    def _helper(self, name: str, scope: _Scope) -> None:
+        if scope.parent is self.module:
+            self.helpers.append((name, scope))
+
     def _define(self, name: str) -> None:
         if self._scope.kind == "module":
             self.defines.add(name)
@@ -240,10 +286,11 @@ class _ScopeVisitor(ast.NodeVisitor):
 
     def _visit_scope(
         self, kind: _ScopeKind, body: Iterable[ast.AST], bound: Iterable[str] = ()
-    ) -> None:
+    ) -> _Scope:
         scope = _Scope(kind, parent=self._scope, bound=set(bound))
         self._pending.append(scope)  # popped, and closed, only after its whole body is walked
         self._pending.extend((node, scope) for node in body)
+        return scope
 
 
 def _is_sql_call(func: ast.expr) -> bool:

@@ -4,6 +4,7 @@ import type { CanvasCard, Project } from "@/shared/api-types";
 import {
   dataVersion,
   sessionRunning,
+  useDatasets,
   useRecall,
   useSavedView,
   useSession,
@@ -51,6 +52,17 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
   const [layout, setLayout] = useState<Layout>(() =>
     cardsToLayout(project.meta.canvas),
   );
+  // A card the project gained elsewhere, as a pin that finished after this page opened, joins
+  // the layout; one only this page removed stays removed.
+  const [seenCanvas, setSeenCanvas] = useState(project.meta.canvas);
+  if (project.meta.canvas !== seenCanvas) {
+    const before = new Set(seenCanvas.map((c) => c.view));
+    const added = project.meta.canvas.filter(
+      (c) => !before.has(c.view) && !layout.some((l) => l.i === c.view),
+    );
+    setSeenCanvas(project.meta.canvas);
+    if (added.length > 0) setLayout([...layout, ...cardsToLayout(added)]);
+  }
   const slug = project.meta.slug;
   // Layout writes are debounced so a drag does not PUT on every frame.
   const pending = useRef<CanvasCard[] | null>(null);
@@ -71,8 +83,14 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
   const running = sessionRunning(session.data);
   const status = useSessionStatus(sessionId, running || recall.isPending);
   const version = dataVersion(steps, status.data?.kernel.pid);
-  const present = new Set(steps.flatMap((s) => s.writes));
-  const error = recall.error ?? setCanvas.error;
+  // What the kernel holds now: a step's writes can be deleted or rebound since, and a reopened
+  // session's kernel holds nothing until its steps replay.
+  const datasets = useDatasets(sessionId, version);
+  const present =
+    datasets.data === undefined
+      ? undefined
+      : new Set(datasets.data.map((d) => d.name));
+  const error = recall.error ?? setCanvas.error ?? datasets.error;
 
   // react-grid-layout fires onLayoutChange once on mount after compaction; only a real
   // change in positions or sizes is worth a PUT.
@@ -116,7 +134,11 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
             {layout.map((item) => {
               const view = project.views.find((v) => v.name === item.i);
               if (view === undefined) return <div key={item.i} />;
-              const missing = view.datasets.filter((d) => !present.has(d));
+              // Until the kernel answers, a card shows neither its view nor "Load".
+              const missing =
+                present === undefined
+                  ? []
+                  : view.datasets.filter((d) => !present.has(d));
               return (
                 <div key={item.i}>
                   <CanvasCardFrame
@@ -133,13 +155,15 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
                     }
                     onRemove={() => remove(view.name)}
                   >
-                    <CanvasCardView
-                      slug={slug}
-                      view={view.name}
-                      sessionId={sessionId}
-                      dataVersion={version}
-                      hub={hub}
-                    />
+                    {present !== undefined && (
+                      <CanvasCardView
+                        slug={slug}
+                        view={view.name}
+                        sessionId={sessionId}
+                        dataVersion={version}
+                        hub={hub}
+                      />
+                    )}
                   </CanvasCardFrame>
                 </div>
               );

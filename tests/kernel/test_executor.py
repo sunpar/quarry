@@ -143,6 +143,12 @@ def test_execute_registers_dataset_and_reports_lineage() -> None:
     assert second.writes == ["top"]
 
 
+def test_a_function_rebound_to_its_result_is_a_write_not_a_define() -> None:
+    ex = make()
+    result = ex.execute("def df():\n    return pl.DataFrame({'a': [1]})\n\n\ndf = df()")
+    assert result.status == "ok" and result.writes == ["df"] and result.defines == []
+
+
 def test_execute_captures_stdout_tail() -> None:
     ex = make()
     result = ex.execute("print('x' * 10000)")
@@ -346,6 +352,55 @@ def test_failed_step_does_not_define_a_helper_that_already_existed() -> None:
     assert failed.status == "error"
     assert failed.defines == []
     assert "helper" not in ex._defined
+
+
+def test_calling_a_helper_reads_what_its_body_reads() -> None:
+    ex = make()
+    ex.execute("def get_data():\n    return prices.head(1)\n")
+    # prices did not exist when get_data was defined, so only the call can record the read.
+    ex.execute("prices = pl.DataFrame({'a': [1]})")
+    assert ex.execute("out = get_data()").reads == ["get_data", "prices"]
+
+
+def test_calling_a_helper_reads_its_sql_tables_and_the_helpers_it_calls() -> None:
+    ex = make()
+    ex.execute(
+        "t = pl.DataFrame({'a': [1]})\ndef inner():\n    return _conn.sql('SELECT * FROM t')"
+    )
+    ex.execute("def outer(x=t):\n    return inner()\n")
+    ex.execute("t = pl.DataFrame({'a': [2]})")
+    assert ex.execute("out = outer().pl()").reads == ["inner", "outer", "t"]
+
+
+def test_a_class_body_is_read_where_the_class_is_defined() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1]})")
+    defined = ex.execute(
+        "class Factory:\n    kept = df\n    def make(self):\n        return prices\n"
+    )
+    assert defined.reads == ["df"]
+    ex.execute("prices = pl.DataFrame({'a': [2]})\ndf = pl.DataFrame({'a': [3]})")
+    # The class captured the first df; only its method reads at the call.
+    assert ex.execute("out = Factory().make()").reads == ["Factory", "prices"]
+
+
+def test_a_call_reads_what_each_definition_of_the_helper_reads() -> None:
+    ex = make()
+    # Either branch may be the one that ran: lineage cannot tell.
+    ex.execute(
+        "flag = True\nif flag:\n    def get_data():\n        return first\n"
+        "else:\n    def get_data():\n        return _conn.sql('SELECT * FROM second')\n"
+    )
+    ex.execute("first = pl.DataFrame({'a': [1]})\nsecond = pl.DataFrame({'a': [2]})")
+    assert ex.execute("out = get_data()").reads == ["first", "get_data", "second"]
+
+
+def test_a_default_argument_is_read_where_the_helper_is_defined() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1]})")
+    defined = ex.execute("def get_data(x=df):\n    return x\n")
+    assert defined.reads == ["df"]
+    assert ex.execute("out = get_data()").reads == ["get_data"]
 
 
 def test_redefining_a_helper_is_a_define() -> None:

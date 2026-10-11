@@ -5,7 +5,8 @@ export class ViewStateStore {
   private readonly listeners = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private cached: JsonObject;
-  // A restored state is a snapshot already on record, so the queries it brings are not news.
+  // The last change came from the host, a restore or a merge, so the queries it brings are not
+  // the view's own news.
   private restored = false;
 
   constructor(
@@ -34,6 +35,11 @@ export class ViewStateStore {
     this.cached = { ...state };
     this.restored = true;
     this.notify();
+  }
+
+  /** Set `patch`'s keys and keep the rest; like a restore, it is not reported as a change. */
+  merge(patch: JsonObject): void {
+    this.replace({ ...this.cached, ...patch });
   }
 
   /** The view's queries changed: report the state as a change does, unless it was restored. */

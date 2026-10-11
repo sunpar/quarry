@@ -254,7 +254,23 @@ them.
 - **`defines` are names the step bound**: a function or class name counts only
   when the step newly bound or rebound it, so a `def` that never ran is not a
   define. A helper is forgotten once its name is rebound or deleted, so later
-  reads are not credited to it.
+  reads are not credited to it. A function name the step then binds to a
+  dataset, as `df = df()` does, is a write only.
+- **A helper reads where it is called**: a step that names a helper defined by
+  an earlier step also reads what the helper's body reads when called: its free
+  names, the tables in its SQL literals, and the same for each helper it calls.
+  Each helper's body names are kept from the step that defined it, and the
+  datasets among them are taken when the call runs. Default arguments,
+  decorators and annotations are read where the helper is defined, and so is a
+  class's own body, since it runs with the definition; only its methods' names
+  wait for the call. When a step defines a name more than once, as both branches
+  of an `if` can, a call reads what each definition reads, since lineage cannot
+  tell which one ran. With only the defining step's reads, `out = get_data()`
+  after `df` was rebound recreated the old `df`, which validation passed on its
+  unchanged schema and row count, and a helper defined before its data existed
+  left that data out. Any load of the name counts, not only a call:
+  `df.pipe(get_data)` and `map(get_data, ...)` call it out of sight, and an
+  extra read only adds a producer to the recipe.
 - **Exception aliases are not datasets**: a module-level `except ... as name`
   does not store `name`, and loading it in the handler is not a read. Python
   deletes the alias when the handler ends.
@@ -875,7 +891,10 @@ them.
   that finished `ok`, so a failed run's in-place mutation never enters a recipe,
   while an earlier successful run's does. A recipe must be code that worked.
   Cost if wrong: a dataset that depends on a failed run's side effect gets a
-  recipe that does not reproduce it, which validation then reports.
+  recipe that does not reproduce it, which validation then reports. A
+  `from __future__` import in a later step stays where it is, so that recipe
+  does not compile and is saved unvalidated: moving it first would change how
+  the earlier steps compile.
 - **Project files are private and durable**: `quarry.projects.files` holds the
   session store's atomic writer, which both stores now import, so project files
   are written 0600, fsynced and renamed into place. `ProjectStore` creates each
@@ -920,6 +939,23 @@ them.
   not ask, because a view recall loads only the datasets the session lacks. Cost
   if wrong: the session's own binding is gone until the step that made it runs
   again.
+- **A recalled recipe binds only its dataset**: a live recipe remakes every
+  dataset its target depends on, so recall runs it with `exec` in a copy of the
+  session's namespace and binds only the target from it:
+  `returns = (lambda scope: exec(..., scope) or scope["returns"])(dict(globals()))`,
+  the recipe written one line per string. The session keeps its own `prices`
+  while `returns` is recalled, and the recipe runs as a module, as validation
+  ran it: its `from __future__` imports, `import *`, `global` and a name
+  shadowing a preload, such as `sql = sql(...)`, mean what they did there. The
+  lambda binds no other name, and nothing loads `returns` before the recipe
+  makes it, so the step reads no old `returns`. Run in the session's namespace,
+  a view recall had replaced datasets the session already held; a
+  `_recall_returns` helper had replaced a session variable of that name; and a
+  function wrapping the recipe refused `import *` and broke a name shadowing a
+  preload. Pinned recalls read one parquet file and need none of this. The cost
+  is a recall step whose code holds the recipe as strings, and calls `exec`,
+  `dict` and `globals` from the session, so a session that rebinds one of them
+  breaks recall as it breaks its own code that calls it.
 - **View recall checks the kernel inside a hold**: a view recall lists the
   session's datasets inside `hold`, so it answers 409 at once while a step,
   restart or save runs, and its step loads only the datasets the session lacks.
@@ -936,11 +972,26 @@ them.
   pin finish; the result then replaces the notice. A save is a provider call and
   one or two scratch kernels per dataset, which can take a minute, and a second
   click started a second save of the same files.
+- **A saved dataset's name is one code can bind**: the store refuses a name that
+  is not an identifier, is a keyword or changes under NFKC, since recall and
+  export write `<name> = ...`: step code binds `class` only through `globals()`,
+  and Python reads `ｅ` as `e`.
+- **One save per target at a time**: a save of a dataset or a view into a
+  project answers 409 while another save of the same name into it runs, from its
+  first check through the last file it writes. A pinned save releases the kernel
+  after its snapshot and validates for a minute, and a live save in that time
+  deleted the snapshot, so the pinned metadata pointed at a missing file. A view
+  save holds its own name and each dataset it saves. The guard keys on the slug
+  stored in `project.json`, since a case-insensitive filesystem finds the
+  project under `P` as well as `p`.
 - **A view is on a canvas once**: cards are keyed by view name, so `set_canvas`
   answers 400 for a canvas that repeats a view, and "Pin to canvas" adds a card
   only for a view the project's canvas lacks, read from the project rather than
   the list. Pinning a saved view again refreshes its card through `saved_at`. A
-  second pin had added a duplicate card, and Remove then dropped both.
+  second pin had added a duplicate card, and Remove then dropped both. The pin
+  runs inside the save's mutation, so it still lands when the step card unmounts
+  mid-save, as opening the project makes it; the project is read again even if
+  the pin fails, and an open canvas adds a card the project gained.
 - **The canvas binds to the active session**: cards query through its kernel,
   and a card whose datasets the session lacks shows "Load", which recalls the
   view as a step. Only the layout lives in `project.json`; a card's state lasts
@@ -951,11 +1002,14 @@ them.
   and layout-save errors show above the cards. A recall then would only answer
   409, and the project page has no notice line of its own.
 - **`shared:` keys link only on the canvas**: `SharedStateHub` sends each other
-  card `restore` with its last known state merged with the changed card's
-  `shared:` keys. Nothing is seeded on load, so the first change wins. Inside a
-  session a view's `shared:` keys stay private, by design, since the step column
-  is the record. Cost if wrong: cards saved with different values disagree until
-  one changes.
+  card a `merge` holding only the `shared:` keys the reporting card changed,
+  measured against that card's last known values, and the receiving runtime sets
+  them in its current state. A card whose view has not mounted yet gets them as
+  it mounts. A `restore` of the hub's last copy of each card's state had rolled
+  back an edit the card made within its 300 ms report window. Nothing is seeded
+  on load, so the first change wins. Inside a session a view's `shared:` keys
+  stay private, by design, since the step column is the record. Cost if wrong:
+  cards saved with different values disagree until one changes.
 - **The project page replaces the session column**: `SessionPage` renders
   `ProjectPage`, keyed by slug, in the session column's place, so the rails stay
   and choosing or creating a session goes back; each project gets its own hub.
@@ -984,15 +1038,17 @@ them.
 - **Exports rebuild the kernel namespace**: a recipe is step code, so it calls
   the kernel's preloads (`pl`, `duckdb`, `pq`, `sql`, `sql_local`, `loaders`)
   without importing them, and an export without them failed on its first cell.
-  The notebook's first code cell, and the script's first lines after its header,
-  import `load_config` and `build_namespace` from `quarry` and bind the
-  namespace built for the export's Quarry root, written in as an absolute path,
-  with DuckDB spilling under a new `tempfile.mkdtemp()` directory. An export
-  therefore needs `quarry` importable, in a Jupyter kernel too. The cells stay
-  the plain Python the spec's goals (§1) promise, and only this setup leans on
-  Quarry; "To code" output needs none of it. Cost if wrong: an export moved to
-  another machine needs that root's `config.toml` and `loaders.toml` there, or
-  an edit to the path, and the file names where the root lives.
+  The notebook's first code cell, and the script's first lines after its header
+  and any `from __future__` imports that open its recipe, after an optional
+  docstring, which Python takes only first, import `load_config` and
+  `build_namespace` from `quarry` and bind the namespace built for the export's
+  Quarry root, written in as an absolute path, with DuckDB spilling under a new
+  `tempfile.mkdtemp()` directory. An export therefore needs `quarry` importable,
+  in a Jupyter kernel too. The cells stay the plain Python the spec's goals (§1)
+  promise, and only this setup leans on Quarry; "To code" output needs none of
+  it. Cost if wrong: an export moved to another machine needs that root's
+  `config.toml` and `loaders.toml` there, or an edit to the path, and the file
+  names where the root lives.
 - **Export names results across the whole notebook**: a view's queries assign
   `<dataset>_<n>`, n being the query's position in its view, through
   `result_names` in `quarry.query.source_target`, which "To code" uses too. The
@@ -1035,31 +1091,36 @@ them.
 - **Perspective's config maps to a query spec, and the mapping is lossy**:
   `perspectiveToSpec` turns the viewer's saved config into a `QuerySpec` the
   kernel accepts and lists what the spec cannot say in `dropped`, which the
-  pivot built-in keeps in view state for "to code". Filters `==`, `!=`, `<`,
-  `<=`, `>` and `>=` become `eq`, `ne`, `lt`, `le`, `gt` and `ge`; `in` and
-  `not in` become `in` and `not_in`; `contains` and `begins with` become
-  `contains` and `starts_with`; `is null` and `is not null` become `is_null` and
-  `not_null`. Any other operator, such as `ends with` or `is true`, is dropped.
-  Under `group_by`, each other column becomes one `Agg`: `sum`, `mean`, `min`,
-  `max`, `count`, `median`, `first` and `last` keep their names, `avg` becomes
-  `mean`, `high` becomes `max` and `low` becomes `min`; any other aggregate is
-  dropped. `stddev` is dropped too, though the spec has `std`: Perspective's is
-  the population figure (1.5 for 1 and 4) and the kernel's the sample one
-  (2.12), so "to code" would print different numbers. A column with no aggregate
-  set takes Perspective's default, which the saved config leaves out
-  (`aggregates` stays `{}`; the defaults go only into the copy passed to
-  `table.view()`): `sum` for a numeric dtype, matched as the other built-ins
-  match it (`/^(Int|UInt|Float|Decimal)/`, and Decimal and 128-bit integers
-  reach Perspective as floats), and `count` for everything else; Perspective
-  3.8.0 counts Boolean, Date and Datetime columns too. A column missing from the
-  schema counts. Exactly one `split_by` with exactly one aggregated column
-  becomes a `pivot` indexed by the group keys; two or more `split_by`, or a
-  split over several aggregated columns, drops the split and keeps the grouping.
-  When every column is a group key, the spec counts the first key, since
-  `group_by` needs an aggregate. Without `group_by`, `columns` becomes `select`,
-  skipping nulls and expression names, and any `split_by` is dropped.
-  Expressions are dropped, and so are filters, sorts, group keys and split keys
-  on them.
+  pivot built-in keeps in view state for "to code". A filter or aggregate maps
+  only where the kernel computes what Perspective 3.8.0 does, nulls included.
+  Filters `==`, `<`, `<=`, `>` and `>=` become `eq`, `lt`, `le`, `gt` and `ge`;
+  `in` stays `in`; `contains` and `begins with` become `contains` and
+  `starts_with`; `is null` and `is not null` become `is_null` and `not_null`.
+  `!=` and `not in` are dropped: Perspective keeps the rows whose value is null,
+  which `ne` and `not_in` skip, and the spec has no "or" to add them back. Any
+  other operator, such as `ends with` or `is true`, is dropped. Under
+  `group_by`, each other column becomes one `Agg`: `sum`, `mean`, `min`, `first`
+  and `last` keep their names and `avg` becomes `mean`; any other aggregate is
+  dropped. Probed against 3.8.0: `count` counts nulls, where the kernel counts
+  values; `median` takes the upper middle of an even integer group (4 for 1
+  and 4) and shifts once a group holds a null; `max` and `high` turn null once a
+  group holds a null; `low` gives 0 for an all-null group; and `stddev` is the
+  population figure (1.5 for 1 and 4) where the kernel's `std` is the sample one
+  (2.12). `sum` stays though it differs on one input: an all-null group sums to
+  0 in Perspective and to null in the kernel. A column with no aggregate set
+  takes Perspective's default, which the saved config leaves out (`aggregates`
+  stays `{}`; the defaults go only into the copy passed to `table.view()`):
+  `sum` for a numeric dtype, matched as the other built-ins match it
+  (`/^(Int|UInt|Float|Decimal)/`, and Decimal and 128-bit integers reach
+  Perspective as floats), and `count` for everything else, which is then dropped
+  like any `count`. A column missing from the schema counts too. Exactly one
+  `split_by` with exactly one aggregated column becomes a `pivot` indexed by the
+  group keys; two or more `split_by`, or a split over several aggregated
+  columns, drops the split and keeps the grouping. When every column is a group
+  key, the spec counts the first key, since `group_by` needs an aggregate.
+  Without `group_by`, `columns` becomes `select`, skipping nulls and expression
+  names, and any `split_by` is dropped. Expressions are dropped, and so are
+  filters, sorts, group keys and split keys on them.
 - **Sorts name output columns**: sort and select run on the grouped output, so
   under `group_by` a sort on an aggregated column becomes that aggregate's
   output name (`v_sum`), a sort on a group key stays, and any other sort is
@@ -1107,8 +1168,9 @@ them.
   `dataset`, for any view, and the snapshot's queries otherwise. The pivot
   publishes its mapped spec there, without `limit`, written beside `dropped`;
   its queries are the 50,000-row arrow load and the one-row probe, which would
-  render as `.head(1)`. A saved view's export still renders the recorded
-  queries.
+  render as `.head(1)`. A saved view's export reads its saved state the same way
+  and notes what `dropped` lists; it had rendered the probe, so an exported
+  pivot gave one row.
 
 ### TanStack table and OHLC
 

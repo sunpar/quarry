@@ -59,7 +59,7 @@ const card = (view: string, y: number): CanvasCard => ({
 const json = (body: unknown) => new Response(JSON.stringify(body));
 
 // The list says the canvas is empty; only the project detail holds `canvas`.
-function setup(canvas: CanvasCard[]) {
+function setup(canvas: CanvasCard[], pinFails = false) {
   const calls: string[] = [];
   const puts: CanvasCard[][] = [];
   let finishSave = () => {};
@@ -75,6 +75,7 @@ function setup(canvas: CanvasCard[]) {
       return json({ name: "closes", saved_at: "t" });
     }
     if (key === "PUT /projects/p/canvas") {
+      if (pinFails) return new Response(null, { status: 500 });
       const cards = JSON.parse(String(init?.body)) as CanvasCard[];
       puts.push(cards);
       return json(meta(cards));
@@ -83,14 +84,14 @@ function setup(canvas: CanvasCard[]) {
   };
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onDone = vi.fn();
-  render(
+  const { unmount } = render(
     <QueryClientProvider client={qc}>
       <ApiProvider client={new ApiClient("t", fetchImpl)}>
         <StepActions sessionId="s1" step={step} onDone={onDone} />
       </ApiProvider>
     </QueryClientProvider>,
   );
-  return { calls, puts, finishSave, onDone, qc };
+  return { calls, puts, finishSave, onDone, qc, unmount };
 }
 
 async function pin(qc: QueryClient) {
@@ -123,6 +124,26 @@ describe("StepActions pin to canvas", () => {
     await pin(qc);
     await waitFor(() => expect(puts).toHaveLength(1));
     expect(puts[0]).toEqual([card("other", 0), card("closes", 8)]);
+  });
+
+  it("still pins once the save ends after the step card is gone", async () => {
+    const { puts, finishSave, qc, unmount } = setup([]);
+    await pin(qc);
+    // Opening the project replaces the session column, so the step card unmounts mid-save.
+    unmount();
+    finishSave();
+    await waitFor(() => expect(puts).toEqual([[card("closes", 0)]]));
+  });
+
+  it("marks the project stale when the pin fails after the save", async () => {
+    const { finishSave, onDone, qc } = setup([], true);
+    finishSave();
+    await pin(qc);
+    await waitFor(() =>
+      expect(onDone).not.toHaveBeenLastCalledWith("Saving view closes…"),
+    );
+    // The view was saved, so the project must be read again.
+    expect(qc.getQueryState(["projects", "p"])?.isInvalidated).toBe(true);
   });
 
   it("leaves the canvas alone when the view already has a card", async () => {

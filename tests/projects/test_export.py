@@ -216,6 +216,23 @@ def test_dataset_script_has_a_header_and_the_recipe(tmp_path: Path) -> None:
     assert (ran.returncode, ran.stdout) == (0, "1\n"), ran.stderr
 
 
+@pytest.mark.parametrize(
+    "recipe",
+    [
+        "from __future__ import annotations\nlater: int = 1\n",
+        '"""Later."""\nfrom __future__ import annotations\nlater: int = 1\n',
+        "from __future__ import annotations; later = pl.DataFrame()\n",
+    ],
+)
+def test_a_dataset_script_puts_the_recipes_future_import_first(tmp_path: Path, recipe: str) -> None:
+    store = project_with_saved_items(tmp_path)
+    save_another_dataset(store, "later", recipe)
+    script = dataset_script(store.get("momentum"), store, "later")
+    # After the header's comments, which may precede it, and before the setup's statements.
+    assert script.index("\nfrom __future__ import annotations\n") < script.index(SETUP)
+    compile(script, "later.py", "exec")
+
+
 def test_pinned_dataset_script_mentions_the_parquet(tmp_path: Path) -> None:
     store = project_with_saved_items(tmp_path)
     saved = store.get("momentum").datasets[0].model_copy(update={"mode": "pinned"})
@@ -300,3 +317,24 @@ def test_a_cycle_keeps_saved_order_when_an_outside_recipe_assigns_a_member(
     code = sources(doc, "code")[1:]
     assert code[3].startswith("# This recipe also assigns alpha, which an earlier cell loaded")
     assert not any(source.startswith("# This recipe") for source in code[:3])
+
+
+def test_a_view_that_publishes_its_spec_exports_that_spec(tmp_path: Path) -> None:
+    store = project_with_saved_items(tmp_path)
+    table = store.get("momentum").views[0]
+    spec: dict[str, Json] = {
+        "dataset": "prices",
+        "group_by": ["ts"],
+        "aggs": [{"col": "px", "fn": "sum"}],
+    }
+    # The pivot's queries are its arrow load and a one-row probe of the spec.
+    store.write_view(
+        "momentum",
+        table,
+        source=VIEW_SOURCE,
+        state={"spec": spec, "dropped": ['filter px "!="']},
+        queries=[{"dataset": "prices", "format": "arrow"}, {**spec, "limit": 1}],
+    )
+    code = sources(notebook(store.get("momentum"), store), "code")[2]
+    assert code.startswith('# To code leaves out: filter px "!="\n')
+    assert "prices_1 = (" in code and "prices_2" not in code and "limit" not in code

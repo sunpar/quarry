@@ -1,6 +1,6 @@
 # Working state
 
-Checkpoint as of 2026-10-10. This page holds temporary context: what is in
+Checkpoint as of 2026-10-11. This page holds temporary context: what is in
 flight, the latest check results and the next actions. Rewrite it at the end of
 each session and when a pull request opens or merges. Anything that will still
 be true next month belongs in [context/](context/) or
@@ -8,10 +8,14 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-None planned. Stage 5, breadth, was the last planned stage and merged on
-2026-10-10. What remains is in [open-items.md](open-items.md) (its known
-problems, the "Any time" list and the open questions) and in the spec's
-[deferred list](superpowers/specs/2026-10-08-quarry-design.md#16-deferred).
+Merge the fixes from a Codex review of Stages 4 and 5, on
+`claude/quarry-stage4-5-review-fixes`. Codex (`gpt-6-astra`) reviewed the branch
+diff from `6bc133e`, the `main` before Stage 4, four times; each round's
+findings were fixed, tested and recorded in [decisions](context/decisions.md),
+and a `/simplify` pass followed. The fourth round still had findings, and its
+fixes have had no Codex review yet, so the pull request's `@claude` and `@codex`
+reviews are the gate. What the reviews suggested and the branch left is under
+[Any time](open-items.md#any-time).
 
 ## Status by stage
 
@@ -92,19 +96,19 @@ subjects kept, the merge record pushed straight to `main`) is under
 
 ## Latest verification
 
-`claude/quarry-stage5-breadth` at `6eb8d19`, merged as `1aa5d6e`. Locally on
-2026-10-10, after the final review's fixes: `pytest` passed 1060 tests and
-skipped 3 (the live provider and memory-cap tests), including the 10 browser
-tests under `tests/e2e`. `ruff check`, `ruff format --check`, `mypy src tests`
-and `uv lock --check` were clean, and in `web/` `npm run check`, `npm test` (233
-tests) and `npm run build` passed. CI passed on sunpar/quarry#9 at `6eb8d19`.
+`claude/quarry-stage4-5-review-fixes` after the fourth pull request reviews,
+locally on 2026-10-11: `pytest` passed 1079 tests and skipped 3 (the live
+provider and memory-cap tests), including the browser tests under `tests/e2e`
+against a fresh build. `ruff check`, `ruff format --check`, `mypy src tests` and
+`uv lock --check` were clean, and in `web/` `npm run check`, `npm test` (239
+tests) and `npm run build` passed.
 
 ## Next actions
 
-1. Pick the next work from [open-items.md](open-items.md), starting with its
+1. Iterate the pull request's `@claude` and `@codex` reviews until both come
+   back clean, then merge.
+2. Pick the next work from [open-items.md](open-items.md), starting with its
    known problems.
-2. Once Codex has review credits again (from 2026-10-15), run the Codex review
-   of Stages 4 and 5 that [Any time](open-items.md#any-time) lists.
 
 ## Resuming
 

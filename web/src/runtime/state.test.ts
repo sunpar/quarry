@@ -26,6 +26,25 @@ describe("ViewStateStore", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it("merge sets the given keys, keeps the rest and reports nothing", () => {
+    vi.useFakeTimers();
+    const onChange = vi.fn();
+    const store = new ViewStateStore(
+      { "shared:k": 1, limit: 5 },
+      onChange,
+      300,
+    );
+    store.set("limit", 9); // not yet reported when another card's key arrives
+    store.merge({ "shared:k": 2 });
+    expect(store.current()).toEqual({ "shared:k": 2, limit: 9 });
+    store.queriesChanged();
+    vi.advanceTimersByTime(300);
+    // The pending edit still reports, now with the merged key.
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({ "shared:k": 2, limit: 9 });
+    vi.useRealTimers();
+  });
+
   it("reports changed queries, except those a restored state brings", () => {
     vi.useFakeTimers();
     const onChange = vi.fn();

@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from quarry.agent.fake import FakeProvider
 from quarry.agent.types import AssistantTurn
+from quarry.projects.recipe import scoped_recipe
 from tests.server.test_app import (
     PRICES,
     TIDY,
@@ -48,7 +49,7 @@ def test_recall_live_dataset_into_new_session(tmp_path: Path) -> None:
     wait_idle(client, sid)
     done = client.get(f"/sessions/{sid}").json()["steps"][0]
     assert done["status"] == "ok" and done["writes"] == ["prices"]
-    assert done["code"] == TIDY and done["runs"][0]["status"] == "ok"
+    assert done["code"] == scoped_recipe(TIDY, "prices") and done["runs"][0]["status"] == "ok"
     assert dataset_names(client, sid) == ["prices"]
 
 
@@ -119,3 +120,30 @@ def test_recall_into_unknown_session_is_404(tmp_path: Path) -> None:
     # The session is checked before the project, so the 404 names the session.
     both_unknown = client.post("/sessions/nosuchsession/recall", json={**body, "project": "zzz"})
     assert both_unknown.status_code == 404 and "nosuchsession" in both_unknown.json()["detail"]
+
+
+RETURNS = PRICES + "\nreturns = prices.with_columns(r=pl.col('px') * 2)"
+
+
+def test_recall_view_keeps_the_sessions_other_datasets(tmp_path: Path) -> None:
+    provider = FakeProvider(
+        [py("c1", RETURNS), view_turn("c2", datasets=["returns"]), end(), end(TIDY + RETURNS)]
+    )
+    client = make_client(tmp_path, [], provider_factory=lambda _cfg: provider)
+    client.post("/projects", json={"name": "p"})
+    sid = client.post("/sessions", json={}).json()["id"]
+    step_id = client.post(f"/sessions/{sid}/steps", json={"prompt": "load"}).json()["id"]
+    wait_idle(client, sid)
+    body = {"session_id": sid, "step_id": step_id, "name": "table", "mode": "live"}
+    assert client.post("/projects/p/views", json=body).status_code == 200
+    other = client.post("/sessions", json={}).json()["id"]
+    own = "prices = pl.DataFrame({'px': [5.0, 6.0, 7.0]})"
+    client.post(f"/sessions/{other}/steps/manual", json={"code": own})
+    wait_idle(client, other)
+    recall = {"project": "p", "kind": "view", "name": "table"}
+    client.post(f"/sessions/{other}/recall", json=recall)
+    wait_idle(client, other)
+    done = client.get(f"/sessions/{other}").json()["steps"][1]
+    assert done["status"] == "ok" and done["writes"] == ["returns"]
+    rows = {d["name"]: d["rows"] for d in client.get(f"/sessions/{other}/datasets").json()}
+    assert rows == {"prices": 3, "returns": 1}

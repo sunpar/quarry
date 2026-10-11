@@ -47,6 +47,10 @@ describe("runtime mount", () => {
       runtime.handle({ type: "restore", viewId: "v1", state: { n: 7 } });
     });
     await waitFor(() => expect(screen.getByText("df:7")).toBeTruthy());
+    await act(async () => {
+      runtime.handle({ type: "merge", viewId: "v1", state: { n: 8 } });
+    });
+    await waitFor(() => expect(screen.getByText("df:8")).toBeTruthy());
   });
 
   it("posts error when the component throws during render", async () => {
