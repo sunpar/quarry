@@ -1,5 +1,6 @@
 import {
   keepPreviousData,
+  type QueryClient,
   useMutation,
   useQuery,
   useQueryClient,
@@ -187,15 +188,48 @@ export function useSaveDataset() {
   });
 }
 
+interface SaveViewVariables {
+  slug: string;
+  body: SaveViewRequest;
+  pin?: boolean;
+}
+
+/**
+ * Saves a view and, with `pin`, adds its card to the canvas, as one mutation: the step card
+ * that asked can unmount before the save ends, which drops `mutate`'s own callbacks, while the
+ * mutation runs on.
+ */
 export function useSaveView() {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ slug, body }: { slug: string; body: SaveViewRequest }) =>
-      api.saveView(slug, body),
+    mutationFn: async ({ slug, body, pin }: SaveViewVariables) => {
+      const meta = await api.saveView(slug, body);
+      if (pin) await pinView(api, qc, slug, meta.name);
+      return meta;
+    },
     onSuccess: (_meta, { slug }) =>
       qc.invalidateQueries({ queryKey: keys.project(slug) }),
   });
+}
+
+// The project itself, not the list, holds the canvas this pin extends.
+async function pinView(
+  api: ApiClient,
+  qc: QueryClient,
+  slug: string,
+  view: string,
+): Promise<void> {
+  const project = await qc.fetchQuery(projectQuery(api, slug));
+  const current = project.meta.canvas;
+  // The save already refreshed an existing card through its saved_at.
+  if (current.some((c) => c.view === view)) return;
+  const y = current.reduce((max, c) => Math.max(max, c.y + c.h), 0);
+  const cards = [...current, { view, x: 0, y, w: 6, h: 8 }];
+  const meta = await api.setCanvas(slug, cards);
+  qc.setQueryData(keys.project(slug), (old: Project | undefined) =>
+    old ? { ...old, meta } : old,
+  );
 }
 
 export function useSetCanvas() {

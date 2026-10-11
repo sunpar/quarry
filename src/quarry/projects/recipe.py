@@ -5,7 +5,9 @@ from __future__ import annotations
 import ast
 import io
 import tokenize
+from collections.abc import Iterable
 
+from quarry.kernel.lineage import analyze
 from quarry.query.source_target import py_comment
 from quarry.server.models import Step
 
@@ -17,23 +19,25 @@ def recipe_steps(steps: list[Step], dataset: str) -> list[Step]:
     if root is None:
         raise KeyError(dataset)
     chosen: dict[int, Step] = {}
-    # Each step with the position its reads resolve before: its own, or for a helper's step
-    # also that of each step calling it, since a function reads its globals when called.
-    pending = [(root, ordered.index(root))]
+    # Each step with the names it reads and the position they resolve before: its own reads at
+    # its own position, and for a helper's step also every name its code loads, at the position
+    # of each step calling the helper. A function reads its globals when called, including names
+    # that did not exist yet when it was defined, which its step's reads leave out.
+    pending: list[tuple[Step, int, Iterable[str]]] = [(root, ordered.index(root), root.reads)]
     seen: set[tuple[int, int]] = set()
     while pending:
-        step, at = pending.pop()
+        step, at, names = pending.pop()
         if (step.index, at) in seen:
             continue
         seen.add((step.index, at))
         chosen[step.index] = step
-        for name in step.reads:
+        for name in names:
             producer = _producer(ordered, name, before=at)
             if producer is None:
                 continue
-            pending.append((producer, ordered.index(producer)))
+            pending.append((producer, ordered.index(producer), producer.reads))
             if name in producer.defines:
-                pending.append((producer, at))
+                pending.append((producer, at, _loads(producer)))
     return [chosen[i] for i in sorted(chosen)]
 
 
@@ -108,6 +112,11 @@ def _indent(code: str) -> str:
         line if n in inside or line.strip() == "" else "    " + line
         for n, line in enumerate(lines, start=1)
     )
+
+
+def _loads(step: Step) -> frozenset[str]:
+    """Every name the step's code loads, inside its functions too."""
+    return frozenset().union(*(analyze(run.code).loads for run in step.runs if run.status == "ok"))
 
 
 def _producer(ordered: list[Step], name: str, *, before: int) -> Step | None:

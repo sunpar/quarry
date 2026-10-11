@@ -138,3 +138,13 @@ def test_raw_recipe_puts_a_later_steps_future_import_first() -> None:
     namespace: dict[str, object] = {}
     exec(compile(raw_recipe(steps), "recipe", "exec"), namespace)
     assert namespace["b"] == 1
+
+
+def test_a_helper_reads_data_made_after_it_was_defined() -> None:
+    steps = [
+        step(0, "def get_data():\n    return prices", defines=["get_data"]),
+        step(1, "prices = load()", writes=["prices"]),
+        step(2, "out = get_data()", reads=["get_data"], writes=["out"]),
+    ]
+    # prices did not exist when get_data was defined, so step 0 recorded no read of it.
+    assert [s.index for s in recipe_steps(steps, "out")] == [0, 1, 2]

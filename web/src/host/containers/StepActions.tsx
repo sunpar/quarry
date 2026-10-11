@@ -1,16 +1,12 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import type { Step, View } from "@/shared/api-types";
 import { ApiError } from "../api/client";
-import { useApi } from "../api/context";
 import {
-  projectQuery,
   useProjects,
   useSaveComponent,
   useSaveDataset,
   useSaveView,
-  useSetCanvas,
   useSubmitManual,
   useToCode,
 } from "../api/hooks";
@@ -37,15 +33,11 @@ export function StepActions({
   dataset,
   onDone,
 }: StepActionsProps) {
-  const api = useApi();
-  const qc = useQueryClient();
   const projects = useProjects();
   const [pending, setPending] = useState<Pending>(null);
   const saveDataset = useSaveDataset();
   const saveView = useSaveView();
-  const setCanvas = useSetCanvas();
-  const saving =
-    saveDataset.isPending || saveView.isPending || setCanvas.isPending;
+  const saving = saveDataset.isPending || saveView.isPending;
   const onError = (e: Error) => onDone(e.message);
   const codeInput = toCodeSource(step.view?.snapshots.at(-1));
   const toCodeRequest = useToCode(sessionId);
@@ -57,19 +49,6 @@ export function StepActions({
   const saveComponent = useSaveComponent();
   const [toLibrary, setToLibrary] = useState<View | null>(null);
   const refusal = saveComponent.error;
-
-  // The project itself, not the list, holds the canvas this pin extends.
-  const pinCard = async (slug: string, view: string) => {
-    const project = await qc.fetchQuery(projectQuery(api, slug));
-    const current = project.meta.canvas;
-    // The save already refreshed an existing card through its saved_at.
-    if (current.some((c) => c.view === view)) return;
-    const y = current.reduce((max, c) => Math.max(max, c.y + c.h), 0);
-    setCanvas.mutate(
-      { slug, cards: [...current, { view, x: 0, y, w: 6, h: 8 }] },
-      { onError },
-    );
-  };
 
   const onSave = (choice: SaveChoice) => {
     const { slug } = choice;
@@ -93,17 +72,14 @@ export function StepActions({
         },
       );
     } else if (pending?.kind === "view") {
-      const pin = pending.pin;
       onDone(`Saving view ${choice.name}…`);
       saveView.mutate(
-        { slug, body: { ...common, step_id: step.id, name: choice.name } },
         {
-          onSuccess: (meta) => {
-            onDone(`Saved view ${meta.name}`);
-            if (pin) pinCard(slug, meta.name).catch(onError);
-          },
-          onError,
+          slug,
+          body: { ...common, step_id: step.id, name: choice.name },
+          pin: pending.pin,
         },
+        { onSuccess: (meta) => onDone(`Saved view ${meta.name}`), onError },
       );
     }
     setPending(null);

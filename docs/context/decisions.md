@@ -257,10 +257,12 @@ them.
   reads are not credited to it. A function name the step then binds to a
   dataset, as a recall's `returns = returns()` does, is a write only.
 - **A helper reads where it is called**: a recipe walk resolves the reads of the
-  step that defined a helper both before that step and before each step that
-  calls it, since a function reads its globals when it runs. With only the
-  first, `out = get_data()` after `df` was rebound recreated the old `df`, and
-  validation passed on its unchanged schema and row count.
+  step that defined a helper before that step, and every name that step's code
+  loads, inside its functions too, before each step that calls the helper, since
+  a function reads its globals when it runs. With only the first,
+  `out = get_data()` after `df` was rebound recreated the old `df`, and
+  validation passed on its unchanged schema and row count; and a helper defined
+  before the data it reads existed left that data's step out entirely.
 - **Exception aliases are not datasets**: a module-level `except ... as name`
   does not store `name`, and loading it in the handler is not a read. Python
   deletes the alias when the handler ends.
@@ -965,7 +967,9 @@ them.
   answers 400 for a canvas that repeats a view, and "Pin to canvas" adds a card
   only for a view the project's canvas lacks, read from the project rather than
   the list. Pinning a saved view again refreshes its card through `saved_at`. A
-  second pin had added a duplicate card, and Remove then dropped both.
+  second pin had added a duplicate card, and Remove then dropped both. The pin
+  runs inside the save's mutation, so it still lands when the step card unmounts
+  mid-save, as opening the project makes it.
 - **The canvas binds to the active session**: cards query through its kernel,
   and a card whose datasets the session lacks shows "Load", which recalls the
   view as a step. Only the layout lives in `project.json`; a card's state lasts
@@ -976,13 +980,13 @@ them.
   and layout-save errors show above the cards. A recall then would only answer
   409, and the project page has no notice line of its own.
 - **`shared:` keys link only on the canvas**: `SharedStateHub` sends each other
-  card a `merge` holding only the changed card's `shared:` keys, which the
-  card's runtime sets in its current state. A `restore` of the hub's last copy
-  of each card's state had rolled back an edit the card made within its 300 ms
-  report window. Nothing is seeded on load, so the first change wins. Inside a
-  session a view's `shared:` keys stay private, by design, since the step column
-  is the record. Cost if wrong: cards saved with different values disagree until
-  one changes.
+  card a `merge` holding only the `shared:` keys the reporting card changed,
+  measured against that card's last known values, and the receiving runtime sets
+  them in its current state. A `restore` of the hub's last copy of each card's
+  state had rolled back an edit the card made within its 300 ms report window.
+  Nothing is seeded on load, so the first change wins. Inside a session a view's
+  `shared:` keys stay private, by design, since the step column is the record.
+  Cost if wrong: cards saved with different values disagree until one changes.
 - **The project page replaces the session column**: `SessionPage` renders
   `ProjectPage`, keyed by slug, in the session column's place, so the rails stay
   and choosing or creating a session goes back; each project gets its own hub.

@@ -94,7 +94,9 @@ export function ViewHost(props: ViewHostProps) {
     });
     const stop = bridge.listen(window);
     bridgeRef.current = bridge;
-    const unregister = hub?.register(viewId, (shared) => bridge.merge(shared));
+    const unregister = hub?.register(viewId, initialState, (shared) =>
+      bridge.merge(shared),
+    );
     setError(null);
     bridge.mount({
       source,

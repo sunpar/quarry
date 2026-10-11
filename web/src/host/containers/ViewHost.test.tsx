@@ -120,7 +120,7 @@ describe("ViewHost", () => {
   it("fans shared keys out through the hub, both ways", async () => {
     const hub = new SharedStateHub();
     const otherMerge = vi.fn();
-    hub.register("other", otherMerge);
+    hub.register("other", {}, otherMerge);
     const { posted, send } = mount({ hub });
     await act(async () => send({ type: "ready" }));
     await act(async () =>
@@ -142,7 +142,7 @@ describe("ViewHost", () => {
 
   it("leaves the hub when it unmounts", async () => {
     const hub = new SharedStateHub();
-    hub.register("other", () => undefined);
+    hub.register("other", {}, () => undefined);
     // Watched on the bridge, not the frame: an unmounted iframe has no window to post to.
     const merge = vi.spyOn(HostBridge.prototype, "merge");
     const { send, unmount } = mount({ hub });
