@@ -318,8 +318,19 @@ one up when a researcher needs it.
   pydantic's echoed input, and the polars target has no direct nulls-first test.
 - Close Stage 2 test gaps: nothing checks the arguments the OpenAI adapter sends
   or that every tool schema stays strict.
-- Run a Codex review over Stages 4 and 5. Codex had no review credits until
-  2026-10-15, so whole-PR `@claude` reviews stood in for it.
+- Validate the form recall runs: a recipe is validated at module level, but
+  recall runs it inside a function, where `from x import *` does not compile and
+  `global` means something else, so a validated recipe can fail every recall.
+- Commit a pinned save as a unit: the kernel snapshots straight to the final
+  `data.parquet` before the metadata is written, so a save that fails between
+  the two leaves new rows under old metadata. A staging file moved into place by
+  `write_dataset` would make the save guard double-submit protection only.
+- Pin on the server: "Pin to canvas" reads the project and writes the whole
+  canvas from the browser, so a layout write landing in between can lose a card.
+  A `pin` field on the view save, applied under the store's lock, would not.
+- Let the server own the to-code input: `toCodeSource` in the UI and
+  `_to_code_input` in the export both read a view's `spec` and `dropped` state,
+  and must change together.
 - Check that the host's `frame-src 'self'` stops a view frame's own navigation
   in Firefox and Safari; the Playwright test runs Chromium only.
 - Review the chart built-ins' visuals and accessibility, which no Stage 5 review
