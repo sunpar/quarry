@@ -384,11 +384,15 @@ def test_a_class_body_is_read_where_the_class_is_defined() -> None:
     assert ex.execute("out = Factory().make()").reads == ["Factory", "prices"]
 
 
-def test_a_call_reads_what_the_helpers_last_definition_reads() -> None:
+def test_a_call_reads_what_each_definition_of_the_helper_reads() -> None:
     ex = make()
-    ex.execute("def get_data():\n    return first\ndef get_data():\n    return second\n")
+    # Either branch may be the one that ran: lineage cannot tell.
+    ex.execute(
+        "flag = True\nif flag:\n    def get_data():\n        return first\n"
+        "else:\n    def get_data():\n        return _conn.sql('SELECT * FROM second')\n"
+    )
     ex.execute("first = pl.DataFrame({'a': [1]})\nsecond = pl.DataFrame({'a': [2]})")
-    assert ex.execute("out = get_data()").reads == ["get_data", "second"]
+    assert ex.execute("out = get_data()").reads == ["first", "get_data", "second"]
 
 
 def test_a_default_argument_is_read_where_the_helper_is_defined() -> None:

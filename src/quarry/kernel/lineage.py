@@ -47,7 +47,7 @@ def analyze(code: str) -> CodeNames:
         frozenset(module.loads),
         frozenset(visitor.defines),
         frozenset(visitor.sql_literals),
-        {name: frozenset(scope.called_names()) for name, scope in visitor.helpers.items()},
+        visitor.helper_loads(),
         {name: frozenset(sql) for name, sql in visitor.helper_sql.items()},
     )
 
@@ -102,7 +102,9 @@ class _ScopeVisitor(ast.NodeVisitor):
         self.module = _Scope("module")
         self.defines: set[str] = set()
         self.sql_literals: set[str] = set()
-        self.helpers: dict[str, _Scope] = {}
+        # Each module-level function and class. A name defined twice, as in both branches of an
+        # `if`, reads what each definition reads, since either may be the one that ran.
+        self.helpers: list[tuple[str, _Scope]] = []
         self.helper_sql: dict[str, set[str]] = {}
         self._scope = self.module
         self._pending: list[tuple[ast.AST, _Scope] | _Scope] = []
@@ -162,7 +164,13 @@ class _ScopeVisitor(ast.NodeVisitor):
             scope = scope.parent
         if not called:
             return None
-        return next((n for n, s in self.helpers.items() if s is scope), None)
+        return next((n for n, s in self.helpers if s is scope), None)
+
+    def helper_loads(self) -> dict[str, frozenset[str]]:
+        loads: dict[str, frozenset[str]] = {}
+        for name, scope in self.helpers:
+            loads[name] = loads.get(name, frozenset()) | scope.called_names()
+        return loads
 
     def visit_AugAssign(self, node: ast.AugAssign) -> None:
         if isinstance(node.target, ast.Name):
@@ -268,9 +276,8 @@ class _ScopeVisitor(ast.NodeVisitor):
         self._visit_scope("comprehension", body)
 
     def _helper(self, name: str, scope: _Scope) -> None:
-        # The walk meets statements last first, so the definition kept is the one that wins.
         if scope.parent is self.module:
-            self.helpers.setdefault(name, scope)
+            self.helpers.append((name, scope))
 
     def _define(self, name: str) -> None:
         if self._scope.kind == "module":

@@ -263,13 +263,14 @@ them.
   datasets among them are taken when the call runs. Default arguments,
   decorators and annotations are read where the helper is defined, and so is a
   class's own body, since it runs with the definition; only its methods' names
-  wait for the call. When a step defines a name twice, the last definition, the
-  one Python keeps, is the one kept. With only the defining step's reads,
-  `out = get_data()` after `df` was rebound recreated the old `df`, which
-  validation passed on its unchanged schema and row count, and a helper defined
-  before its data existed left that data out. Any load of the name counts, not
-  only a call: `df.pipe(get_data)` and `map(get_data, ...)` call it out of
-  sight, and an extra read only adds a producer to the recipe.
+  wait for the call. When a step defines a name more than once, as both branches
+  of an `if` can, a call reads what each definition reads, since lineage cannot
+  tell which one ran. With only the defining step's reads, `out = get_data()`
+  after `df` was rebound recreated the old `df`, which validation passed on its
+  unchanged schema and row count, and a helper defined before its data existed
+  left that data out. Any load of the name counts, not only a call:
+  `df.pipe(get_data)` and `map(get_data, ...)` call it out of sight, and an
+  extra read only adds a producer to the recipe.
 - **Exception aliases are not datasets**: a module-level `except ... as name`
   does not store `name`, and loading it in the handler is not a read. Python
   deletes the alias when the handler ends.
@@ -969,6 +970,9 @@ them.
   pin finish; the result then replaces the notice. A save is a provider call and
   one or two scratch kernels per dataset, which can take a minute, and a second
   click started a second save of the same files.
+- **A saved dataset's name is one code can bind**: the store refuses a name that
+  is not an identifier or is a keyword, since recall and export write
+  `<name> = ...`; step code binds `class` only through `globals()`.
 - **One save per target at a time**: a save of a dataset or a view into a
   project answers 409 while another save of the same name into it runs, from its
   first check through the last file it writes. A pinned save releases the kernel

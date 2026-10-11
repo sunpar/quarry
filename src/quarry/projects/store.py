@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import builtins
 import json
+import keyword
 import re
 import threading
 from pathlib import Path
@@ -155,7 +156,9 @@ class ProjectStore:
         )
 
     def _dataset_dir(self, slug: str, name: str) -> Path:
-        if not name.isidentifier():
+        # Recall and export bind the name in code, so a keyword, which step code can bind only
+        # through `globals()`, cannot be saved.
+        if not name.isidentifier() or keyword.iskeyword(name):
             raise ValueError(f"{name!r} is not a dataset name")
         return self._project_dir(slug) / "datasets" / name
 

@@ -96,8 +96,8 @@ subjects kept, the merge record pushed straight to `main`) is under
 
 ## Latest verification
 
-`claude/quarry-stage4-5-review-fixes` after the second pull request reviews,
-locally on 2026-10-11: `pytest` passed 1074 tests and skipped 3 (the live
+`claude/quarry-stage4-5-review-fixes` after the third pull request reviews,
+locally on 2026-10-11: `pytest` passed 1077 tests and skipped 3 (the live
 provider and memory-cap tests), including the browser tests under `tests/e2e`
 against a fresh build. `ruff check`, `ruff format --check`, `mypy src tests` and
 `uv lock --check` were clean, and in `web/` `npm run check`, `npm test` (239

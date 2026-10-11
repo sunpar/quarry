@@ -74,6 +74,15 @@ def test_write_and_read_dataset(tmp_path: Path) -> None:
     assert store.get("p").meta.updated_at >= store.get("p").meta.created_at
 
 
+@pytest.mark.parametrize("name", ["a b", "class"])
+def test_a_dataset_name_must_be_one_code_can_bind(tmp_path: Path, name: str) -> None:
+    store = ProjectStore(tmp_path)
+    store.create("p")
+    # Step code binds `class` only through globals(), and recall writes `class = ...`.
+    with pytest.raises(ValueError):
+        store.write_dataset("p", dataset_meta(name), recipe="", raw="")
+
+
 def test_write_and_read_view(tmp_path: Path) -> None:
     store = ProjectStore(tmp_path)
     store.create("p")

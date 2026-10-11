@@ -57,11 +57,11 @@ def scoped_recipe(recipe: str, name: str) -> str:
 
 
 def split_leading_future(code: str) -> tuple[str, str]:
-    """The lines up to the last of `code`'s leading `from __future__` imports, and the rest.
-    Code put before `code` must go after the first part, since Python takes those imports only
-    first, after an optional docstring. A later one stays where it is: moving it would change how
+    """`code` up to the end of its leading `from __future__` imports, and the rest. Code put
+    before `code` must go after the first part, since Python takes those imports only first,
+    after an optional docstring. A later one stays where it is: moving it would change how
     earlier lines compile."""
-    end = 0
+    end: tuple[int, int] | None = None
     for i, node in enumerate(ast.parse(code).body):
         docstring = (
             i == 0
@@ -72,9 +72,16 @@ def split_leading_future(code: str) -> tuple[str, str]:
         future = isinstance(node, ast.ImportFrom) and node.module == "__future__"
         if not (docstring or future):
             break
-        end = node.end_lineno or node.lineno
+        end = (node.end_lineno or node.lineno, node.end_col_offset or 0)
+    if end is None:
+        return "", code
+    row, col = end
     lines = _lines(code)
-    return "".join(lines[:end]), "".join(lines[end:])
+    last = lines[row - 1].encode()  # `ast` counts columns in UTF-8 bytes
+    # A statement after a `;` on the import's line belongs to the rest.
+    tail = last[col:].decode().lstrip(" \t;")
+    head = "".join(lines[: row - 1]) + last[:col].decode() + "\n"
+    return head, (tail if tail.strip() else "") + "".join(lines[row:])
 
 
 def _lines(code: str) -> list[str]:
