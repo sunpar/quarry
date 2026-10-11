@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from quarry.kernel.lineage import analyze
 from quarry.projects.models import Project, SavedDatasetMeta, SavedViewFiles, SavedViewMeta
-from quarry.projects.recipe import hoist_future
+from quarry.projects.recipe import split_leading_future
 from quarry.projects.store import ProjectStore
 from quarry.query.source_target import imported_names, py_comment, result_names, to_source
 from quarry.query.spec import Backing, Json, QueryError, QuerySpec
@@ -76,9 +76,8 @@ def dataset_script(project: Project, store: ProjectStore, name: str) -> str:
     if not saved.validated:
         lines.append(py_comment(f"Not validated: {saved.validation_error}"))
     setup = _setup(store.root)
-    recipe = store.read_recipe(project.meta.slug, name)
-    # The recipe's `from __future__` imports must come before the setup's statements.
-    return hoist_future("\n".join(lines) + "\n\n" + setup + "\n" + recipe)
+    future, recipe = split_leading_future(store.read_recipe(project.meta.slug, name))
+    return "\n".join(lines) + "\n\n" + future + setup + "\n" + recipe
 
 
 def _setup(root: Path) -> str:

@@ -255,14 +255,16 @@ them.
   when the step newly bound or rebound it, so a `def` that never ran is not a
   define. A helper is forgotten once its name is rebound or deleted, so later
   reads are not credited to it. A function name the step then binds to a
-  dataset, as a recall's `returns = returns()` does, is a write only.
-- **A helper reads where it is called**: a recipe walk resolves the reads of the
-  step that defined a helper before that step, and every name that step's code
-  loads, inside its functions too, before each step that calls the helper, since
-  a function reads its globals when it runs. With only the first,
-  `out = get_data()` after `df` was rebound recreated the old `df`, and
-  validation passed on its unchanged schema and row count; and a helper defined
-  before the data it reads existed left that data's step out entirely.
+  dataset, as `df = df()` does, is a write only.
+- **A helper reads where it is called**: a step that calls a helper defined by
+  an earlier step also reads what the helper's body reads when called: its free
+  names, the tables in its SQL literals, and the same for each helper it calls.
+  Each helper's body names are kept from the step that defined it, and the
+  datasets among them are taken when the call runs. Default arguments,
+  decorators and annotations are read where the helper is defined. With only the
+  defining step's reads, `out = get_data()` after `df` was rebound recreated the
+  old `df`, which validation passed on its unchanged schema and row count, and a
+  helper defined before its data existed left that data out.
 - **Exception aliases are not datasets**: a module-level `except ... as name`
   does not store `name`, and loading it in the handler is not a read. Python
   deletes the alias when the handler ends.
@@ -883,7 +885,10 @@ them.
   that finished `ok`, so a failed run's in-place mutation never enters a recipe,
   while an earlier successful run's does. A recipe must be code that worked.
   Cost if wrong: a dataset that depends on a failed run's side effect gets a
-  recipe that does not reproduce it, which validation then reports.
+  recipe that does not reproduce it, which validation then reports. A
+  `from __future__` import in a later step stays where it is, so that recipe
+  does not compile and is saved unvalidated: moving it first would change how
+  the earlier steps compile.
 - **Project files are private and durable**: `quarry.projects.files` holds the
   session store's atomic writer, which both stores now import, so project files
   are written 0600, fsynced and renamed into place. `ProjectStore` creates each
@@ -929,18 +934,20 @@ them.
   if wrong: the session's own binding is gone until the step that made it runs
   again.
 - **A recalled recipe binds only its dataset**: a live recipe remakes every
-  dataset its target depends on, so recall runs it inside a function named after
-  the target, which its result then replaces
-  (`def returns(): ... return returns`, then `returns = returns()`). The session
-  keeps its own `prices` while `returns` is recalled, and no helper name is
-  bound or freed: a `_recall_returns` helper had replaced and deleted a session
-  variable of that name. Lines inside a multi-line string are left unindented,
-  so the string keeps its text, and `from __future__` imports stay at module
-  level, moved first when a view joins several recipes. Pinned recalls read one
-  parquet file and need no function. Run in the session's namespace, a view
-  recall had replaced datasets the session already held, though the view loads
-  only the ones it lacks. Cost if wrong: a recipe that declares `global` or
-  imports with `*` does not run this way.
+  dataset its target depends on, so recall runs it with `exec` in a copy of the
+  session's namespace and binds only the target from it:
+  `returns = (lambda scope: exec(..., scope) or scope["returns"])(dict(globals()))`,
+  the recipe written one line per string. The session keeps its own `prices`
+  while `returns` is recalled, and the recipe runs as a module, as validation
+  ran it: its `from __future__` imports, `import *`, `global` and a name
+  shadowing a preload, such as `sql = sql(...)`, mean what they did there. The
+  lambda binds no other name, and nothing loads `returns` before the recipe
+  makes it, so the step reads no old `returns`. Run in the session's namespace,
+  a view recall had replaced datasets the session already held; a
+  `_recall_returns` helper had replaced a session variable of that name; and a
+  function wrapping the recipe refused `import *` and broke a name shadowing a
+  preload. Pinned recalls read one parquet file and need none of this. The cost
+  is a recall step whose code holds the recipe as strings.
 - **View recall checks the kernel inside a hold**: a view recall lists the
   session's datasets inside `hold`, so it answers 409 at once while a step,
   restart or save runs, and its step loads only the datasets the session lacks.
@@ -969,7 +976,8 @@ them.
   the list. Pinning a saved view again refreshes its card through `saved_at`. A
   second pin had added a duplicate card, and Remove then dropped both. The pin
   runs inside the save's mutation, so it still lands when the step card unmounts
-  mid-save, as opening the project makes it.
+  mid-save, as opening the project makes it; the project is read again even if
+  the pin fails, and an open canvas adds a card the project gained.
 - **The canvas binds to the active session**: cards query through its kernel,
   and a card whose datasets the session lacks shows "Load", which recalls the
   view as a step. Only the layout lives in `project.json`; a card's state lasts
@@ -982,11 +990,12 @@ them.
 - **`shared:` keys link only on the canvas**: `SharedStateHub` sends each other
   card a `merge` holding only the `shared:` keys the reporting card changed,
   measured against that card's last known values, and the receiving runtime sets
-  them in its current state. A `restore` of the hub's last copy of each card's
-  state had rolled back an edit the card made within its 300 ms report window.
-  Nothing is seeded on load, so the first change wins. Inside a session a view's
-  `shared:` keys stay private, by design, since the step column is the record.
-  Cost if wrong: cards saved with different values disagree until one changes.
+  them in its current state. A card whose view has not mounted yet gets them as
+  it mounts. A `restore` of the hub's last copy of each card's state had rolled
+  back an edit the card made within its 300 ms report window. Nothing is seeded
+  on load, so the first change wins. Inside a session a view's `shared:` keys
+  stay private, by design, since the step column is the record. Cost if wrong:
+  cards saved with different values disagree until one changes.
 - **The project page replaces the session column**: `SessionPage` renders
   `ProjectPage`, keyed by slug, in the session column's place, so the rails stay
   and choosing or creating a session goes back; each project gets its own hub.
@@ -1016,15 +1025,15 @@ them.
   the kernel's preloads (`pl`, `duckdb`, `pq`, `sql`, `sql_local`, `loaders`)
   without importing them, and an export without them failed on its first cell.
   The notebook's first code cell, and the script's first lines after its header
-  and any `from __future__` import of its recipe, which Python takes only first,
-  import `load_config` and `build_namespace` from `quarry` and bind the
-  namespace built for the export's Quarry root, written in as an absolute path,
-  with DuckDB spilling under a new `tempfile.mkdtemp()` directory. An export
-  therefore needs `quarry` importable, in a Jupyter kernel too. The cells stay
-  the plain Python the spec's goals (§1) promise, and only this setup leans on
-  Quarry; "To code" output needs none of it. Cost if wrong: an export moved to
-  another machine needs that root's `config.toml` and `loaders.toml` there, or
-  an edit to the path, and the file names where the root lives.
+  and any `from __future__` imports that open its recipe, which Python takes
+  only first, import `load_config` and `build_namespace` from `quarry` and bind
+  the namespace built for the export's Quarry root, written in as an absolute
+  path, with DuckDB spilling under a new `tempfile.mkdtemp()` directory. An
+  export therefore needs `quarry` importable, in a Jupyter kernel too. The cells
+  stay the plain Python the spec's goals (§1) promise, and only this setup leans
+  on Quarry; "To code" output needs none of it. Cost if wrong: an export moved
+  to another machine needs that root's `config.toml` and `loaders.toml` there,
+  or an edit to the path, and the file names where the root lives.
 - **Export names results across the whole notebook**: a view's queries assign
   `<dataset>_<n>`, n being the query's position in its view, through
   `result_names` in `quarry.query.source_target`, which "To code" uses too. The

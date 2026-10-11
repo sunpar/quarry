@@ -11,7 +11,7 @@ loading it is not a read. Assigning to or deleting an attribute or subscript in 
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -26,6 +26,10 @@ class CodeNames:
     # String literals handed to `sql_local(...)` or `<anything>.sql(...)`: DuckDB can name the
     # tables they read, which the executor turns into dataset reads.
     sql_literals: frozenset[str] = frozenset()
+    # For each function or class the code defines at module level, the free names its body
+    # loads and the SQL literals it passes: what it reads when called, not where it is defined.
+    helper_loads: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    helper_sql: Mapping[str, frozenset[str]] = field(default_factory=dict)
 
 
 def analyze(code: str) -> CodeNames:
@@ -42,6 +46,8 @@ def analyze(code: str) -> CodeNames:
         frozenset(module.loads),
         frozenset(visitor.defines),
         frozenset(visitor.sql_literals),
+        {name: frozenset(scope.free_names()) for name, scope in visitor.helpers.items()},
+        {name: frozenset(sql) for name, sql in visitor.helper_sql.items()},
     )
 
 
@@ -86,6 +92,8 @@ class _ScopeVisitor(ast.NodeVisitor):
         self.module = _Scope("module")
         self.defines: set[str] = set()
         self.sql_literals: set[str] = set()
+        self.helpers: dict[str, _Scope] = {}
+        self.helper_sql: dict[str, set[str]] = {}
         self._scope = self.module
         self._pending: list[tuple[ast.AST, _Scope] | _Scope] = []
 
@@ -128,7 +136,17 @@ class _ScopeVisitor(ast.NodeVisitor):
             first = node.args[0]
             if isinstance(first, ast.Constant) and isinstance(first.value, str):
                 self.sql_literals.add(first.value)
+                helper = self._helper_around()
+                if helper is not None:
+                    self.helper_sql.setdefault(helper, set()).add(first.value)
         self.generic_visit(node)
+
+    def _helper_around(self) -> str | None:
+        """The module-level helper whose body the walk is in, if any."""
+        scope = self._scope
+        while scope.parent is not None and scope.parent.kind != "module":
+            scope = scope.parent
+        return next((n for n, s in self.helpers.items() if s is scope), None)
 
     def visit_AugAssign(self, node: ast.AugAssign) -> None:
         if isinstance(node.target, ast.Name):
@@ -203,7 +221,7 @@ class _ScopeVisitor(ast.NodeVisitor):
         self.visit(node.args)  # defaults and annotations are evaluated where the def runs
         if node.returns is not None:
             self.visit(node.returns)
-        self._visit_scope("function", node.body, bound=_parameters(node.args))
+        self._helper(node.name, self._visit_scope("function", node.body, _parameters(node.args)))
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
@@ -211,7 +229,7 @@ class _ScopeVisitor(ast.NodeVisitor):
         self._define(node.name)
         for expr in [*node.decorator_list, *node.bases, *node.keywords]:
             self.visit(expr)
-        self._visit_scope("class", node.body)
+        self._helper(node.name, self._visit_scope("class", node.body))
 
     def visit_Lambda(self, node: ast.Lambda) -> None:
         self.visit(node.args)
@@ -233,6 +251,10 @@ class _ScopeVisitor(ast.NodeVisitor):
         body: list[ast.AST] = [outermost.target, *outermost.ifs, *inner, *results]
         self._visit_scope("comprehension", body)
 
+    def _helper(self, name: str, scope: _Scope) -> None:
+        if scope.parent is self.module:
+            self.helpers[name] = scope
+
     def _define(self, name: str) -> None:
         if self._scope.kind == "module":
             self.defines.add(name)
@@ -240,10 +262,11 @@ class _ScopeVisitor(ast.NodeVisitor):
 
     def _visit_scope(
         self, kind: _ScopeKind, body: Iterable[ast.AST], bound: Iterable[str] = ()
-    ) -> None:
+    ) -> _Scope:
         scope = _Scope(kind, parent=self._scope, bound=set(bound))
         self._pending.append(scope)  # popped, and closed, only after its whole body is walked
         self._pending.extend((node, scope) for node in body)
+        return scope
 
 
 def _is_sql_call(func: ast.expr) -> bool:

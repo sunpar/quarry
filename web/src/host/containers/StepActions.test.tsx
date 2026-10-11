@@ -59,7 +59,7 @@ const card = (view: string, y: number): CanvasCard => ({
 const json = (body: unknown) => new Response(JSON.stringify(body));
 
 // The list says the canvas is empty; only the project detail holds `canvas`.
-function setup(canvas: CanvasCard[]) {
+function setup(canvas: CanvasCard[], pinFails = false) {
   const calls: string[] = [];
   const puts: CanvasCard[][] = [];
   let finishSave = () => {};
@@ -75,6 +75,7 @@ function setup(canvas: CanvasCard[]) {
       return json({ name: "closes", saved_at: "t" });
     }
     if (key === "PUT /projects/p/canvas") {
+      if (pinFails) return new Response(null, { status: 500 });
       const cards = JSON.parse(String(init?.body)) as CanvasCard[];
       puts.push(cards);
       return json(meta(cards));
@@ -132,6 +133,17 @@ describe("StepActions pin to canvas", () => {
     unmount();
     finishSave();
     await waitFor(() => expect(puts).toEqual([[card("closes", 0)]]));
+  });
+
+  it("marks the project stale when the pin fails after the save", async () => {
+    const { finishSave, onDone, qc } = setup([], true);
+    finishSave();
+    await pin(qc);
+    await waitFor(() =>
+      expect(onDone).not.toHaveBeenLastCalledWith("Saving view closes…"),
+    );
+    // The view was saved, so the project must be read again.
+    expect(qc.getQueryState(["projects", "p"])?.isInvalidated).toBe(true);
   });
 
   it("leaves the canvas alone when the view already has a card", async () => {

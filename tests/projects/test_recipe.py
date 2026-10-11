@@ -2,7 +2,7 @@ import pytest
 
 from quarry.agent.tools import CodeRun
 from quarry.kernel.executor import Status
-from quarry.projects.recipe import hoist_future, raw_recipe, recipe_steps, scoped_recipe
+from quarry.projects.recipe import raw_recipe, recipe_steps, scoped_recipe
 from quarry.server.models import Step
 
 
@@ -102,52 +102,17 @@ def test_scoped_recipe_binds_only_its_dataset() -> None:
     assert namespace["_recall_returns"] == 1  # no helper name is bound, or freed
 
 
-def test_scoped_recipe_keeps_multiline_strings() -> None:
-    recipe = 'q = """select\n  1"""\nname = "x"\nr = f"""{name}\n  {q}\nend"""\n'
-    namespace: dict[str, object] = {}
+def test_scoped_recipe_runs_the_recipe_as_its_own_module() -> None:
+    recipe = (
+        "from __future__ import annotations\n"
+        "from math import *\n"
+        "sql = sql('q')\n"
+        'r = f"""{sql}\n  {floor(1.5)}"""\n'
+        's = "a\u2028b"\n'
+    )
+    namespace: dict[str, object] = {"sql": str.upper}
     exec(scoped_recipe(recipe, "r"), namespace)
-    assert namespace["r"] == "x\n  select\n  1\nend"
-    # A line separator inside a literal is no line break to Python.
-    exec(hoist_future(scoped_recipe('s = "a\u2028b"\n', "s")), namespace)
+    # A star import, a future import and a preload it shadows all work as at module level.
+    assert namespace["r"] == "Q\n  1" and namespace["sql"] is str.upper
+    exec(scoped_recipe(recipe, "s"), namespace)
     assert namespace["s"] == "a\u2028b"
-
-
-def test_a_helper_reads_the_data_bound_where_it_is_called() -> None:
-    steps = [
-        step(0, "df = load()", writes=["df"]),
-        step(1, "def get_data():\n    return df", reads=["df"], defines=["get_data"]),
-        step(2, "df = load_again()", writes=["df"]),
-        step(3, "out = get_data()", reads=["get_data"], writes=["out"]),
-    ]
-    # get_data reads df when step 3 calls it, by then the df of step 2.
-    assert [s.index for s in recipe_steps(steps, "out")] == [0, 1, 2, 3]
-
-
-def test_future_imports_stay_first_in_scoped_and_joined_recipes() -> None:
-    future = "from __future__ import annotations\n"
-    a = scoped_recipe(future + "a: int = 1\n", "a")
-    b = scoped_recipe(future + "def f(x: Undefined) -> int:\n    return 2\nb = f(0)\n", "b")
-    assert a.startswith(future)
-    namespace: dict[str, object] = {}
-    exec(compile(hoist_future(f"# dataset a\n{a}\n# dataset b\n{b}"), "recall", "exec"), namespace)
-    assert namespace["a"] == 1 and namespace["b"] == 2
-
-
-def test_raw_recipe_puts_a_later_steps_future_import_first() -> None:
-    steps = [
-        step(0, "a = 1", writes=["a"]),
-        step(1, "from __future__ import annotations\nb: int = a", reads=["a"], writes=["b"]),
-    ]
-    namespace: dict[str, object] = {}
-    exec(compile(raw_recipe(steps), "recipe", "exec"), namespace)
-    assert namespace["b"] == 1
-
-
-def test_a_helper_reads_data_made_after_it_was_defined() -> None:
-    steps = [
-        step(0, "def get_data():\n    return prices", defines=["get_data"]),
-        step(1, "prices = load()", writes=["prices"]),
-        step(2, "out = get_data()", reads=["get_data"], writes=["out"]),
-    ]
-    # prices did not exist when get_data was defined, so step 0 recorded no read of it.
-    assert [s.index for s in recipe_steps(steps, "out")] == [0, 1, 2]

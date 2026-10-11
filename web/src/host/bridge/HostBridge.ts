@@ -27,6 +27,8 @@ export interface HostBridgeOptions {
 export class HostBridge {
   private ready = false;
   private mountSpec: MountSpec | null = null;
+  // Linked keys that arrived before the view mounted; the runtime would drop them.
+  private pendingMerge: JsonObject | null = null;
 
   constructor(private readonly options: HostBridgeOptions) {}
 
@@ -63,7 +65,9 @@ export class HostBridge {
   }
 
   merge(state: JsonObject): void {
-    this.send({ type: "merge", viewId: this.options.viewId, state });
+    if (this.ready && this.mountSpec !== null)
+      this.send({ type: "merge", viewId: this.options.viewId, state });
+    else this.pendingMerge = { ...this.pendingMerge, ...state };
   }
 
   private receive(message: RuntimeToHost): void {
@@ -131,6 +135,13 @@ export class HostBridge {
       viewId: this.options.viewId,
       ...this.mountSpec,
     });
+    if (this.pendingMerge === null) return;
+    this.send({
+      type: "merge",
+      viewId: this.options.viewId,
+      state: this.pendingMerge,
+    });
+    this.pendingMerge = null;
   }
 
   private send(message: HostToRuntime): void {

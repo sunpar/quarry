@@ -52,6 +52,17 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
   const [layout, setLayout] = useState<Layout>(() =>
     cardsToLayout(project.meta.canvas),
   );
+  // A card the project gained elsewhere, as a pin that finished after this page opened, joins
+  // the layout; one only this page removed stays removed.
+  const [seenCanvas, setSeenCanvas] = useState(project.meta.canvas);
+  if (project.meta.canvas !== seenCanvas) {
+    const before = new Set(seenCanvas.map((c) => c.view));
+    const added = project.meta.canvas.filter(
+      (c) => !before.has(c.view) && !layout.some((l) => l.i === c.view),
+    );
+    setSeenCanvas(project.meta.canvas);
+    if (added.length > 0) setLayout([...layout, ...cardsToLayout(added)]);
+  }
   const slug = project.meta.slug;
   // Layout writes are debounced so a drag does not PUT on every frame.
   const pending = useRef<CanvasCard[] | null>(null);

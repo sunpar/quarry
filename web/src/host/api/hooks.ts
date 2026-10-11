@@ -210,7 +210,8 @@ export function useSaveView() {
       if (pin) await pinView(api, qc, slug, meta.name);
       return meta;
     },
-    onSuccess: (_meta, { slug }) =>
+    // Settled, not succeeded: a pin that fails still leaves the view saved.
+    onSettled: (_meta, _error, { slug }) =>
       qc.invalidateQueries({ queryKey: keys.project(slug) }),
   });
 }

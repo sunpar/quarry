@@ -104,6 +104,8 @@ class Executor:
         self._tail = tail_bytes
         # Each helper an earlier step defined, with a test that its name still holds it.
         self._defined: dict[str, _IsSame] = {}
+        # What each helper in `_defined` reads when called: its body's free names, SQL literals.
+        self._helper_needs: dict[str, tuple[frozenset[str], frozenset[str]]] = {}
         # The metadata `execute` and `list_datasets` computed for each dataset since the last step.
         # Step code is what changes datasets, so each step clears it; a preview runs a plan or a
         # query, and the server lists on every prompt step.
@@ -175,9 +177,13 @@ class Executor:
         if names is not None:
             # A function name the step then bound to a dataset, as `df = df()` does, is a write.
             defines = [n for n in _newly_bound(names.defines, prior, self._ns) if n not in writes]
-            # Helpers as they were when the step started, as `before` is for datasets.
+            # Helpers as they were when the step started, as `before` is for datasets. A helper
+            # reads its globals when called, so the step calling it reads them too.
             loaded = dataset_reads(names, set(before), set(self._defined))
-            reads = sorted({*loaded, *self._sql_table_reads(names.sql_literals, set(before))})
+            called, called_sql = self._called(names.loads)
+            known = set(before) | set(self._defined)
+            sql = self._sql_table_reads(names.sql_literals | called_sql, set(before))
+            reads = sorted({*loaded, *(called & known), *sql})
         # A name rebound to anything else, or deleted, no longer holds the helper a later
         # step would read.
         self._defined = {
@@ -186,6 +192,19 @@ class Executor:
             if name in self._ns and same(self._ns[name])
         }
         self._defined.update({name: _identity_check(self._ns[name]) for name in defines})
+        self._helper_needs = {
+            n: needs for n, needs in self._helper_needs.items() if n in self._defined
+        }
+        if names is not None:
+            self._helper_needs.update(
+                {
+                    n: (
+                        names.helper_loads.get(n, frozenset()),
+                        names.helper_sql.get(n, frozenset()),
+                    )
+                    for n in defines
+                }
+            )
         return ExecResult(
             status=status,
             stdout_tail=out.getvalue(),
@@ -310,6 +329,24 @@ class Executor:
         except BaseException as exc:
             return "error", ExecError.from_exception(exc), names, prior
         return "ok", None, names, prior
+
+    def _called(self, loads: frozenset[str]) -> tuple[frozenset[str], frozenset[str]]:
+        """The names and SQL literals that the helpers in `loads` read when called, through
+        the helpers they call in turn."""
+        names: set[str] = set()
+        sql: set[str] = set()
+        pending = [n for n in loads if n in self._helper_needs]
+        seen: set[str] = set()
+        while pending:
+            helper = pending.pop()
+            if helper in seen:
+                continue
+            seen.add(helper)
+            helper_loads, helper_sql = self._helper_needs[helper]
+            names |= helper_loads
+            sql |= helper_sql
+            pending.extend(n for n in helper_loads if n in self._helper_needs)
+        return frozenset(names), frozenset(sql)
 
     def _sql_table_reads(self, literals: frozenset[str], before: set[str]) -> set[str]:
         """Datasets among the base tables DuckDB's parser finds in `literals`.

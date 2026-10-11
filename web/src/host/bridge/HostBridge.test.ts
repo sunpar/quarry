@@ -67,6 +67,24 @@ describe("HostBridge", () => {
     expect(posted).toHaveLength(2);
   });
 
+  it("holds linked keys that arrive before the view mounts", () => {
+    const { bridge, posted, send } = setup();
+    bridge.merge({ "shared:k": 1 });
+    bridge.merge({ "shared:j": 2 });
+    send({ type: "ready" });
+    expect(posted).toHaveLength(0); // ready, but nothing mounted to merge into
+    bridge.mount({ source: "x", initialState: {}, datasets: [] });
+    expect(posted.map((m) => m.type)).toEqual(["mount", "merge"]);
+    expect(posted[1]).toMatchObject({
+      state: { "shared:k": 1, "shared:j": 2 },
+    });
+    bridge.merge({ "shared:k": 3 });
+    expect(posted[2]).toMatchObject({
+      type: "merge",
+      state: { "shared:k": 3 },
+    });
+  });
+
   it("drops runtime messages whose fields have the wrong shape", () => {
     const { send, onQuery, onError, onStateChanged } = setup();
     send({ type: "error", viewId: "v1", message: { not: "text" } });

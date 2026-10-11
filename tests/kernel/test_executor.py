@@ -354,6 +354,32 @@ def test_failed_step_does_not_define_a_helper_that_already_existed() -> None:
     assert "helper" not in ex._defined
 
 
+def test_calling_a_helper_reads_what_its_body_reads() -> None:
+    ex = make()
+    ex.execute("def get_data():\n    return prices.head(1)\n")
+    # prices did not exist when get_data was defined, so only the call can record the read.
+    ex.execute("prices = pl.DataFrame({'a': [1]})")
+    assert ex.execute("out = get_data()").reads == ["get_data", "prices"]
+
+
+def test_calling_a_helper_reads_its_sql_tables_and_the_helpers_it_calls() -> None:
+    ex = make()
+    ex.execute(
+        "t = pl.DataFrame({'a': [1]})\ndef inner():\n    return _conn.sql('SELECT * FROM t')"
+    )
+    ex.execute("def outer(x=t):\n    return inner()\n")
+    ex.execute("t = pl.DataFrame({'a': [2]})")
+    assert ex.execute("out = outer().pl()").reads == ["inner", "outer", "t"]
+
+
+def test_a_default_argument_is_read_where_the_helper_is_defined() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1]})")
+    defined = ex.execute("def get_data(x=df):\n    return x\n")
+    assert defined.reads == ["df"]
+    assert ex.execute("out = get_data()").reads == ["get_data"]
+
+
 def test_redefining_a_helper_is_a_define() -> None:
     ex = make()
     ex.execute("def helper():\n    return 1\n")

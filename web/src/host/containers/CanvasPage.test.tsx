@@ -79,7 +79,7 @@ const session: Session = {
   steps: [wrote as Step],
 };
 
-function renderCanvas(listed: string[]) {
+function renderCanvas(listed: string[], shown: Project = project) {
   const datasets: Partial<DatasetMeta>[] = listed.map((name) => ({ name }));
   const answers: Record<string, unknown> = {
     "/sessions/s1": session,
@@ -101,14 +101,15 @@ function renderCanvas(listed: string[]) {
   const fetchImpl = async (path: string) =>
     new Response(JSON.stringify(answers[path] ?? {}));
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
+  const page = (p: Project) => (
     <QueryClientProvider client={qc}>
       <ApiProvider client={new ApiClient("t", fetchImpl)}>
-        <CanvasPage project={project} sessionId="s1" />
+        <CanvasPage project={p} sessionId="s1" />
       </ApiProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
-  return qc;
+  const { rerender } = render(page(shown));
+  return Object.assign(qc, { show: (p: Project) => rerender(page(p)) });
 }
 
 describe("CanvasPage availability", () => {
@@ -118,6 +119,14 @@ describe("CanvasPage availability", () => {
     await waitFor(() => expect(qc.isFetching()).toBe(0));
     expect(screen.getByRole("button", { name: "Load" })).toBeDefined();
     expect(screen.queryByText("Canvas card table mounted")).toBeNull();
+  });
+
+  it("adds a card pinned after the canvas opened", async () => {
+    const empty = { ...project, meta: { ...project.meta, canvas: [] } };
+    const canvas = renderCanvas(["df"], empty);
+    expect(screen.queryByText("Canvas card table mounted")).toBeNull();
+    canvas.show(project); // the pin's refetch brings the card
+    expect(await screen.findByText("Canvas card table mounted")).toBeDefined();
   });
 
   it("mounts the view when the kernel holds its datasets", async () => {

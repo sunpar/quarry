@@ -220,7 +220,8 @@ def test_a_dataset_script_puts_the_recipes_future_import_first(tmp_path: Path) -
     store = project_with_saved_items(tmp_path)
     save_another_dataset(store, "later", "from __future__ import annotations\nlater: int = 1\n")
     script = dataset_script(store.get("momentum"), store, "later")
-    assert script.startswith("from __future__ import annotations\n")
+    # After the header's comments, which may precede it, and before the setup's statements.
+    assert script.index("\nfrom __future__ import annotations\n") < script.index(SETUP)
     compile(script, "later.py", "exec")
 
 

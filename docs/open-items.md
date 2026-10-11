@@ -318,9 +318,6 @@ one up when a researcher needs it.
   pydantic's echoed input, and the polars target has no direct nulls-first test.
 - Close Stage 2 test gaps: nothing checks the arguments the OpenAI adapter sends
   or that every tool schema stays strict.
-- Validate the form recall runs: a recipe is validated at module level, but
-  recall runs it inside a function, where `from x import *` does not compile and
-  `global` means something else, so a validated recipe can fail every recall.
 - Commit a pinned save as a unit: the kernel snapshots straight to the final
   `data.parquet` before the metadata is written, so a save that fails between
   the two leaves new rows under old metadata. A staging file moved into place by
