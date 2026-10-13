@@ -1,6 +1,6 @@
 # Working state
 
-Checkpoint as of 2026-10-12. This page holds temporary context: what is in
+Checkpoint as of 2026-10-13. This page holds temporary context: what is in
 flight, the latest check results and the next actions. Rewrite it at the end of
 each session and when a pull request opens or merges. Anything that will still
 be true next month belongs in [context/](context/) or
@@ -8,9 +8,15 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Pick the next work from [open-items.md](open-items.md). The save, pin and To
-code follow-up merged in sunpar/quarry#12; see
-[the follow-up below](#save-pin-and-to-code-follow-up).
+Reduce CI time on `t3/speed-up-ci-tests`, rebased onto `main` at `fed5672`. The
+branch consolidates duplicate query checks, runs isolated pytest workers and
+parallel CI jobs, and reduces frontend environment setup. Simplify found no
+cleanup issues. Astra's native review was clean on `785d920`. Opus used both
+native review requests; its valid concurrency, busy-step, teardown and runtime
+manifest findings are fixed. The other suggestions are recorded with reasons in
+the workflow ledger. Neither provider timed out. The branch is open in
+[sunpar/quarry#14](https://github.com/sunpar/quarry/pull/14); GitHub bot reviews
+and CI are next.
 
 ## Status by stage
 
@@ -121,12 +127,27 @@ files. Its documentation follow-up is
 
 ## Latest verification
 
-`claude/quarry-save-pin-tocode` at `e426541`, the last code change before it
-merged, locally on 2026-10-12: `pytest` passed 1086 tests and skipped 3 (the
-live provider and memory-cap tests), including the browser tests under
-`tests/e2e` against a fresh build. `ruff check`, `ruff format --check`,
-`mypy src tests` and `uv lock --check` were clean, and in `web/`
-`npm run check`, `npm test` (235 tests) and `npm run build` passed.
+After rebasing onto `main` at `fed5672`, locally on 2026-10-12, the full Python
+suite passed 962 tests and skipped 3 in 40.46 s, including all 10 browser tests
+against a fresh build. All 235 frontend tests passed in 3.47 s. `ruff check`,
+`ruff format --check`, strict `mypy src tests`, `uv lock --check`,
+`npm run check` and `npm run build` passed.
+
+Before the rebase, on the code based on `2f00b0a`, the full serial run took
+69.55 s. Two workers passed the same 955 tests in 38.51 s, with the same 3
+skips; backend-only tests took 28.57 s. Inventories and skip outcomes matched.
+Removing 124 duplicate cases and changing scheduling preserved every covered
+line and branch: 3,879 of 3,986 statements and 871 of 934 branches, or 96.54%
+combined coverage. The parallel coverage run took 41.52 s. These figures measure
+pytest processes, not kernel subprocesses. All real kernel tests remain, and
+mutation probes caught incorrect SQL and generated rows for each backing.
+
+The frontend comparison before the rebase passed all 239 tests with two workers
+in 10.56 s before and 3.65 s after. The first GitHub run on `5836348` passed 952
+backend tests with 3 skips in 49.26 s, all 10 browser tests in 20.69 s and all
+235 frontend tests in 6.44 s. The Python test steps overlapped, finishing within
+51 s from the first step. The CI workflow took 1 min 50 s including setup,
+builds and the aggregate gate. Dependency setup runs twice.
 
 The separate comment review at `8c723eb` on 2026-10-12 passed all 86 tests in
 `tests/projects/test_store.py`, `tests/projects/test_export.py`,
@@ -137,8 +158,8 @@ on that head too.
 
 ## Next actions
 
-1. Pick the next work from [open-items.md](open-items.md), starting with its
-   known problems.
+1. Handle PR #14 bot reviews and the final head's CI results, then merge when
+   the checks and review deadlines permit.
 
 ## Resuming
 

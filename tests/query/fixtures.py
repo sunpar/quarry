@@ -5,8 +5,11 @@ from typing import Literal
 
 import duckdb
 import polars as pl
+from polars.testing import assert_frame_equal
 
-from quarry.query import Agg, Filter, Pivot, QuerySpec, Sort
+from quarry.query import Agg, Backing, Filter, Pivot, QuerySpec, Sort
+
+BACKINGS: list[Backing] = ["polars", "polars_lazy", "duckdb"]
 
 
 def utc_connection() -> duckdb.DuckDBPyConnection:
@@ -14,6 +17,31 @@ def utc_connection() -> duckdb.DuckDBPyConnection:
     conn = duckdb.connect()
     conn.execute("SET TimeZone = 'UTC'")
     return conn
+
+
+def bind(frame: pl.DataFrame, backing: Backing) -> object:
+    if backing == "duckdb":
+        con = utc_connection()
+        con.register("frame_src", frame)
+        return con.sql("SELECT * FROM frame_src")
+    if backing == "polars_lazy":
+        return frame.lazy()
+    return frame
+
+
+def execute(source: str, datasets: dict[str, object]) -> pl.DataFrame:
+    # No `duckdb` in scope: generated code reaches DuckDB only through the relation.
+    namespace: dict[str, object] = {"pl": pl, **datasets}
+    exec(source, namespace)  # the test executes generated code on purpose
+    result = namespace["result"]
+    assert isinstance(result, pl.DataFrame)
+    return result
+
+
+def assert_same_rows(expected: pl.DataFrame, actual: pl.DataFrame) -> None:
+    expected = expected.select(sorted(expected.columns)).sort(sorted(expected.columns))
+    actual = actual.select(sorted(actual.columns)).sort(sorted(actual.columns))
+    assert_frame_equal(expected, actual, check_dtypes=False, rel_tol=1e-9)
 
 
 def trades() -> pl.DataFrame:

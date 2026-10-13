@@ -1,13 +1,14 @@
-"""Every fixture spec must produce the same result on both execution targets."""
+"""Every fixture spec must agree across direct targets and generated source."""
 
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 
-from quarry.query import Filter, QuerySpec, Sort
+from quarry.query import Filter, QuerySpec, Sort, to_source
 from quarry.query.polars_target import to_polars
 from quarry.query.sql_target import to_sql
 from tests.query.fixtures import (
+    BACKINGS,
     INT_SUM_IDS,
     INT_SUM_SPECS,
     NAIVE_OFFSET_FILTERS,
@@ -17,6 +18,9 @@ from tests.query.fixtures import (
     ZONED_FILTERS,
     ZONED_IDS,
     TimeUnit,
+    assert_same_rows,
+    bind,
+    execute,
     naive_rows,
     new_york_rows,
     overflowing,
@@ -40,6 +44,10 @@ def test_targets_agree(spec: QuerySpec) -> None:
     conn.register("trades", frame)
     via_sql = conn.sql(to_sql(spec, "trades")).pl()
     assert_frame_equal(normalize(via_polars), normalize(via_sql), check_dtypes=False, rel_tol=1e-9)
+    for backing in BACKINGS:
+        source = to_source(spec, backing, schema=frame.schema)
+        actual = execute(source, {"trades": bind(frame, backing)})
+        assert_same_rows(via_polars, actual)
 
 
 # Each integer dtype DuckDB can read from polars, with its largest value.
