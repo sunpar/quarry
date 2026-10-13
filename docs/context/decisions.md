@@ -1172,13 +1172,20 @@ them.
   allow `undefined` values, which `useViewState`'s `Json` bound refuses, so the
   pivot casts at the boundary, as the plan allowed.
 - **A view may publish its to-code spec under `spec`**: "To code" renders
-  `[spec]` when the latest snapshot's state holds a `spec` object with a string
-  `dataset`, for any view, and the snapshot's queries otherwise. The pivot
-  publishes its mapped spec there, without `limit`, written beside `dropped`;
-  its queries are the 50,000-row arrow load and the one-row probe, which would
-  render as `.head(1)`. A saved view's export reads its saved state the same way
-  and notes what `dropped` lists; it had rendered the probe, so an exported
-  pivot gave one row.
+  `[spec]` when the view's state holds a `spec` object with a string `dataset`,
+  for any view, and its queries otherwise. The pivot publishes its mapped spec
+  there, without `limit`, written beside `dropped`; its queries are the
+  50,000-row arrow load and the one-row probe, which would render as `.head(1)`.
+  A saved view's export reads its saved state the same way and notes what
+  `dropped` lists; it had rendered the probe, so an exported pivot gave one row.
+- **The server picks what "To code" renders**: the host posts to
+  `POST /sessions/{id}/steps/{step_id}/to-code` with no body, and the server
+  reads the step's view as it shows now, its latest snapshot or its initial
+  state before one, through `to_code_input` in `quarry.server.models`, then
+  answers `{code, dropped}`; a view that has run no query is a 400. The export
+  reads a saved view through the same function. The spec's §9 has the host send
+  the snapshot's queries, so the host's `toCodeSource` and the export each held
+  the `spec` rule and had to change together.
 
 ### TanStack table and OHLC
 

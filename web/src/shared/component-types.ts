@@ -28,4 +28,6 @@ export interface SaveComponentRequest {
 
 export interface ToCodeResponse {
   code: string;
+  /** What the view's to-code spec leaves out. */
+  dropped: string[];
 }

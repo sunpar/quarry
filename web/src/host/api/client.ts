@@ -134,8 +134,12 @@ export class ApiClient {
     return this.request("GET", "/libraries");
   }
 
-  toCode(sessionId: string, queries: QuerySpec[]): Promise<ToCodeResponse> {
-    return this.request("POST", `/sessions/${sessionId}/to-code`, { queries });
+  /** The step's view as Python, from what it shows now; the server picks the queries. */
+  toCode(sessionId: string, stepId: string): Promise<ToCodeResponse> {
+    return this.request(
+      "POST",
+      `/sessions/${sessionId}/steps/${stepId}/to-code`,
+    );
   }
 
   saveComponent(body: SaveComponentRequest): Promise<ComponentManifest> {

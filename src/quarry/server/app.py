@@ -50,8 +50,9 @@ class SnapshotRequest(BaseModel):
     queries: list[dict[str, Json]] = Field(default_factory=list)
 
 
-class ToCodeRequest(BaseModel):
-    queries: list[dict[str, Json]]
+class ToCode(BaseModel):
+    code: str
+    dropped: list[str]
 
 
 def create_app(
@@ -177,17 +178,18 @@ def create_app(
         except (QueryError, RpcFailure) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @api.post("/sessions/{session_id}/to-code")
-    def to_code(session_id: str, body: ToCodeRequest) -> dict[str, str]:
+    @api.post("/sessions/{session_id}/steps/{step_id}/to-code")
+    def to_code(session_id: str, step_id: str) -> ToCode:
         session_or_404(session_id)
         try:
-            specs = [QuerySpec.model_validate(q) for q in body.queries]
-        except ValidationError as exc:
+            code, dropped = service.to_code(session_id, step_id)
+        except StepNotFound as exc:
+            raise HTTPException(status_code=404, detail=f"no view on step {exc}") from exc
+        except SessionBusy as exc:
+            raise HTTPException(status_code=409, detail="step is still running") from exc
+        except (ValueError, QueryError, RpcFailure) as exc:  # a ValidationError is a ValueError
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        try:
-            return {"code": service.to_code(session_id, specs)}
-        except (QueryError, RpcFailure) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return ToCode(code=code, dropped=dropped)
 
     @api.get("/sessions/{session_id}/datasets")
     def datasets(session_id: str) -> list[DatasetMeta]:

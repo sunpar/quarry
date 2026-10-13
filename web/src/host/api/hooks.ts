@@ -7,7 +7,6 @@ import {
 import type {
   CanvasCard,
   Project,
-  QuerySpec,
   RecallRequest,
   SaveDatasetRequest,
   SaveViewRequest,
@@ -100,7 +99,7 @@ export function useSubmitManual(id: string) {
 export function useToCode(sessionId: string) {
   const api = useApi();
   return useMutation({
-    mutationFn: (queries: QuerySpec[]) => api.toCode(sessionId, queries),
+    mutationFn: (stepId: string) => api.toCode(sessionId, stepId),
   });
 }
 

@@ -1,5 +1,4 @@
 import { Button } from "@/components/ui/button";
-import type { QuerySpec, Snapshot } from "@/shared/api-types";
 
 interface ToCodeDrawerProps {
   open: boolean;
@@ -10,30 +9,6 @@ interface ToCodeDrawerProps {
   onChange: (code: string) => void;
   onRun: () => void;
   onClose: () => void;
-}
-
-const isSpec = (value: unknown): value is QuerySpec =>
-  typeof value === "object" &&
-  value !== null &&
-  typeof (value as { dataset?: unknown }).dataset === "string";
-
-/**
- * What "To code" renders for a view's latest snapshot. A view may publish its to-code spec
- * under `spec`, which wins over its queries; the pivot's are an arrow load and a probe.
- */
-export function toCodeSource(snapshot: Snapshot | undefined): {
-  queries: QuerySpec[];
-  dropped: string[];
-} {
-  if (snapshot === undefined) return { queries: [], dropped: [] };
-  const { spec, dropped } = snapshot.state;
-  const strings =
-    Array.isArray(dropped) &&
-    dropped.every((d): d is string => typeof d === "string");
-  return {
-    queries: isSpec(spec) ? [spec] : snapshot.queries,
-    dropped: strings ? dropped : [],
-  };
 }
 
 export function ToCodeDrawer({

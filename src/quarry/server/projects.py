@@ -164,9 +164,7 @@ class ProjectService:
                 self.save_dataset(
                     slug, SaveDatasetRequest(session_id=req.session_id, dataset=name, mode=req.mode)
                 )
-        latest = step.view.snapshots[-1] if step.view.snapshots else None
-        state = latest.state if latest is not None else step.view.initial_state
-        queries = latest.queries if latest is not None else []
+        state, queries = step.view.latest()
         meta = SavedViewMeta(
             name=req.name,
             description=req.description,

@@ -1,36 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { JsonObject } from "@/shared/json";
-import { ToCodeDrawer, toCodeSource } from "./ToCodeDrawer";
-
-describe("toCodeSource", () => {
-  const queries = [{ dataset: "df", limit: 5 }];
-
-  it("prefers the pivot's published spec over its recorded queries", () => {
-    const spec = { dataset: "df", group_by: ["a"] };
-    const state = { spec, dropped: ["expression e"] };
-    expect(toCodeSource({ ts: "", state, queries })).toEqual({
-      queries: [spec],
-      dropped: ["expression e"],
-    });
-  });
-
-  it("falls back to the recorded queries and drops a malformed list", () => {
-    const states: JsonObject[] = [
-      {},
-      { spec: "df" },
-      { spec: ["df"] },
-      { spec: { group_by: ["a"] } },
-      { dropped: ["sort a", 1] },
-    ];
-    for (const state of states)
-      expect(toCodeSource({ ts: "", state, queries })).toEqual({
-        queries,
-        dropped: [],
-      });
-    expect(toCodeSource(undefined)).toEqual({ queries: [], dropped: [] });
-  });
-});
+import { ToCodeDrawer } from "./ToCodeDrawer";
 
 describe("ToCodeDrawer", () => {
   it("shows the code, what was left out, and runs the edited text", () => {
