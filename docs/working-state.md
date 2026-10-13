@@ -11,9 +11,11 @@ be true next month belongs in [context/](context/) or
 Reduce CI time on `t3/speed-up-ci-tests`, rebased onto `main` at `fed5672`. The
 branch consolidates duplicate query checks, runs isolated pytest workers and
 parallel CI jobs, and reduces frontend environment setup. Simplify found no
-cleanup issues. Opus's first native review found issues in concurrency,
-busy-step coverage and teardown; fixes are being verified before Astra's review.
-No pull request is open for this work.
+cleanup issues. Astra's native review was clean on `785d920`. Opus used both
+native review requests; its valid concurrency, busy-step, teardown and runtime
+manifest findings are fixed. The other suggestions are recorded with reasons in
+the workflow ledger. Neither provider timed out. No pull request is open for
+this work.
 
 ## Status by stage
 
