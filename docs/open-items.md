@@ -264,7 +264,7 @@ one up when a researcher needs it.
   `shutdown()`, so an in-flight snapshot completes.
 - Map `anthropic.APIError` and `openai.APIError` to a non-retryable
   `ProviderError` at the provider boundary. Until then, an unmapped SDK error
-  escapes a save after its pinned parquet is written.
+  escapes a save after its pinned snapshot is staged.
 - Give recipe validation a timeout: `validate_recipe` waits on the scratch
   kernel, so a recipe that hangs hangs the save request, which is synchronous so
   that it can show a saving state. The session stays usable, since the hold is

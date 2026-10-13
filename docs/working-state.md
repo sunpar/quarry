@@ -1,6 +1,6 @@
 # Working state
 
-Checkpoint as of 2026-10-11. This page holds temporary context: what is in
+Checkpoint as of 2026-10-12. This page holds temporary context: what is in
 flight, the latest check results and the next actions. Rewrite it at the end of
 each session and when a pull request opens or merges. Anything that will still
 be true next month belongs in [context/](context/) or
@@ -113,8 +113,11 @@ what "To code" renders, through `to_code_input`, which the export shares. Codex
 and `@claude` came back clean, and the pull request merged in sunpar/quarry#12
 as `e8cce38` on 2026-10-12. Codex's point that the rows' rename and the
 `meta.json` write are still two steps is recorded as a cost in
-[decisions](context/decisions.md), since one atomic switch would change how a
-recalled pin replays; the whole-canvas layout write is filed under Any time.
+[decisions](context/decisions.md); the whole-canvas layout write is filed under
+Any time. A separate review of the PR comments at `8c723eb` found no new defects
+introduced by that PR and confirmed that live saves remove abandoned staging
+files. Its documentation follow-up is
+[sunpar/quarry#13](https://github.com/sunpar/quarry/pull/13).
 
 ## Latest verification
 
@@ -124,6 +127,13 @@ live provider and memory-cap tests), including the browser tests under
 `tests/e2e` against a fresh build. `ruff check`, `ruff format --check`,
 `mypy src tests` and `uv lock --check` were clean, and in `web/`
 `npm run check`, `npm test` (235 tests) and `npm run build` passed.
+
+The separate comment review at `8c723eb` on 2026-10-12 passed all 86 tests in
+`tests/projects/test_store.py`, `tests/projects/test_export.py`,
+`tests/server/test_projects_service.py` and `tests/server/test_app.py`. It did
+not rerun the full local suite or browser tests. The
+[CI test job](https://github.com/sunpar/quarry/actions/runs/38334508545) passed
+on that head too.
 
 ## Next actions
 
