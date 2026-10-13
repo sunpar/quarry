@@ -135,7 +135,7 @@ def test_live_resave_drops_the_pinned_parquet(tmp_path: Path) -> None:
     store = ProjectStore(tmp_path)
     store.create("p")
     pinned = dataset_meta().model_copy(update={"mode": "pinned"})
-    store.pinned_path("p", "prices").write_bytes(b"parquet")
+    store.staging_path("p", "prices").write_bytes(b"parquet")
     store.write_dataset("p", pinned, recipe="", raw="")
     assert store.parquet_path("p", "prices").exists()
     store.write_dataset("p", dataset_meta(), recipe="", raw="")

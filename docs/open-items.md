@@ -318,10 +318,6 @@ one up when a researcher needs it.
   pydantic's echoed input, and the polars target has no direct nulls-first test.
 - Close Stage 2 test gaps: nothing checks the arguments the OpenAI adapter sends
   or that every tool schema stays strict.
-- Commit a pinned save as a unit: the kernel snapshots straight to the final
-  `data.parquet` before the metadata is written, so a save that fails between
-  the two leaves new rows under old metadata. A staging file moved into place by
-  `write_dataset` would make the save guard double-submit protection only.
 - Let the server own the to-code input: `toCodeSource` in the UI and
   `_to_code_input` in the export both read a view's `spec` and `dropped` state,
   and must change together.

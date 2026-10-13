@@ -124,7 +124,7 @@ class ProjectService:
             except RpcFailure as exc:
                 raise UnknownDataset(req.dataset) from exc
             if req.mode == "pinned":
-                path = self._store.pinned_path(slug, req.dataset)
+                path = self._store.staging_path(slug, req.dataset)
                 kernel.snapshot(req.dataset, path)
                 path.chmod(PRIVATE_FILE)  # the kernel writes it at its own umask
         threads = self._config.data.kernel_threads

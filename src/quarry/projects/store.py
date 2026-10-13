@@ -105,9 +105,14 @@ class ProjectStore:
         base.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
         write_atomic(base / "recipe.raw.py", raw)
         write_atomic(base / "recipe.py", recipe)
+        rows = base / "data.parquet"
+        if meta.mode == "pinned":
+            # The snapshot replaces the saved rows only now, just before the metadata naming
+            # them, so a save that fails earlier leaves the last save's rows and metadata alone.
+            self.staging_path(slug, meta.name).replace(rows)
         write_atomic(base / "meta.json", meta.model_dump_json(by_alias=True, indent=2))
         if meta.mode == "live":  # a pinned save before this one left its rows
-            (base / "data.parquet").unlink(missing_ok=True)
+            rows.unlink(missing_ok=True)
         self._touch(slug)
 
     def read_recipe(self, slug: str, name: str) -> str:
@@ -119,12 +124,14 @@ class ProjectStore:
     def parquet_path(self, slug: str, name: str) -> Path:
         return self._dataset_dir(slug, name) / "data.parquet"
 
-    def pinned_path(self, slug: str, name: str) -> Path:
-        """Where a pinned save snapshots, in a dataset directory made private first: the
-        kernel's own mkdir would make it at the kernel's umask."""
+    def staging_path(self, slug: str, name: str) -> Path:
+        """Where a pinned save snapshots until `write_dataset` moves it into place, in a dataset
+        directory made private first: the kernel's own mkdir would make it at the kernel's
+        umask. A save that fails leaves the file, as `write_atomic` leaves its temp, and the next
+        pinned save writes over it."""
         base = self._dataset_dir(slug, name)
         base.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
-        return base / "data.parquet"
+        return base / ".data.parquet.tmp"
 
     def write_view(
         self,

@@ -236,6 +236,7 @@ def test_a_dataset_script_puts_the_recipes_future_import_first(tmp_path: Path, r
 def test_pinned_dataset_script_mentions_the_parquet(tmp_path: Path) -> None:
     store = project_with_saved_items(tmp_path)
     saved = store.get("momentum").datasets[0].model_copy(update={"mode": "pinned"})
+    store.staging_path("momentum", "prices").write_bytes(b"")
     store.write_dataset("momentum", saved, recipe=RECIPE, raw=RECIPE)
     script = dataset_script(store.get("momentum"), store, "prices")
     assert "data.parquet" in script and "pl.read_parquet(" in script
