@@ -174,9 +174,9 @@ class ProjectService:
             source_session=req.session_id,
             source_step=step.id,
         )
-        self._store.write_view(
-            slug, meta, source=step.view.source, state=state, queries=queries, pin=req.pin
-        )
+        self._store.write_view(slug, meta, source=step.view.source, state=state, queries=queries)
+        if req.pin:
+            self._store.pin_view(slug, meta.name)
         return meta
 
     def recall(self, session_id: str, req: RecallRequest) -> Step:
@@ -228,10 +228,10 @@ class ProjectService:
 
     @contextmanager
     def _only_save(self, slug: str, kind: str, name: str) -> Iterator[None]:
-        """Refuse a second save of one target until the first has written its files: a live
-        save deletes the rows a pinned one is still validating, and two saves interleave. The key
-        holds the stored slug, which a case-insensitive filesystem also finds under another case.
-        KeyError for an unknown project, before a save touches its session."""
+        """Refuse a second save of one target, as a second click makes, until the first has
+        written its files, so the two never write them in turns. The key holds the stored slug,
+        which a case-insensitive filesystem also finds under another case. KeyError for an
+        unknown project, before a save touches its session."""
         target = (self._store.meta(slug).slug, kind, name)
         with self._saving_lock:
             if target in self._saving:

@@ -30,6 +30,10 @@ _NAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 M = TypeVar("M", bound=BaseModel)
 
 
+# Named as `write_atomic` names its temps: a pinned snapshot before it is saved.
+_STAGED_ROWS = ".data.parquet.tmp"
+
+
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     return slug or "project"
@@ -100,6 +104,17 @@ class ProjectStore:
             self._write_meta(meta)
         return meta
 
+    def pin_view(self, slug: str, view: str) -> None:
+        """Add a card for `view` under the canvas unless one shows it: read and written under
+        the lock, so no layout write between the two can drop the card."""
+        with self._meta_lock:
+            meta = self._read_meta(slug)
+            if any(c.view == view for c in meta.canvas):
+                return
+            bottom = max((c.y + c.h for c in meta.canvas), default=0)
+            card = CanvasCard(view=view, x=0, y=bottom, w=6, h=8)
+            self._write_meta(meta.model_copy(update={"canvas": [*meta.canvas, card]}))
+
     def write_dataset(self, slug: str, meta: SavedDatasetMeta, *, recipe: str, raw: str) -> None:
         base = self._dataset_dir(slug, meta.name)
         base.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
@@ -109,7 +124,7 @@ class ProjectStore:
         if meta.mode == "pinned":
             # The snapshot replaces the saved rows only now, just before the metadata naming
             # them, so a save that fails earlier leaves the last save's rows and metadata alone.
-            self.staging_path(slug, meta.name).replace(rows)
+            (base / _STAGED_ROWS).replace(rows)
         write_atomic(base / "meta.json", meta.model_dump_json(by_alias=True, indent=2))
         if meta.mode == "live":  # a pinned save before this one left its rows
             rows.unlink(missing_ok=True)
@@ -131,7 +146,7 @@ class ProjectStore:
         pinned save writes over it."""
         base = self._dataset_dir(slug, name)
         base.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
-        return base / ".data.parquet.tmp"
+        return base / _STAGED_ROWS
 
     def write_view(
         self,
@@ -141,9 +156,7 @@ class ProjectStore:
         source: str,
         state: dict[str, Json],
         queries: builtins.list[dict[str, Json]],
-        pin: bool = False,
     ) -> None:
-        """Write the view's files, then, with `pin`, give it a canvas card if it has none."""
         check_view_name(meta.name)
         base = self._project_dir(slug) / "views" / meta.name
         base.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
@@ -152,7 +165,7 @@ class ProjectStore:
         # The query specs behind the saved state; Stage 5's export renders them with to_source.
         write_atomic(base / "queries.json", json.dumps(queries, indent=2))
         write_atomic(base / "meta.json", meta.model_dump_json(indent=2))
-        self._touch(slug, pin=meta.name if pin else None)
+        self._touch(slug)
 
     def read_view(self, slug: str, name: str) -> SavedViewFiles:
         base = child(self._project_dir(slug) / "views", name)
@@ -194,14 +207,6 @@ class ProjectStore:
         path.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
         write_atomic(path / "project.json", meta.model_dump_json(indent=2))
 
-    def _touch(self, slug: str, *, pin: str | None = None) -> None:
-        """Mark the project updated and, with `pin`, add a card for that view under the canvas
-        unless one shows it: read and written under the lock, so no layout write between can drop
-        the card."""
+    def _touch(self, slug: str) -> None:
         with self._meta_lock:
-            meta = self._read_meta(slug)
-            update: dict[str, object] = {"updated_at": now_iso()}
-            if pin is not None and all(c.view != pin for c in meta.canvas):
-                bottom = max((c.y + c.h for c in meta.canvas), default=0)
-                update["canvas"] = [*meta.canvas, CanvasCard(view=pin, x=0, y=bottom, w=6, h=8)]
-            self._write_meta(meta.model_copy(update=update))
+            self._write_meta(self._read_meta(slug).model_copy(update={"updated_at": now_iso()}))

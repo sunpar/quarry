@@ -67,7 +67,7 @@ function setup(step: Step, respond: (key: string) => Response) {
 }
 
 describe("StepActions to code", () => {
-  it("waits for the view to report its queries", () => {
+  it("waits for the view to report what it shows", () => {
     setup(stepWith({}), () => json({}));
     expect(
       screen.getByRole<HTMLButtonElement>("button", { name: "To code" })
@@ -76,7 +76,7 @@ describe("StepActions to code", () => {
   });
 
   it("shows the step's code from the server and runs the edit as a step", async () => {
-    const step = stepWith({ component_id: "pivot", snapshots: [snapshot] });
+    const step = stepWith({ snapshots: [snapshot] });
     const { bodies } = setup(step, (key) =>
       key === "POST /sessions/s1/steps/st1/to-code"
         ? json({ code: "df_1 = df.group_by('a')", dropped: ["expression e"] })

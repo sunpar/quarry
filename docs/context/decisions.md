@@ -995,11 +995,11 @@ them.
   only for a view the project's canvas lacks. Pinning a saved view again
   refreshes its card through `saved_at`. A second pin had added a duplicate
   card, and Remove then dropped both. The pin is a `pin` field on the view save:
-  the store adds the card under the canvas in the same locked read and write of
-  `project.json` that marks the project updated. Pinned from the browser, it
-  read the project and wrote the whole canvas, so a layout write landing between
-  the two lost the card. The project is read again even if the save fails, and
-  an open canvas adds a card the project gained.
+  `ProjectStore.pin_view` adds the card under the canvas in one locked read and
+  write of `project.json`. Pinned from the browser, it read the project and
+  wrote the whole canvas, so a layout write landing between the two lost the
+  card. The project is read again even if the save fails, and an open canvas
+  adds a card the project gained.
 - **The canvas binds to the active session**: cards query through its kernel,
   and a card whose datasets the session lacks shows "Load", which recalls the
   view as a step. Only the layout lives in `project.json`; a card's state lasts

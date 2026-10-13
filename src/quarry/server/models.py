@@ -35,8 +35,9 @@ def to_code_input(
     state wins over its queries, which for the pivot are an arrow load and a one-row probe, and
     `dropped` lists what the spec cannot say."""
     spec, dropped = state.get("spec"), state.get("dropped")
-    named = isinstance(spec, dict) and isinstance(spec.get("dataset"), str)
-    rendered = [spec] if named and isinstance(spec, dict) else queries
+    rendered = (
+        [spec] if isinstance(spec, dict) and isinstance(spec.get("dataset"), str) else queries
+    )
     if isinstance(dropped, list) and all(isinstance(d, str) for d in dropped):
         return rendered, [str(d) for d in dropped]
     return rendered, []

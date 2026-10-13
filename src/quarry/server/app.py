@@ -185,8 +185,6 @@ def create_app(
             code, dropped = service.to_code(session_id, step_id)
         except StepNotFound as exc:
             raise HTTPException(status_code=404, detail=f"no view on step {exc}") from exc
-        except SessionBusy as exc:
-            raise HTTPException(status_code=409, detail="step is still running") from exc
         except (ValueError, QueryError, RpcFailure) as exc:  # a ValidationError is a ValueError
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return ToCode(code=code, dropped=dropped)

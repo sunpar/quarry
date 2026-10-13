@@ -7,19 +7,19 @@ import {
   within,
 } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { CanvasCard, ProjectMeta, Step } from "@/shared/api-types";
+import type { ProjectMeta, Step } from "@/shared/api-types";
 import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
 import { StepActions } from "./StepActions";
 
-const meta = (canvas: CanvasCard[]): ProjectMeta => ({
+const meta: ProjectMeta = {
   slug: "p",
   name: "Momentum",
   description: "",
   created_at: "",
   updated_at: "",
-  canvas,
-});
+  canvas: [],
+};
 
 const step: Step = {
   id: "st1",
@@ -60,7 +60,7 @@ function setup(saveFails = false) {
     calls.push(key);
     if (init?.body !== undefined)
       bodies.set(key, JSON.parse(String(init.body)));
-    if (key === "GET /projects") return json([meta([])]);
+    if (key === "GET /projects") return json([meta]);
     if (key === "POST /projects/p/views") {
       await saved;
       if (saveFails) return new Response(null, { status: 500 });
@@ -122,7 +122,7 @@ describe("StepActions pin to canvas", () => {
     const { finishSave, onDone, qc } = setup(true);
     // An open canvas holds the project.
     qc.setQueryData(["projects", "p"], {
-      meta: meta([]),
+      meta,
       datasets: [],
       views: [],
     });

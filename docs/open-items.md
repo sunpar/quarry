@@ -318,6 +318,11 @@ one up when a researcher needs it.
   pydantic's echoed input, and the polars target has no direct nulls-first test.
 - Close Stage 2 test gaps: nothing checks the arguments the OpenAI adapter sends
   or that every tool schema stays strict.
+- Merge canvas layout writes: `CanvasPage` sends the whole card list from its
+  own copy of the layout, half a second after a drag, so a write sent after a
+  pin made elsewhere drops that card. A `set_canvas` that takes positions by
+  view, with Remove its own request, or that refuses a stale write would cover
+  every writer.
 - Check that the host's `frame-src 'self'` stops a view frame's own navigation
   in Firefox and Safari; the Playwright test runs Chromium only.
 - Review the chart built-ins' visuals and accessibility, which no Stage 5 review

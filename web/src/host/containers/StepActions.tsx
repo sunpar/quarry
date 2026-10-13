@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { Step, View } from "@/shared/api-types";
+import type { ToCodeResponse } from "@/shared/component-types";
 import { ApiError } from "../api/client";
 import {
   useProjects,
@@ -41,10 +42,7 @@ export function StepActions({
   const onError = (e: Error) => onDone(e.message);
   const toCodeRequest = useToCode(sessionId);
   const submitManual = useSubmitManual(sessionId);
-  const [toCode, setToCode] = useState<{
-    code: string;
-    dropped: string[];
-  } | null>(null);
+  const [toCode, setToCode] = useState<ToCodeResponse | null>(null);
   const saveComponent = useSaveComponent();
   const [toLibrary, setToLibrary] = useState<View | null>(null);
   const refusal = saveComponent.error;
@@ -147,9 +145,9 @@ export function StepActions({
             }
             onClick={() =>
               toCodeRequest.mutate(step.id, {
-                onSuccess: ({ code, dropped }) => {
+                onSuccess: (rendered) => {
                   submitManual.reset();
-                  setToCode({ code, dropped });
+                  setToCode(rendered);
                 },
                 onError,
               })

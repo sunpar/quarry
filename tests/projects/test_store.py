@@ -120,14 +120,13 @@ def test_set_canvas(tmp_path: Path) -> None:
     assert store.meta("p").canvas == cards
 
 
-def test_a_pinned_view_save_adds_one_card_under_the_canvas(tmp_path: Path) -> None:
+def test_pin_view_adds_one_card_under_the_canvas(tmp_path: Path) -> None:
     store = ProjectStore(tmp_path)
     store.create("p")
     other = CanvasCard(view="other", x=0, y=0, w=6, h=4)
     store.set_canvas("p", [other])
-    for _ in range(2):  # saving it pinned again keeps its one card
-        store.write_view("p", view_meta("closes"), source="", state={}, queries=[], pin=True)
-    store.write_view("p", view_meta("plain"), source="", state={}, queries=[])
+    for _ in range(2):  # pinning it again keeps its one card
+        store.pin_view("p", "closes")
     assert store.meta("p").canvas == [other, CanvasCard(view="closes", x=0, y=4, w=6, h=8)]
 
 
