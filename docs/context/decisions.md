@@ -932,20 +932,20 @@ them.
   left new rows under the old metadata, and a live save in that minute deleted
   the snapshot. A save that fails leaves the staging file, as `write_atomic`
   leaves its temp, until the dataset's next save: a pinned one writes over it
-  and a live one removes it. The rows' rename and the `meta.json` write remain
-  two adjacent steps in one directory, so a crash between them, or a read
-  landing there, still pairs the new rows with the old metadata. Publishing
-  versioned rows through one atomic metadata switch could close that gap. Replay
-  through versioned paths would need a retention policy: deleting a referenced
-  file would break replay; keeping it would preserve those rows. Cost if wrong:
-  a failed save can leave mismatched rows and metadata, or an abandoned staging
-  file taking disk space until the next save.
-- **Pinned data is read by absolute path**: a pinned save keeps its rows at the
-  absolute `data.parquet` path, and recall generates `pl.read_parquet` of that
-  path at recall time rather than storing it in the project. That settles the
-  kernel's working directory and relative snapshot paths for projects. Cost if
-  wrong: moving the project breaks replay, a later pinned save changes the rows
-  replay reads, and a live save removes the file it needs.
+  and a live one removes it. This fix keeps publication in two steps rather than
+  adding versioned rows: retaining older files would preserve replay through
+  versioned paths, but uses more disk and needs a cleanup policy. Cost if wrong:
+  a crash or error after the rows' rename but before the `meta.json` write
+  leaves new rows under old metadata; a concurrent read can see the same
+  mismatch. Earlier failures leave only the staging file, taking disk space
+  until the next save.
+- **Pinned data is read from a fixed absolute path**: a pinned save keeps its
+  rows at the absolute `data.parquet` path, and recall generates
+  `pl.read_parquet` of that path at recall time rather than storing it in the
+  project. That settles the kernel's working directory and relative snapshot
+  paths for projects. Cost if wrong: moving the project breaks replay, a later
+  pinned save changes the rows replay reads, and a live save removes the file it
+  needs.
 - **Recall asks before it runs**: a recall from the rail always asks first, and
   the prompt says what it changes: a dataset recall replaces an existing dataset
   of that name, and a view recall loads the view and any of its datasets the

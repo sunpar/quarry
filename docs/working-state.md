@@ -115,9 +115,8 @@ as `e8cce38` on 2026-10-12. Codex's point that the rows' rename and the
 `meta.json` write are still two steps is recorded as a cost in
 [decisions](context/decisions.md); the whole-canvas layout write is filed under
 Any time. A separate review of the PR comments at `8c723eb` found no new defects
-introduced by that PR: staging narrows a pre-existing failure window, and the
-live save cleanup is fixed. The decision distinguishes replay through the
-current fixed path from a possible versioned path with retained files.
+introduced by that PR and confirmed that live saves remove abandoned staging
+files.
 
 ## Latest verification
 
