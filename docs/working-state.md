@@ -8,13 +8,9 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Merge `claude/quarry-save-pin-tocode`, which takes three items from
-[Any time](open-items.md#any-time): a pinned save snapshots to a staging file
-that `write_dataset` moves into place with its metadata, "Pin to canvas" is a
-`pin` field on the view save applied under the store's lock, and the server
-picks what "To code" renders, through one function the export shares. The fixes
-from a Codex review of Stages 4 and 5 merged in sunpar/quarry#11 as `5b2ac3e`;
-see [the review below](#stages-4-and-5-review).
+Pick the next work from [open-items.md](open-items.md). The save, pin and To
+code follow-up merged in sunpar/quarry#12; see
+[the follow-up below](#save-pin-and-to-code-follow-up).
 
 ## Status by stage
 
@@ -106,20 +102,32 @@ decisions: any load of a helper's name counts as a call, and recall calls
 the branch left is under [Any time](open-items.md#any-time). The pull request
 merged on 2026-10-11.
 
+### Save, pin and To code follow-up
+
+Built on `claude/quarry-save-pin-tocode`, it took three items the Stages 4 and 5
+review had filed under [Any time](open-items.md#any-time). A pinned save now
+snapshots to `.data.parquet.tmp`, which `write_dataset` moves into place just
+before `meta.json`; "Pin to canvas" is a `pin` field on the view save, which
+`ProjectStore.pin_view` applies under the store's lock; and the server picks
+what "To code" renders, through `to_code_input`, which the export shares. Codex
+and `@claude` came back clean, and the pull request merged in sunpar/quarry#12
+as `e8cce38` on 2026-10-12. Codex's point that the rows' rename and the
+`meta.json` write are still two steps is recorded as a cost in
+[decisions](context/decisions.md), since one atomic switch would change how a
+recalled pin replays; the whole-canvas layout write is filed under Any time.
+
 ## Latest verification
 
-`claude/quarry-save-pin-tocode` at `0c0275b`, locally on 2026-10-12: `pytest`
-passed 1086 tests and skipped 3 (the live provider and memory-cap tests),
-including the browser tests under `tests/e2e` against a fresh build.
-`ruff check`, `ruff format --check`, `mypy src tests` and `uv lock --check` were
-clean, and in `web/` `npm run check`, `npm test` (235 tests) and `npm run build`
-passed.
+`claude/quarry-save-pin-tocode` at `e426541`, the last code change before it
+merged, locally on 2026-10-12: `pytest` passed 1086 tests and skipped 3 (the
+live provider and memory-cap tests), including the browser tests under
+`tests/e2e` against a fresh build. `ruff check`, `ruff format --check`,
+`mypy src tests` and `uv lock --check` were clean, and in `web/`
+`npm run check`, `npm test` (235 tests) and `npm run build` passed.
 
 ## Next actions
 
-1. Iterate the pull request's `@claude` and `@codex` reviews until both come
-   back clean, then merge.
-2. Pick the next work from [open-items.md](open-items.md), starting with its
+1. Pick the next work from [open-items.md](open-items.md), starting with its
    known problems.
 
 ## Resuming
