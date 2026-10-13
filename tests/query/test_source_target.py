@@ -6,7 +6,6 @@ from datetime import date, datetime
 import duckdb
 import polars as pl
 import pytest
-from polars.testing import assert_frame_equal
 
 from quarry.query import (
     Agg,
@@ -23,6 +22,7 @@ from quarry.query import (
 from quarry.query.source_target import py_literal
 from quarry.query.sql_target import relation_view
 from tests.query.fixtures import (
+    BACKINGS,
     INT_SUM_IDS,
     INT_SUM_SPECS,
     NAIVE_OFFSET_FILTERS,
@@ -31,6 +31,9 @@ from tests.query.fixtures import (
     ZONED_FILTERS,
     ZONED_IDS,
     TimeUnit,
+    assert_same_rows,
+    bind,
+    execute,
     naive_rows,
     new_york_rows,
     overflowing,
@@ -38,8 +41,6 @@ from tests.query.fixtures import (
     trades,
     utc_connection,
 )
-
-BACKINGS: list[Backing] = ["polars", "polars_lazy", "duckdb"]
 
 # Cases the fixture SPECS do not reach: a fractional literal against an integer column,
 # string bounds (is_between reads bare strings as column names), ISO-string date bounds,
@@ -77,31 +78,6 @@ DROP_LINES = [
     "    # release the temporary view",
     '    trades.query("_quarry_trades", "DROP VIEW \\"_quarry_trades\\"")',
 ]
-
-
-def bind(frame: pl.DataFrame, backing: Backing) -> object:
-    if backing == "duckdb":
-        con = utc_connection()
-        con.register("frame_src", frame)
-        return con.sql("SELECT * FROM frame_src")
-    if backing == "polars_lazy":
-        return frame.lazy()
-    return frame
-
-
-def execute(source: str, datasets: dict[str, object]) -> pl.DataFrame:
-    # No `duckdb` in scope: generated code reaches DuckDB only through the relation.
-    namespace: dict[str, object] = {"pl": pl, **datasets}
-    exec(source, namespace)  # the test executes generated code on purpose
-    result = namespace["result"]
-    assert isinstance(result, pl.DataFrame)
-    return result
-
-
-def assert_same_rows(expected: pl.DataFrame, actual: pl.DataFrame) -> None:
-    expected = expected.select(sorted(expected.columns)).sort(sorted(expected.columns))
-    actual = actual.select(sorted(actual.columns)).sort(sorted(actual.columns))
-    assert_frame_equal(expected, actual, check_dtypes=False, rel_tol=1e-9)
 
 
 def assert_matches_polars_target(spec: QuerySpec, backing: Backing) -> None:

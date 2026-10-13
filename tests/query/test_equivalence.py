@@ -8,6 +8,7 @@ from quarry.query import Filter, QuerySpec, Sort, to_source
 from quarry.query.polars_target import to_polars
 from quarry.query.sql_target import to_sql
 from tests.query.fixtures import (
+    BACKINGS,
     INT_SUM_IDS,
     INT_SUM_SPECS,
     NAIVE_OFFSET_FILTERS,
@@ -17,13 +18,15 @@ from tests.query.fixtures import (
     ZONED_FILTERS,
     ZONED_IDS,
     TimeUnit,
+    assert_same_rows,
+    bind,
+    execute,
     naive_rows,
     new_york_rows,
     overflowing,
     trades,
     utc_connection,
 )
-from tests.query.test_source_target import BACKINGS, assert_same_rows, bind, execute
 
 
 def normalize(df: pl.DataFrame) -> pl.DataFrame:

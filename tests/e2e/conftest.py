@@ -55,8 +55,9 @@ def serve(tmp_path: Path) -> Iterator[Callable[[list[AssistantTurn]], RunningSer
         return RunningServer(base_url=f"http://127.0.0.1:{port}", token=TOKEN, provider=provider)
 
     yield start
-    for server, thread, listener in servers:
+    for server, _, _ in servers:
         server.should_exit = True
+    for _, thread, listener in servers:
         thread.join(10)
         listener.close()
-        assert not thread.is_alive(), "server did not stop"
+    assert all(not thread.is_alive() for _, thread, _ in servers), "server did not stop"

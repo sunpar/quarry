@@ -7,7 +7,7 @@ afterEach(() => vi.useRealTimers());
 describe("downloadFile", () => {
   it("saves the fetched bytes under the filename and revokes the url later", async () => {
     vi.useFakeTimers();
-    // jsdom has no object URLs.
+    // Track object URL creation and its delayed revocation.
     const createObjectURL = vi.fn(() => "blob:1");
     const revokeObjectURL = vi.fn();
     Object.assign(URL, { createObjectURL, revokeObjectURL });

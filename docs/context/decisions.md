@@ -1285,16 +1285,16 @@ them.
   real TSX checker, then runs backend tests and Python checks. The web job runs
   frontend checks, builds the UI, runs all browser tests and checks the wheel.
   Both jobs stop after 20 minutes; the existing `test` check requires both to
-  succeed. New PR commits cancel superseded CI runs. Cost: dependency setup runs
-  twice.
+  succeed. New PR commits cancel superseded CI runs; pushes to `main` each keep
+  their own concurrency group. Cost: dependency setup runs twice.
 - **Local Python matches CI**: `.python-version` pins 3.11. The local venv had
   resolved 3.14, so failures specific to 3.11 surfaced only in CI.
 - **Python tests use two isolated workers**: `pytest` defaults to
   `-n 2 --dist=loadfile`, keeping each file in one process. Real kernel
   subprocesses remain, and browser fixtures reserve their socket and join their
   server thread. Use `pytest -n 0` to debug serially. Ruff's annotation rules
-  and strict `mypy src tests` cover both source and tests. Cost: individual
-  tests also pay worker startup time.
+  and strict `mypy src tests` cover both source and tests, with no
+  `type: ignore` in tests. Cost: individual tests also pay worker startup time.
 - **Plotly's peer resolves to the dist build**: `web/package.json` overrides
   `plotly.js` with `npm:plotly.js-dist-min@4.1.2`, so react-plotly.js's peer no
   longer installs the full 98 MB source package and its 211 lock entries, which
@@ -1309,8 +1309,9 @@ them.
   lists DOM-independent tests for Node without React cleanup setup. DOM tests
   use `vmThreads`, which reuse jsdom's import but give each file a fresh window
   and VM. Both projects use two workers and inherit `TZ=America/New_York` from
-  the parent, so UTC parsing errors can fail on CI. Cost: VM tests can expose
-  cross-realm type checks; Node tests must remain independent of the DOM.
+  the parent, so UTC parsing errors can fail on CI. Set TZ before workers start,
+  rather than in test setup. Cost: VM tests can expose cross-realm type checks;
+  Node tests must remain independent of the DOM.
 - **Built-ins are tested through the frame's transpile**:
   `web/src/builtins/transpile.test.ts` runs every built-in through the loader's
   Sucrase transform and checks each import against `MODULES`, since vitest's own

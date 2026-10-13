@@ -8,13 +8,12 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Reduce CI time on `t3/speed-up-ci-tests`. The changes consolidate duplicate
-query checks, replace a server test's fixed sleep with an event, reduce frontend
-environment setup, and run backend and browser CI jobs in parallel. Python tests
-now default to two isolated workers, meeting the local target of a full suite
-under one minute. Browser fixtures reserve their socket and wait for shutdown.
-The Codex advisor accepted the approach, and both final code reviews found no
-material issues. No pull request is open for this work.
+Reduce CI time on `t3/speed-up-ci-tests`, rebased onto `main` at `fed5672`. The
+branch consolidates duplicate query checks, runs isolated pytest workers and
+parallel CI jobs, and reduces frontend environment setup. Simplify found no
+cleanup issues. Opus's first native review found issues in concurrency,
+busy-step coverage and teardown; fixes are being verified before Astra's review.
+No pull request is open for this work.
 
 ## Status by stage
 
@@ -126,7 +125,7 @@ files. Its documentation follow-up is
 ## Latest verification
 
 After rebasing onto `main` at `fed5672`, locally on 2026-10-12, the full Python
-suite passed 962 tests and skipped 3 in 38.84 s, including all 10 browser tests
+suite passed 962 tests and skipped 3 in 40.46 s, including all 10 browser tests
 against a fresh build. All 235 frontend tests passed in 3.47 s. `ruff check`,
 `ruff format --check`, strict `mypy src tests`, `uv lock --check`,
 `npm run check` and `npm run build` passed.

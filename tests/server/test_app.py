@@ -235,17 +235,21 @@ def test_datasets_origin_is_the_latest_step_that_wrote_the_name(tmp_path: Path) 
 
 
 def test_second_step_while_running_is_409(tmp_path: Path) -> None:
-    provider = GatedProvider([py("c1", "x = 1"), end()])
-    with make_client(tmp_path, [], provider_factory=lambda _cfg: provider) as client:
+    started, release = tmp_path / "running", tmp_path / "release"
+    code = (
+        f"from pathlib import Path\nimport time\nPath({str(started)!r}).touch()\n"
+        f"while not Path({str(release)!r}).exists(): time.sleep(0.01)\nx = 1"
+    )
+    with make_client(tmp_path, [py("c1", code), end()]) as client:
         sid = client.post("/sessions", json={}).json()["id"]
-        assert client.post(f"/sessions/{sid}/steps", json={"prompt": "slow"}).status_code == 202
-        assert provider.waiting.wait(10)
         try:
+            assert client.post(f"/sessions/{sid}/steps", json={"prompt": "slow"}).status_code == 202
+            wait_for_file(started)
             assert (
                 client.post(f"/sessions/{sid}/steps", json={"prompt": "again"}).status_code == 409
             )
         finally:
-            provider.release.set()
+            release.touch()
         wait_idle(client, sid)
         assert client.get(f"/sessions/{sid}").json()["steps"][0]["status"] == "ok"
 
