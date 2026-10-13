@@ -8,7 +8,6 @@ from quarry.query.polars_target import CoercedLiteral, coerce_literal, to_polars
 from tests.query.fixtures import (
     INT_SUM_IDS,
     INT_SUM_SPECS,
-    SPECS,
     overflowing,
     past_decimal_38,
     trades,
@@ -225,8 +224,3 @@ def test_not_in_excludes_null_like_sql() -> None:
     spec = QuerySpec(dataset="trades", filters=[Filter(col="ret", op="not_in", value=[0])])
     out = to_polars(spec, trades()).collect()
     assert out["ret"].to_list() == [0.01, -0.02, 0.03]
-
-
-@pytest.mark.parametrize("spec", SPECS, ids=[s.model_dump_json() for s in SPECS])
-def test_every_fixture_spec_compiles(spec: QuerySpec) -> None:
-    to_polars(spec, trades()).collect()

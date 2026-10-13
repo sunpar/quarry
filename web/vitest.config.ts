@@ -5,6 +5,20 @@ import { defineConfig } from "vitest/config";
 process.env.TZ = "America/New_York";
 
 const root = import.meta.dirname;
+const nodeTests = [
+  "src/shared/base64.test.ts",
+  "src/host/api/auth.test.ts",
+  "src/host/api/client.test.ts",
+  "src/host/api/download.test.ts",
+  "src/host/bridge/SharedStateHub.test.ts",
+  "src/runtime/bridge.test.ts",
+  "src/runtime/loader.test.ts",
+  "src/runtime/state.test.ts",
+  "src/runtime/perspective/filters.test.ts",
+  "src/runtime/perspective/toSpec.test.ts",
+  "src/runtime/libs/registry.test.ts",
+  "src/runtime/libs/scichart.test.ts",
+];
 
 export default defineConfig({
   resolve: {
@@ -44,8 +58,24 @@ export default defineConfig({
   // As in vite.config.ts: built-ins are read as `?raw` source from outside web/.
   server: { fs: { allow: [path.resolve(root, "..")] } },
   test: {
-    environment: "jsdom",
-    setupFiles: ["./src/test/setup.ts"],
-    include: ["src/**/*.test.{ts,tsx}"],
+    maxWorkers: 2,
+    projects: [
+      {
+        extends: true,
+        test: { name: "node", environment: "node", include: nodeTests },
+      },
+      {
+        extends: true,
+        test: {
+          name: "dom",
+          environment: "jsdom",
+          // Reuse jsdom's import while keeping a fresh window and VM for each file.
+          pool: "vmThreads",
+          setupFiles: ["./src/test/setup.ts"],
+          include: ["src/**/*.test.{ts,tsx}"],
+          exclude: nodeTests,
+        },
+      },
+    ],
   },
 });

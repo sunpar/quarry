@@ -28,7 +28,6 @@ from tests.query.fixtures import (
     NAIVE_OFFSET_FILTERS,
     NAIVE_OFFSET_IDS,
     NAIVE_UNITS,
-    SPECS,
     ZONED_FILTERS,
     ZONED_IDS,
     TimeUnit,
@@ -524,12 +523,6 @@ def test_py_literal_renders_dates_by_iso_string() -> None:
 def test_py_literal_rejects_objects() -> None:
     with pytest.raises(TypeError):
         py_literal({"a": 1})
-
-
-@pytest.mark.parametrize("backing", BACKINGS)
-@pytest.mark.parametrize("spec", SPECS, ids=[s.model_dump_json() for s in SPECS])
-def test_source_matches_polars_target(spec: QuerySpec, backing: Backing) -> None:
-    assert_matches_polars_target(spec, backing)
 
 
 @pytest.mark.parametrize("backing", BACKINGS)

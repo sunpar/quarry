@@ -1281,12 +1281,20 @@ them.
   `fallbacks` were checked only on 1.12.1, so the floor is that release line.
 - **CI installs from the lock**: CI runs `uv sync --locked`, so a stale
   `uv.lock` fails instead of re-resolving.
-- **CI times out**: the test job stops after 20 minutes, so a hung test fails
-  instead of running to GitHub's 6-hour limit.
+- **CI runs backend and browser checks in parallel**: the Python job builds the
+  real TSX checker, then runs backend tests and Python checks. The web job runs
+  frontend checks, builds the UI, runs all browser tests and checks the wheel.
+  Both jobs stop after 20 minutes; the existing `test` check requires both to
+  succeed. New PR commits cancel superseded CI runs. Cost: dependency setup runs
+  twice.
 - **Local Python matches CI**: `.python-version` pins 3.11. The local venv had
   resolved 3.14, so failures specific to 3.11 surfaced only in CI.
-- **Tests are annotated**: ruff's ANN rules apply to tests as well as `src`,
-  where the plan had a per-file ignore.
+- **Python tests use two isolated workers**: `pytest` defaults to
+  `-n 2 --dist=loadfile`, keeping each file in one process. Real kernel
+  subprocesses remain, and browser fixtures reserve their socket and join their
+  server thread. Use `pytest -n 0` to debug serially. Ruff's annotation rules
+  and strict `mypy src tests` cover both source and tests. Cost: individual
+  tests also pay worker startup time.
 - **Plotly's peer resolves to the dist build**: `web/package.json` overrides
   `plotly.js` with `npm:plotly.js-dist-min@4.1.2`, so react-plotly.js's peer no
   longer installs the full 98 MB source package and its 211 lock entries, which
@@ -1297,12 +1305,12 @@ them.
   `actions/setup-node@v7` and `astral-sh/setup-uv@v10.3.0`, an exact tag because
   setup-uv stopped publishing major tags at v8. The workflow's token is
   read-only (`permissions: contents: read`).
-- **mypy checks the tests**: CI and `.verify.toml` run `mypy src tests` strict,
-  and the tests hold no `type: ignore`.
-- **Vitest runs in a non-UTC zone**: `web/vitest.config.ts` sets
-  `process.env.TZ = "America/New_York"` before the workers start, so the tests
-  that read naive datetimes as UTC can fail on CI's UTC runner. Only an
-  assignment in the parent process reaches the workers.
+- **Vitest isolates files with less environment setup**: `web/vitest.config.ts`
+  lists DOM-independent tests for Node without React cleanup setup. DOM tests
+  use `vmThreads`, which reuse jsdom's import but give each file a fresh window
+  and VM. Both projects use two workers and inherit `TZ=America/New_York` from
+  the parent, so UTC parsing errors can fail on CI. Cost: VM tests can expose
+  cross-realm type checks; Node tests must remain independent of the DOM.
 - **Built-ins are tested through the frame's transpile**:
   `web/src/builtins/transpile.test.ts` runs every built-in through the loader's
   Sucrase transform and checks each import against `MODULES`, since vitest's own

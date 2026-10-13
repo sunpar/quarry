@@ -5,8 +5,34 @@ on:
   pull_request:
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  test:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      # Backend tests still exercise the real TSX checker without building the UI.
+      - run: npm run build:checker
+        working-directory: web
+      # setup-uv publishes no major tags since v8, so it is pinned to a release.
+      - uses: astral-sh/setup-uv@v10.3.0
+      - run: uv python install 3.11
+      - run: uv sync --locked
+      - run: uv run ruff check src tests
+      - run: uv run ruff format --check src tests
+      - run: uv run mypy src tests
+      - run: uv run pytest --ignore=tests/e2e -q --durations=10
+  web:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -24,14 +50,17 @@ jobs:
         working-directory: web
       - run: npm run build
         working-directory: web
-      # setup-uv publishes no major tags since v8, so it is pinned to a release.
       - uses: astral-sh/setup-uv@v10.3.0
       - run: uv python install 3.11
       - run: uv sync --locked
       - run: uv run playwright install --with-deps chromium
-      - run: uv run ruff check src tests
-      - run: uv run ruff format --check src tests
-      - run: uv run mypy src tests
-      - run: uv run pytest -v
+      - run: uv run pytest tests/e2e -q --durations=10
       - run: uv build
       - run: unzip -l dist/*.whl | grep quarry/static/index.html
+  # Keep the existing required check, and make it depend on both suites.
+  test:
+    runs-on: ubuntu-latest
+    needs: [python, web]
+    if: always()
+    steps:
+      - run: test "${{ needs.python.result }}" = success && test "${{ needs.web.result }}" = success

@@ -8,9 +8,13 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Pick the next work from [open-items.md](open-items.md). The save, pin and To
-code follow-up merged in sunpar/quarry#12; see
-[the follow-up below](#save-pin-and-to-code-follow-up).
+Reduce CI time on `t3/speed-up-ci-tests`. The changes consolidate duplicate
+query checks, replace a server test's fixed sleep with an event, reduce frontend
+environment setup, and run backend and browser CI jobs in parallel. Python tests
+now default to two isolated workers, meeting the local target of a full suite
+under one minute. Browser fixtures reserve their socket and wait for shutdown.
+The Codex advisor accepted the approach, and both final code reviews found no
+material issues. No pull request is open for this work.
 
 ## Status by stage
 
@@ -121,12 +125,24 @@ files. Its documentation follow-up is
 
 ## Latest verification
 
-`claude/quarry-save-pin-tocode` at `e426541`, the last code change before it
-merged, locally on 2026-10-12: `pytest` passed 1086 tests and skipped 3 (the
-live provider and memory-cap tests), including the browser tests under
-`tests/e2e` against a fresh build. `ruff check`, `ruff format --check`,
-`mypy src tests` and `uv lock --check` were clean, and in `web/`
-`npm run check`, `npm test` (235 tests) and `npm run build` passed.
+After rebasing onto `main` at `fed5672`, locally on 2026-10-12, the full Python
+suite passed 962 tests and skipped 3 in 38.84 s, including all 10 browser tests
+against a fresh build. All 235 frontend tests passed in 3.47 s. `ruff check`,
+`ruff format --check`, strict `mypy src tests`, `uv lock --check`,
+`npm run check` and `npm run build` passed.
+
+Before the rebase, on the code based on `2f00b0a`, the full serial run took
+69.55 s. Two workers passed the same 955 tests in 38.51 s, with the same 3
+skips; backend-only tests took 28.57 s. Inventories and skip outcomes matched.
+Removing 124 duplicate cases and changing scheduling preserved every covered
+line and branch: 3,879 of 3,986 statements and 871 of 934 branches, or 96.54%
+combined coverage. The parallel coverage run took 41.52 s. These figures measure
+pytest processes, not kernel subprocesses. All real kernel tests remain, and
+mutation probes caught incorrect SQL and generated rows for each backing.
+
+The frontend comparison before the rebase passed all 239 tests with two workers
+in 10.56 s before and 3.65 s after. Actual GitHub timing for the split jobs
+remains unmeasured; dependency setup runs twice.
 
 The separate comment review at `8c723eb` on 2026-10-12 passed all 86 tests in
 `tests/projects/test_store.py`, `tests/projects/test_export.py`,
@@ -137,8 +153,9 @@ on that head too.
 
 ## Next actions
 
-1. Pick the next work from [open-items.md](open-items.md), starting with its
-   known problems.
+1. Finish native local reviews, open the PR and compare elapsed time and runner
+   time on the first GitHub run. The existing `test` check now requires both
+   jobs to succeed.
 
 ## Resuming
 

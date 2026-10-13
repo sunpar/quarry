@@ -26,17 +26,11 @@ class RunningServer:
     provider: FakeProvider
 
 
-def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
-
-
 @pytest.fixture
 def serve(tmp_path: Path) -> Iterator[Callable[[list[AssistantTurn]], RunningServer]]:
     if not (STATIC / "index.html").exists():
         pytest.skip("web build missing; run `npm run build` in web/")
-    servers: list[uvicorn.Server] = []
+    servers: list[tuple[uvicorn.Server, threading.Thread, socket.socket]] = []
 
     def start(turns: list[AssistantTurn]) -> RunningServer:
         config = QuarryConfig(root=tmp_path)
@@ -47,19 +41,22 @@ def serve(tmp_path: Path) -> Iterator[Callable[[list[AssistantTurn]], RunningSer
             provider_factory=lambda _cfg: provider,
             static_dir=STATIC,
         )
-        port = _free_port()
-        server = uvicorn.Server(
-            uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-        )
-        threading.Thread(target=server.run, daemon=True).start()
+        server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning"))
+        listener = server.config.bind_socket()
+        port = int(listener.getsockname()[1])
+        thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+        servers.append((server, thread, listener))
+        thread.start()
         deadline = time.monotonic() + 10
         while not server.started:
             if time.monotonic() > deadline:
                 raise RuntimeError("server did not start")
             time.sleep(0.05)
-        servers.append(server)
         return RunningServer(base_url=f"http://127.0.0.1:{port}", token=TOKEN, provider=provider)
 
     yield start
-    for server in servers:
+    for server, thread, listener in servers:
         server.should_exit = True
+        thread.join(10)
+        listener.close()
+        assert not thread.is_alive(), "server did not stop"
