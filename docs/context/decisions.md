@@ -902,9 +902,9 @@ them.
   `projects/`, `datasets/` and `views/` follow the umask, which the 0700 root
   and project directory cover. A pinned save creates its dataset directory
   before the kernel's snapshot, whose own `mkdir` would follow the kernel's
-  umask, and makes `data.parquet` 0600 once the snapshot returns. The plan's
-  helper made directories and wrote text in place, while recipes hold the same
-  code that made session files private. One lock in `ProjectStore` covers every
+  umask, and makes its snapshot 0600 once it returns. The plan's helper made
+  directories and wrote text in place, while recipes hold the same code that
+  made session files private. One lock in `ProjectStore` covers every
   read-modify-write of `project.json` and the slug choice in `create`, so a
   save's `updated_at` touch cannot drop a canvas write made at the same moment.
   A slug, view name or session id from a request joins its directory through
@@ -925,7 +925,21 @@ them.
   step card shows. `save_view` reaches the check through each dataset it saves,
   and needs no kernel when all are saved. Cost if wrong: a dataset loaded on the
   fresh kernel cannot be saved until a restart replays every step.
-- **Pinned data is read by absolute path**: a pinned save snapshots to the
+- **A pinned snapshot moves into place at save end**: the kernel snapshots to
+  `.data.parquet.tmp` in the dataset directory, and `write_dataset` moves it
+  over `data.parquet` just before it writes `meta.json`. Snapshotted straight to
+  `data.parquet`, a save that failed in its minute of tidying and validation
+  left new rows under the old metadata, and a live save in that minute deleted
+  the snapshot. A save that fails leaves the staging file, as `write_atomic`
+  leaves its temp, until the dataset's next save: a pinned one writes over it
+  and a live one removes it. The rows' rename and the `meta.json` write remain
+  two adjacent steps in one directory, so a crash between them, or a read
+  landing there, still pairs the new rows with the old metadata. One atomic
+  switch would need `meta.json` to name a versioned rows file, and a session
+  that recalled the earlier file would then fail to replay once a newer pin
+  removed it. Cost if wrong: a failed save's rows take disk space until that
+  next save.
+- **Pinned data is read by absolute path**: a pinned save keeps its rows at the
   absolute `data.parquet` path, and recall generates `pl.read_parquet` of that
   path at recall time rather than storing it in the project. That settles the
   kernel's working directory and relative snapshot paths for projects. Cost if
@@ -978,20 +992,20 @@ them.
   and Python reads `ｅ` as `e`.
 - **One save per target at a time**: a save of a dataset or a view into a
   project answers 409 while another save of the same name into it runs, from its
-  first check through the last file it writes. A pinned save releases the kernel
-  after its snapshot and validates for a minute, and a live save in that time
-  deleted the snapshot, so the pinned metadata pointed at a missing file. A view
-  save holds its own name and each dataset it saves. The guard keys on the slug
-  stored in `project.json`, since a case-insensitive filesystem finds the
-  project under `P` as well as `p`.
+  first check through the last file it writes, so a second click does not save
+  the same files again. A view save holds its own name and each dataset it
+  saves. The guard keys on the slug stored in `project.json`, since a
+  case-insensitive filesystem finds the project under `P` as well as `p`.
 - **A view is on a canvas once**: cards are keyed by view name, so `set_canvas`
   answers 400 for a canvas that repeats a view, and "Pin to canvas" adds a card
-  only for a view the project's canvas lacks, read from the project rather than
-  the list. Pinning a saved view again refreshes its card through `saved_at`. A
-  second pin had added a duplicate card, and Remove then dropped both. The pin
-  runs inside the save's mutation, so it still lands when the step card unmounts
-  mid-save, as opening the project makes it; the project is read again even if
-  the pin fails, and an open canvas adds a card the project gained.
+  only for a view the project's canvas lacks. Pinning a saved view again
+  refreshes its card through `saved_at`. A second pin had added a duplicate
+  card, and Remove then dropped both. The pin is a `pin` field on the view save:
+  `ProjectStore.pin_view` adds the card under the canvas in one locked read and
+  write of `project.json`. Pinned from the browser, it read the project and
+  wrote the whole canvas, so a layout write landing between the two lost the
+  card. The project is read again even if the save fails, and an open canvas
+  adds a card the project gained.
 - **The canvas binds to the active session**: cards query through its kernel,
   and a card whose datasets the session lacks shows "Load", which recalls the
   view as a step. Only the layout lives in `project.json`; a card's state lasts
@@ -1164,13 +1178,20 @@ them.
   allow `undefined` values, which `useViewState`'s `Json` bound refuses, so the
   pivot casts at the boundary, as the plan allowed.
 - **A view may publish its to-code spec under `spec`**: "To code" renders
-  `[spec]` when the latest snapshot's state holds a `spec` object with a string
-  `dataset`, for any view, and the snapshot's queries otherwise. The pivot
-  publishes its mapped spec there, without `limit`, written beside `dropped`;
-  its queries are the 50,000-row arrow load and the one-row probe, which would
-  render as `.head(1)`. A saved view's export reads its saved state the same way
-  and notes what `dropped` lists; it had rendered the probe, so an exported
-  pivot gave one row.
+  `[spec]` when the view's state holds a `spec` object with a string `dataset`,
+  for any view, and its queries otherwise. The pivot publishes its mapped spec
+  there, without `limit`, written beside `dropped`; its queries are the
+  50,000-row arrow load and the one-row probe, which would render as `.head(1)`.
+  A saved view's export reads its saved state the same way and notes what
+  `dropped` lists; it had rendered the probe, so an exported pivot gave one row.
+- **The server picks what "To code" renders**: the host posts to
+  `POST /sessions/{id}/steps/{step_id}/to-code` with no body, and the server
+  reads the step's view as it shows now, its latest snapshot or its initial
+  state before one, through `to_code_input` in `quarry.server.models`, then
+  answers `{code, dropped}`; a view that has run no query is a 400. The export
+  reads a saved view through the same function. The spec's §9 has the host send
+  the snapshot's queries, so the host's `toCodeSource` and the export each held
+  the `spec` rule and had to change together.
 
 ### TanStack table and OHLC
 

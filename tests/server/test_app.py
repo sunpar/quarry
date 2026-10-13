@@ -23,7 +23,7 @@ from quarry.query import Json
 from quarry.server import service as service_module
 from quarry.server.app import create_app
 from quarry.server.kernels import ReplayReport
-from quarry.server.models import Step
+from quarry.server.models import Step, to_code_input
 from quarry.server.service import ProviderFactory, SessionService
 from quarry.server.store import SessionStore
 
@@ -276,25 +276,48 @@ def test_query_spec_validation_is_400(tmp_path: Path) -> None:
         assert "limit" in rejected.json()["detail"]
 
 
-def test_to_code_route_renders_and_rejects(tmp_path: Path) -> None:
-    with make_client(tmp_path, []) as client:
+def test_to_code_route_renders_what_the_view_shows_and_rejects(tmp_path: Path) -> None:
+    turns = [py("c1", "df = pl.DataFrame({'a': [1]})"), view_turn("c2"), end()]
+    with make_client(tmp_path, turns) as client:
         sid = client.post("/sessions", json={}).json()["id"]
-        client.post(f"/sessions/{sid}/steps/manual", json={"code": "df = pl.DataFrame({'a': [1]})"})
+        step_id = client.post(f"/sessions/{sid}/steps", json={"prompt": "show"}).json()["id"]
         wait_idle(client, sid)
-        ok = client.post(f"/sessions/{sid}/to-code", json={"queries": [{"dataset": "df"}]})
-        assert ok.status_code == 200 and "df_1 = (" in ok.json()["code"]
-        bad = client.post(
-            f"/sessions/{sid}/to-code",
-            json={
-                "queries": [{"dataset": "df", "filters": [{"col": "x", "op": "eq", "value": 1}]}]
-            },
-        )
+        route = f"/sessions/{sid}/steps/{step_id}/to-code"
+
+        def show(state: dict[str, Json], queries: list[Json]) -> None:
+            body = {"state": state, "queries": queries}
+            client.post(f"/sessions/{sid}/steps/{step_id}/snapshots", json=body)
+
+        unqueried = client.post(route)
+        assert unqueried.status_code == 400 and "no query" in unqueried.json()["detail"]
+        show({}, [{"dataset": "df"}])
+        ok = client.post(route).json()
+        assert "df_1 = (" in ok["code"] and ok["dropped"] == []
+        # A published spec wins over the queries the view ran, as the pivot's do.
+        spec: dict[str, Json] = {
+            "dataset": "df",
+            "group_by": ["a"],
+            "aggs": [{"col": "a", "fn": "sum"}],
+        }
+        show({"spec": spec, "dropped": ["expression e"]}, [{"dataset": "df", "limit": 1}])
+        pivot = client.post(route).json()
+        assert "group_by" in pivot["code"] and pivot["dropped"] == ["expression e"]
+        show({}, [{"dataset": "df", "filters": [{"col": "x", "op": "eq", "value": 1}]}])
+        bad = client.post(route)
         assert bad.status_code == 400 and "x" in bad.json()["detail"]
-        malformed = client.post(
-            f"/sessions/{sid}/to-code", json={"queries": [{"dataset": "df", "limit": 0}]}
-        )
-        assert malformed.status_code == 400
-        assert client.post("/sessions/nope/to-code", json={"queries": []}).status_code == 404
+        show({}, [{"dataset": "df", "limit": 0}])
+        assert client.post(route).status_code == 400
+        assert client.post(f"/sessions/{sid}/steps/nope/to-code").status_code == 404
+        assert client.post("/sessions/nope/steps/x/to-code").status_code == 404
+
+
+@pytest.mark.parametrize(
+    "state",
+    [{}, {"spec": "df"}, {"spec": ["df"]}, {"spec": {"group_by": ["a"]}}, {"dropped": ["a", 1]}],
+)
+def test_to_code_input_falls_back_to_the_queries(state: dict[str, Json]) -> None:
+    queries: list[dict[str, Json]] = [{"dataset": "df", "limit": 5}]
+    assert to_code_input(state, queries) == (queries, [])
 
 
 def test_kernel_death_then_restart_replays(tmp_path: Path) -> None:

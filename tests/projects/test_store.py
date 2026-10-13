@@ -120,12 +120,24 @@ def test_set_canvas(tmp_path: Path) -> None:
     assert store.meta("p").canvas == cards
 
 
+def test_pin_view_adds_one_card_under_the_canvas(tmp_path: Path) -> None:
+    store = ProjectStore(tmp_path)
+    store.create("p")
+    other = CanvasCard(view="other", x=0, y=0, w=6, h=4)
+    store.set_canvas("p", [other])
+    for _ in range(2):  # pinning it again keeps its one card
+        store.pin_view("p", "closes")
+    assert store.meta("p").canvas == [other, CanvasCard(view="closes", x=0, y=4, w=6, h=8)]
+
+
 def test_live_resave_drops_the_pinned_parquet(tmp_path: Path) -> None:
     store = ProjectStore(tmp_path)
     store.create("p")
     pinned = dataset_meta().model_copy(update={"mode": "pinned"})
-    store.pinned_path("p", "prices").write_bytes(b"parquet")
+    store.staging_path("p", "prices").write_bytes(b"parquet")
     store.write_dataset("p", pinned, recipe="", raw="")
     assert store.parquet_path("p", "prices").exists()
+    store.staging_path("p", "prices").write_bytes(b"failed save")
     store.write_dataset("p", dataset_meta(), recipe="", raw="")
     assert not store.parquet_path("p", "prices").exists()
+    assert not store.staging_path("p", "prices").exists()

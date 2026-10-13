@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { Step, View } from "@/shared/api-types";
+import type { ToCodeResponse } from "@/shared/component-types";
 import { ApiError } from "../api/client";
 import {
   useProjects,
@@ -15,7 +16,7 @@ import {
   type ComponentChoice,
 } from "../components/SaveComponentDialog";
 import { SaveDialog, type SaveChoice } from "../components/SaveDialog";
-import { ToCodeDrawer, toCodeSource } from "../components/ToCodeDrawer";
+import { ToCodeDrawer } from "../components/ToCodeDrawer";
 
 interface StepActionsProps {
   sessionId: string;
@@ -39,13 +40,9 @@ export function StepActions({
   const saveView = useSaveView();
   const saving = saveDataset.isPending || saveView.isPending;
   const onError = (e: Error) => onDone(e.message);
-  const codeInput = toCodeSource(step.view?.snapshots.at(-1));
   const toCodeRequest = useToCode(sessionId);
   const submitManual = useSubmitManual(sessionId);
-  const [toCode, setToCode] = useState<{
-    code: string;
-    dropped: string[];
-  } | null>(null);
+  const [toCode, setToCode] = useState<ToCodeResponse | null>(null);
   const saveComponent = useSaveComponent();
   const [toLibrary, setToLibrary] = useState<View | null>(null);
   const refusal = saveComponent.error;
@@ -76,8 +73,12 @@ export function StepActions({
       saveView.mutate(
         {
           slug,
-          body: { ...common, step_id: step.id, name: choice.name },
-          pin: pending.pin,
+          body: {
+            ...common,
+            step_id: step.id,
+            name: choice.name,
+            pin: pending.pin,
+          },
         },
         { onSuccess: (meta) => onDone(`Saved view ${meta.name}`), onError },
       );
@@ -138,12 +139,15 @@ export function StepActions({
           <Button
             variant="ghost"
             size="xs"
-            disabled={codeInput.queries.length === 0 || toCodeRequest.isPending}
+            // Nothing to render until the view reports what it shows.
+            disabled={
+              step.view.snapshots.length === 0 || toCodeRequest.isPending
+            }
             onClick={() =>
-              toCodeRequest.mutate(codeInput.queries, {
-                onSuccess: ({ code }) => {
+              toCodeRequest.mutate(step.id, {
+                onSuccess: (rendered) => {
                   submitManual.reset();
-                  setToCode({ code, dropped: codeInput.dropped });
+                  setToCode(rendered);
                 },
                 onError,
               })

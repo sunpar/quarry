@@ -94,6 +94,30 @@ def test_bad_tidy_falls_back_to_validated_raw(tmp_path: Path) -> None:
     sessions.shutdown()
 
 
+def test_a_pinned_save_that_fails_keeps_the_rows_saved_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = FakeProvider([py("c1", PRICES), end(), end(TIDY_OK)])
+    sessions, projects = build(tmp_path, provider)
+    sid, _ = run_prices(sessions)
+    slug = projects.create("p", "").slug
+    pinned = SaveDatasetRequest(session_id=sid, dataset="prices", mode="pinned")
+    first = projects.save_dataset(slug, pinned)
+    rows = projects.store.parquet_path(slug, "prices")
+    before = rows.stat()
+
+    def broken_tidy(_raw: str, _dataset: str) -> None:
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(projects, "_tidy", broken_tidy)
+    with pytest.raises(RuntimeError):
+        projects.save_dataset(slug, pinned)  # after its snapshot, before its metadata
+    after = rows.stat()
+    assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+    assert projects.get(slug).datasets == [first]
+    sessions.shutdown()
+
+
 def test_pinned_save_is_private(tmp_path: Path) -> None:
     # The kernel inherits the umask when it spawns, so it is set before the first step.
     with umask(0o022):
@@ -216,11 +240,13 @@ def test_save_view_saves_missing_datasets_first(tmp_path: Path) -> None:
     sid, step_id = run_prices(sessions)
     slug = projects.create("p", "").slug
     meta = projects.save_view(
-        slug, SaveViewRequest(session_id=sid, step_id=step_id, name="table", mode="live")
+        slug,
+        SaveViewRequest(session_id=sid, step_id=step_id, name="table", mode="live", pin=True),
     )
     assert meta.datasets == ["prices"] and meta.component_id == "data-table"
     project = projects.get(slug)
     assert [d.name for d in project.datasets] == ["prices"]
+    assert [c.view for c in project.meta.canvas] == ["table"]
     saved = ProjectStore(tmp_path).read_view(slug, "table")
     assert "export default" in saved.source and saved.state == {"limit": 5}
     assert saved.queries == []
@@ -289,7 +315,7 @@ def test_a_second_save_of_a_dataset_is_refused_until_the_first_ends(
     first = threading.Thread(target=projects.save_dataset, args=(slug, pinned))
     first.start()
     assert tidying.wait(30)
-    # A live save would delete the snapshot the pinned one is about to record.
+    # A second click saves the same files again: it waits for the first save to end.
     with pytest.raises(SaveRunning):
         projects.save_dataset(again, pinned.model_copy(update={"mode": "live"}))
     release.set()

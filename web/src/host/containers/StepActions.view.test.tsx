@@ -12,20 +12,7 @@ import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
 import { StepActions } from "./StepActions";
 
-const spec = {
-  dataset: "df",
-  group_by: ["a"],
-  aggs: [{ col: "b", fn: "sum" as const }],
-};
-// What the pivot records: its arrow data query and a one-row probe of the mapped spec.
-const pivotSnapshot: Snapshot = {
-  ts: "",
-  state: { spec, dropped: ["expression e"] },
-  queries: [
-    { dataset: "df", format: "arrow", limit: 50000 },
-    { ...spec, limit: 1 },
-  ],
-};
+const snapshot: Snapshot = { ts: "", state: {}, queries: [{ dataset: "df" }] };
 
 const stepWith = (view: Partial<View>): Step => ({
   id: "st1",
@@ -80,7 +67,7 @@ function setup(step: Step, respond: (key: string) => Response) {
 }
 
 describe("StepActions to code", () => {
-  it("waits for the view to report its queries", () => {
+  it("waits for the view to report what it shows", () => {
     setup(stepWith({}), () => json({}));
     expect(
       screen.getByRole<HTMLButtonElement>("button", { name: "To code" })
@@ -88,21 +75,18 @@ describe("StepActions to code", () => {
     ).toBe(true);
   });
 
-  it("renders the pivot's spec and runs the edited code as a step", async () => {
-    const step = stepWith({
-      component_id: "pivot",
-      snapshots: [pivotSnapshot],
-    });
+  it("shows the step's code from the server and runs the edit as a step", async () => {
+    const step = stepWith({ snapshots: [snapshot] });
     const { bodies } = setup(step, (key) =>
-      key === "POST /sessions/s1/to-code"
-        ? json({ code: "df_1 = df.group_by('a')" })
+      key === "POST /sessions/s1/steps/st1/to-code"
+        ? json({ code: "df_1 = df.group_by('a')", dropped: ["expression e"] })
         : json({ ...step, id: "st2", kind: "manual" }, 202),
     );
     fireEvent.click(screen.getByRole("button", { name: "To code" }));
-    const box = await screen.findByRole("textbox", { name: "Python" });
-    expect(bodies.get("POST /sessions/s1/to-code")).toEqual({
-      queries: [spec],
+    const box = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+      name: "Python",
     });
+    expect(box.value).toBe("df_1 = df.group_by('a')");
     expect(screen.getByText("Left out: expression e.")).toBeTruthy();
     fireEvent.change(box, { target: { value: "df_1 = 1" } });
     fireEvent.click(screen.getByRole("button", { name: "Run as step" }));

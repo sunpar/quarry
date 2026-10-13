@@ -44,6 +44,7 @@ class SaveViewRequest(BaseModel):
     name: str
     description: str = ""
     mode: SaveMode
+    pin: bool = False  # also put the view on the project's canvas
 
 
 class RecallRequest(BaseModel):
@@ -123,7 +124,7 @@ class ProjectService:
             except RpcFailure as exc:
                 raise UnknownDataset(req.dataset) from exc
             if req.mode == "pinned":
-                path = self._store.pinned_path(slug, req.dataset)
+                path = self._store.staging_path(slug, req.dataset)
                 kernel.snapshot(req.dataset, path)
                 path.chmod(PRIVATE_FILE)  # the kernel writes it at its own umask
         threads = self._config.data.kernel_threads
@@ -163,9 +164,7 @@ class ProjectService:
                 self.save_dataset(
                     slug, SaveDatasetRequest(session_id=req.session_id, dataset=name, mode=req.mode)
                 )
-        latest = step.view.snapshots[-1] if step.view.snapshots else None
-        state = latest.state if latest is not None else step.view.initial_state
-        queries = latest.queries if latest is not None else []
+        state, queries = step.view.latest()
         meta = SavedViewMeta(
             name=req.name,
             description=req.description,
@@ -176,6 +175,8 @@ class ProjectService:
             source_step=step.id,
         )
         self._store.write_view(slug, meta, source=step.view.source, state=state, queries=queries)
+        if req.pin:
+            self._store.pin_view(slug, meta.name)
         return meta
 
     def recall(self, session_id: str, req: RecallRequest) -> Step:
@@ -227,10 +228,10 @@ class ProjectService:
 
     @contextmanager
     def _only_save(self, slug: str, kind: str, name: str) -> Iterator[None]:
-        """Refuse a second save of one target until the first has written its files: a live
-        save deletes the rows a pinned one is still validating, and two saves interleave. The key
-        holds the stored slug, which a case-insensitive filesystem also finds under another case.
-        KeyError for an unknown project, before a save touches its session."""
+        """Refuse a second save of one target, as a second click makes, until the first has
+        written its files, so the two never write them in turns. The key holds the stored slug,
+        which a case-insensitive filesystem also finds under another case. KeyError for an
+        unknown project, before a save touches its session."""
         target = (self._store.meta(slug).slug, kind, name)
         with self._saving_lock:
             if target in self._saving:

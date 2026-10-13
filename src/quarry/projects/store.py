@@ -30,6 +30,10 @@ _NAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 M = TypeVar("M", bound=BaseModel)
 
 
+# Named as `write_atomic` names its temps: a pinned snapshot before it is saved.
+_STAGED_ROWS = ".data.parquet.tmp"
+
+
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     return slug or "project"
@@ -100,14 +104,31 @@ class ProjectStore:
             self._write_meta(meta)
         return meta
 
+    def pin_view(self, slug: str, view: str) -> None:
+        """Add a card for `view` under the canvas unless one shows it: read and written under
+        the lock, so no layout write between the two can drop the card."""
+        with self._meta_lock:
+            meta = self._read_meta(slug)
+            if any(c.view == view for c in meta.canvas):
+                return
+            bottom = max((c.y + c.h for c in meta.canvas), default=0)
+            card = CanvasCard(view=view, x=0, y=bottom, w=6, h=8)
+            self._write_meta(meta.model_copy(update={"canvas": [*meta.canvas, card]}))
+
     def write_dataset(self, slug: str, meta: SavedDatasetMeta, *, recipe: str, raw: str) -> None:
         base = self._dataset_dir(slug, meta.name)
         base.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
         write_atomic(base / "recipe.raw.py", raw)
         write_atomic(base / "recipe.py", recipe)
+        rows = base / "data.parquet"
+        if meta.mode == "pinned":
+            # The snapshot replaces the saved rows only now, just before the metadata naming
+            # them, so a save that fails earlier leaves the last save's rows and metadata alone.
+            (base / _STAGED_ROWS).replace(rows)
         write_atomic(base / "meta.json", meta.model_dump_json(by_alias=True, indent=2))
-        if meta.mode == "live":  # a pinned save before this one left its rows
-            (base / "data.parquet").unlink(missing_ok=True)
+        if meta.mode == "live":  # rows a pinned save left, or a failed one's snapshot
+            rows.unlink(missing_ok=True)
+            (base / _STAGED_ROWS).unlink(missing_ok=True)
         self._touch(slug)
 
     def read_recipe(self, slug: str, name: str) -> str:
@@ -119,12 +140,14 @@ class ProjectStore:
     def parquet_path(self, slug: str, name: str) -> Path:
         return self._dataset_dir(slug, name) / "data.parquet"
 
-    def pinned_path(self, slug: str, name: str) -> Path:
-        """Where a pinned save snapshots, in a dataset directory made private first: the
-        kernel's own mkdir would make it at the kernel's umask."""
+    def staging_path(self, slug: str, name: str) -> Path:
+        """Where a pinned save snapshots until `write_dataset` moves it into place, in a dataset
+        directory made private first: the kernel's own mkdir would make it at the kernel's
+        umask. A save that fails leaves the file, as `write_atomic` leaves its temp, until the
+        dataset's next save: a pinned one writes over it, a live one removes it."""
         base = self._dataset_dir(slug, name)
         base.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
-        return base / "data.parquet"
+        return base / _STAGED_ROWS
 
     def write_view(
         self,

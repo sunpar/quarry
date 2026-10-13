@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -27,6 +28,21 @@ def new_id() -> str:
     return secrets.token_hex(6)
 
 
+def to_code_input(
+    state: Mapping[str, Json], queries: list[dict[str, Json]]
+) -> tuple[list[dict[str, Json]], list[str]]:
+    """What "To code" and an export render for a view, and what that leaves out. A `spec` in its
+    state wins over its queries, which for the pivot are an arrow load and a one-row probe, and
+    `dropped` lists what the spec cannot say."""
+    spec, dropped = state.get("spec"), state.get("dropped")
+    rendered = (
+        [spec] if isinstance(spec, dict) and isinstance(spec.get("dataset"), str) else queries
+    )
+    if isinstance(dropped, list) and all(isinstance(d, str) for d in dropped):
+        return rendered, [str(d) for d in dropped]
+    return rendered, []
+
+
 class Snapshot(BaseModel):
     ts: str
     state: dict[str, Json]
@@ -40,6 +56,13 @@ class View(BaseModel):
     initial_state: dict[str, Json] = Field(default_factory=dict)
     datasets: list[str] = Field(default_factory=list)
     snapshots: list[Snapshot] = Field(default_factory=list)
+
+    def latest(self) -> tuple[dict[str, Json], list[dict[str, Json]]]:
+        """The state and queries the view shows now: its latest snapshot's, or its initial state
+        before it has reported one."""
+        if self.snapshots:
+            return self.snapshots[-1].state, self.snapshots[-1].queries
+        return self.initial_state, []
 
     @classmethod
     def from_pending(cls, pending: PendingView) -> View:

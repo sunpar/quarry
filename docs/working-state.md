@@ -8,9 +8,13 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Pick the next work from [open-items.md](open-items.md). The fixes from a Codex
-review of Stages 4 and 5 merged in sunpar/quarry#11 as `5b2ac3e`; see
-[the review below](#stages-4-and-5-review).
+Merge `claude/quarry-save-pin-tocode`, which takes three items from
+[Any time](open-items.md#any-time): a pinned save snapshots to a staging file
+that `write_dataset` moves into place with its metadata, "Pin to canvas" is a
+`pin` field on the view save applied under the store's lock, and the server
+picks what "To code" renders, through one function the export shares. The fixes
+from a Codex review of Stages 4 and 5 merged in sunpar/quarry#11 as `5b2ac3e`;
+see [the review below](#stages-4-and-5-review).
 
 ## Status by stage
 
@@ -104,16 +108,18 @@ merged on 2026-10-11.
 
 ## Latest verification
 
-`claude/quarry-stage4-5-review-fixes` at `8b54708`, before it merged, locally on
-2026-10-11: `pytest` passed 1079 tests and skipped 3 (the live provider and
-memory-cap tests), including the browser tests under `tests/e2e` against a fresh
-build. `ruff check`, `ruff format --check`, `mypy src tests` and
-`uv lock --check` were clean, and in `web/` `npm run check`, `npm test` (239
-tests) and `npm run build` passed.
+`claude/quarry-save-pin-tocode` at `0c0275b`, locally on 2026-10-12: `pytest`
+passed 1086 tests and skipped 3 (the live provider and memory-cap tests),
+including the browser tests under `tests/e2e` against a fresh build.
+`ruff check`, `ruff format --check`, `mypy src tests` and `uv lock --check` were
+clean, and in `web/` `npm run check`, `npm test` (235 tests) and `npm run build`
+passed.
 
 ## Next actions
 
-1. Pick the next work from [open-items.md](open-items.md), starting with its
+1. Iterate the pull request's `@claude` and `@codex` reviews until both come
+   back clean, then merge.
+2. Pick the next work from [open-items.md](open-items.md), starting with its
    known problems.
 
 ## Resuming

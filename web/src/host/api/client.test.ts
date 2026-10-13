@@ -71,16 +71,16 @@ describe("ApiClient", () => {
     expect(init.method).toBe("GET");
   });
 
-  it("posts the queries to render as code", async () => {
-    const fetch = fakeFetch(200, { code: "x = 1" });
+  it("asks for a step's view as code", async () => {
+    const fetch = fakeFetch(200, { code: "x = 1", dropped: [] });
     const client = new ApiClient("tok", fetch);
-    await expect(client.toCode("s1", [{ dataset: "df" }])).resolves.toEqual({
+    await expect(client.toCode("s1", "st1")).resolves.toEqual({
       code: "x = 1",
+      dropped: [],
     });
     const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("/sessions/s1/to-code");
+    expect(url).toBe("/sessions/s1/steps/st1/to-code");
     expect(init.method).toBe("POST");
-    expect(init.body).toBe(JSON.stringify({ queries: [{ dataset: "df" }] }));
   });
 
   it("posts a component to the library", async () => {
