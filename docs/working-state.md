@@ -116,7 +116,8 @@ as `e8cce38` on 2026-10-12. Codex's point that the rows' rename and the
 [decisions](context/decisions.md); the whole-canvas layout write is filed under
 Any time. A separate review of the PR comments at `8c723eb` found no new defects
 introduced by that PR and confirmed that live saves remove abandoned staging
-files.
+files. Its documentation follow-up is
+[sunpar/quarry#13](https://github.com/sunpar/quarry/pull/13).
 
 ## Latest verification
 
