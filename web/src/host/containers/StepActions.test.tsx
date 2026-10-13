@@ -48,50 +48,36 @@ const step: Step = {
   duration_ms: 0,
 };
 
-const card = (view: string, y: number): CanvasCard => ({
-  view,
-  x: 0,
-  y,
-  w: 6,
-  h: 8,
-});
-
 const json = (body: unknown) => new Response(JSON.stringify(body));
 
-// The list says the canvas is empty; only the project detail holds `canvas`.
-function setup(canvas: CanvasCard[], pinFails = false) {
+function setup(saveFails = false) {
   const calls: string[] = [];
-  const puts: CanvasCard[][] = [];
+  const bodies = new Map<string, unknown>();
   let finishSave = () => {};
   const saved = new Promise<void>((resolve) => (finishSave = resolve));
   const fetchImpl = async (path: string, init?: RequestInit) => {
     const key = `${init?.method ?? "GET"} ${path}`;
     calls.push(key);
+    if (init?.body !== undefined)
+      bodies.set(key, JSON.parse(String(init.body)));
     if (key === "GET /projects") return json([meta([])]);
-    if (key === "GET /projects/p")
-      return json({ meta: meta(canvas), datasets: [], views: [] });
     if (key === "POST /projects/p/views") {
       await saved;
+      if (saveFails) return new Response(null, { status: 500 });
       return json({ name: "closes", saved_at: "t" });
-    }
-    if (key === "PUT /projects/p/canvas") {
-      if (pinFails) return new Response(null, { status: 500 });
-      const cards = JSON.parse(String(init?.body)) as CanvasCard[];
-      puts.push(cards);
-      return json(meta(cards));
     }
     return new Response(null, { status: 404 });
   };
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onDone = vi.fn();
-  const { unmount } = render(
+  render(
     <QueryClientProvider client={qc}>
       <ApiProvider client={new ApiClient("t", fetchImpl)}>
         <StepActions sessionId="s1" step={step} onDone={onDone} />
       </ApiProvider>
     </QueryClientProvider>,
   );
-  return { calls, puts, finishSave, onDone, qc, unmount };
+  return { calls, bodies, finishSave, onDone, qc };
 }
 
 async function pin(qc: QueryClient) {
@@ -106,7 +92,7 @@ async function pin(qc: QueryClient) {
 
 describe("StepActions pin to canvas", () => {
   it("says it is saving and disables its buttons until the save ends", async () => {
-    const { finishSave, onDone, qc } = setup([]);
+    const { finishSave, onDone, qc } = setup();
     await pin(qc);
     expect(onDone).toHaveBeenLastCalledWith("Saving view closes…");
     const button = () =>
@@ -118,48 +104,34 @@ describe("StepActions pin to canvas", () => {
     );
   });
 
-  it("appends a card below the project's cards", async () => {
-    const { puts, finishSave, qc } = setup([card("other", 0)]);
-    finishSave();
-    await pin(qc);
-    await waitFor(() => expect(puts).toHaveLength(1));
-    expect(puts[0]).toEqual([card("other", 0), card("closes", 8)]);
-  });
-
-  it("still pins once the save ends after the step card is gone", async () => {
-    const { puts, finishSave, qc, unmount } = setup([]);
-    await pin(qc);
-    // Opening the project replaces the session column, so the step card unmounts mid-save.
-    unmount();
-    finishSave();
-    await waitFor(() => expect(puts).toEqual([[card("closes", 0)]]));
-  });
-
-  it("marks the project stale when the pin fails after the save", async () => {
-    const { finishSave, onDone, qc } = setup([], true);
-    finishSave();
-    await pin(qc);
-    await waitFor(() =>
-      expect(onDone).not.toHaveBeenLastCalledWith("Saving view closes…"),
-    );
-    // The view was saved, so the project must be read again.
-    expect(qc.getQueryState(["projects", "p"])?.isInvalidated).toBe(true);
-  });
-
-  it("leaves the canvas alone when the view already has a card", async () => {
-    const { calls, puts, finishSave, onDone, qc } = setup([card("closes", 0)]);
+  it("asks the save to pin the view and writes no canvas itself", async () => {
+    const { calls, bodies, finishSave, onDone, qc } = setup();
     finishSave();
     await pin(qc);
     await waitFor(() =>
       expect(onDone).toHaveBeenCalledWith("Saved view closes"),
     );
-    // Either the pin read the project and stopped, or it wrote the canvas.
+    expect(bodies.get("POST /projects/p/views")).toMatchObject({
+      name: "closes",
+      pin: true,
+    });
+    expect(calls.filter((c) => c.startsWith("PUT"))).toEqual([]);
+  });
+
+  it("marks the project stale when the save fails", async () => {
+    const { finishSave, onDone, qc } = setup(true);
+    // An open canvas holds the project.
+    qc.setQueryData(["projects", "p"], {
+      meta: meta([]),
+      datasets: [],
+      views: [],
+    });
+    finishSave();
+    await pin(qc);
     await waitFor(() =>
-      expect(
-        calls.some((c) => c === "GET /projects/p" || c.startsWith("PUT")),
-      ).toBe(true),
+      expect(onDone).not.toHaveBeenLastCalledWith("Saving view closes…"),
     );
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(puts).toEqual([]);
+    // A view save can fail after it saved the view's datasets.
+    expect(qc.getQueryState(["projects", "p"])?.isInvalidated).toBe(true);
   });
 });

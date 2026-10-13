@@ -76,8 +76,12 @@ export function StepActions({
       saveView.mutate(
         {
           slug,
-          body: { ...common, step_id: step.id, name: choice.name },
-          pin: pending.pin,
+          body: {
+            ...common,
+            step_id: step.id,
+            name: choice.name,
+            pin: pending.pin,
+          },
         },
         { onSuccess: (meta) => onDone(`Saved view ${meta.name}`), onError },
       );

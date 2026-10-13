@@ -44,6 +44,7 @@ class SaveViewRequest(BaseModel):
     name: str
     description: str = ""
     mode: SaveMode
+    pin: bool = False  # also put the view on the project's canvas
 
 
 class RecallRequest(BaseModel):
@@ -175,7 +176,9 @@ class ProjectService:
             source_session=req.session_id,
             source_step=step.id,
         )
-        self._store.write_view(slug, meta, source=step.view.source, state=state, queries=queries)
+        self._store.write_view(
+            slug, meta, source=step.view.source, state=state, queries=queries, pin=req.pin
+        )
         return meta
 
     def recall(self, session_id: str, req: RecallRequest) -> Step:

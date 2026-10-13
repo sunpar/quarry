@@ -216,11 +216,13 @@ def test_save_view_saves_missing_datasets_first(tmp_path: Path) -> None:
     sid, step_id = run_prices(sessions)
     slug = projects.create("p", "").slug
     meta = projects.save_view(
-        slug, SaveViewRequest(session_id=sid, step_id=step_id, name="table", mode="live")
+        slug,
+        SaveViewRequest(session_id=sid, step_id=step_id, name="table", mode="live", pin=True),
     )
     assert meta.datasets == ["prices"] and meta.component_id == "data-table"
     project = projects.get(slug)
     assert [d.name for d in project.datasets] == ["prices"]
+    assert [c.view for c in project.meta.canvas] == ["table"]
     saved = ProjectStore(tmp_path).read_view(slug, "table")
     assert "export default" in saved.source and saved.state == {"limit": 5}
     assert saved.queries == []

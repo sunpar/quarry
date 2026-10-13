@@ -322,9 +322,6 @@ one up when a researcher needs it.
   `data.parquet` before the metadata is written, so a save that fails between
   the two leaves new rows under old metadata. A staging file moved into place by
   `write_dataset` would make the save guard double-submit protection only.
-- Pin on the server: "Pin to canvas" reads the project and writes the whole
-  canvas from the browser, so a layout write landing in between can lose a card.
-  A `pin` field on the view save, applied under the store's lock, would not.
 - Let the server own the to-code input: `toCodeSource` in the UI and
   `_to_code_input` in the export both read a view's `spec` and `dropped` state,
   and must change together.

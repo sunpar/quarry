@@ -230,6 +230,8 @@ export interface SaveViewRequest {
   name: string;
   description?: string;
   mode: SaveMode;
+  /** Also put the view on the project's canvas. */
+  pin?: boolean;
 }
 
 export interface RecallRequest {

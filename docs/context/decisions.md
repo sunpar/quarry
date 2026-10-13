@@ -986,12 +986,14 @@ them.
   project under `P` as well as `p`.
 - **A view is on a canvas once**: cards are keyed by view name, so `set_canvas`
   answers 400 for a canvas that repeats a view, and "Pin to canvas" adds a card
-  only for a view the project's canvas lacks, read from the project rather than
-  the list. Pinning a saved view again refreshes its card through `saved_at`. A
-  second pin had added a duplicate card, and Remove then dropped both. The pin
-  runs inside the save's mutation, so it still lands when the step card unmounts
-  mid-save, as opening the project makes it; the project is read again even if
-  the pin fails, and an open canvas adds a card the project gained.
+  only for a view the project's canvas lacks. Pinning a saved view again
+  refreshes its card through `saved_at`. A second pin had added a duplicate
+  card, and Remove then dropped both. The pin is a `pin` field on the view save:
+  the store adds the card under the canvas in the same locked read and write of
+  `project.json` that marks the project updated. Pinned from the browser, it
+  read the project and wrote the whole canvas, so a layout write landing between
+  the two lost the card. The project is read again even if the save fails, and
+  an open canvas adds a card the project gained.
 - **The canvas binds to the active session**: cards query through its kernel,
   and a card whose datasets the session lacks shows "Load", which recalls the
   view as a step. Only the layout lives in `project.json`; a card's state lasts
