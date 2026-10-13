@@ -931,8 +931,9 @@ them.
   `data.parquet`, a save that failed in its minute of tidying and validation
   left new rows under the old metadata, and a live save in that minute deleted
   the snapshot. A save that fails leaves the staging file, as `write_atomic`
-  leaves its temp, and the next pinned save writes over it. Cost if wrong: a
-  failed save's rows take disk space until the dataset is saved pinned again.
+  leaves its temp, until the dataset's next save: a pinned one writes over it
+  and a live one removes it. Cost if wrong: a failed save's rows take disk space
+  until that next save.
 - **Pinned data is read by absolute path**: a pinned save keeps its rows at the
   absolute `data.parquet` path, and recall generates `pl.read_parquet` of that
   path at recall time rather than storing it in the project. That settles the

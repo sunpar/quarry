@@ -137,5 +137,7 @@ def test_live_resave_drops_the_pinned_parquet(tmp_path: Path) -> None:
     store.staging_path("p", "prices").write_bytes(b"parquet")
     store.write_dataset("p", pinned, recipe="", raw="")
     assert store.parquet_path("p", "prices").exists()
+    store.staging_path("p", "prices").write_bytes(b"failed save")
     store.write_dataset("p", dataset_meta(), recipe="", raw="")
     assert not store.parquet_path("p", "prices").exists()
+    assert not store.staging_path("p", "prices").exists()

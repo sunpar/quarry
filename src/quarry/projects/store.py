@@ -126,8 +126,9 @@ class ProjectStore:
             # them, so a save that fails earlier leaves the last save's rows and metadata alone.
             (base / _STAGED_ROWS).replace(rows)
         write_atomic(base / "meta.json", meta.model_dump_json(by_alias=True, indent=2))
-        if meta.mode == "live":  # a pinned save before this one left its rows
+        if meta.mode == "live":  # rows a pinned save left, or a failed one's snapshot
             rows.unlink(missing_ok=True)
+            (base / _STAGED_ROWS).unlink(missing_ok=True)
         self._touch(slug)
 
     def read_recipe(self, slug: str, name: str) -> str:
@@ -142,8 +143,8 @@ class ProjectStore:
     def staging_path(self, slug: str, name: str) -> Path:
         """Where a pinned save snapshots until `write_dataset` moves it into place, in a dataset
         directory made private first: the kernel's own mkdir would make it at the kernel's
-        umask. A save that fails leaves the file, as `write_atomic` leaves its temp, and the next
-        pinned save writes over it."""
+        umask. A save that fails leaves the file, as `write_atomic` leaves its temp, until the
+        dataset's next save: a pinned one writes over it, a live one removes it."""
         base = self._dataset_dir(slug, name)
         base.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
         return base / _STAGED_ROWS
