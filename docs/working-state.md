@@ -8,15 +8,16 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Reduce CI time on `t3/speed-up-ci-tests`, rebased onto `main` at `fed5672`. The
-branch consolidates duplicate query checks, runs isolated pytest workers and
-parallel CI jobs, and reduces frontend environment setup. Simplify found no
-cleanup issues. Astra's native review was clean on `785d920`. Opus used both
-native review requests; its valid concurrency, busy-step, teardown and runtime
-manifest findings are fixed. The other suggestions are recorded with reasons in
-the workflow ledger. Neither provider timed out. The branch is open in
-[sunpar/quarry#14](https://github.com/sunpar/quarry/pull/14); GitHub bot reviews
-and CI are next.
+CI speed work merged in
+[sunpar/quarry#14](https://github.com/sunpar/quarry/pull/14) as `a270c9c` on
+2026-10-13. It consolidates duplicate query checks, runs isolated pytest workers
+and parallel CI jobs, and reduces frontend environment setup. All four checks
+passed on `0e41787` before merge. Simplify found no cleanup issues; Astra's
+local review and Codex's GitHub review were clean on their recorded heads. Opus
+used both local requests, and its valid findings are fixed. Claude's six
+optional suggestions were declined with reasons; its post-review wait expired
+without further feedback. The workflow ledger retains the review heads and
+responses. The watch and deadline timer are stopped.
 
 ## Status by stage
 
@@ -143,10 +144,10 @@ pytest processes, not kernel subprocesses. All real kernel tests remain, and
 mutation probes caught incorrect SQL and generated rows for each backing.
 
 The frontend comparison before the rebase passed all 239 tests with two workers
-in 10.56 s before and 3.65 s after. The first GitHub run on `5836348` passed 952
-backend tests with 3 skips in 49.26 s, all 10 browser tests in 20.69 s and all
-235 frontend tests in 6.44 s. The Python test steps overlapped, finishing within
-51 s from the first step. The CI workflow took 1 min 50 s including setup,
+in 10.56 s before and 3.65 s after. The final GitHub run on `0e41787` passed 952
+backend tests with 3 skips in 48.12 s, all 10 browser tests in 20.65 s and all
+235 frontend tests in 6.46 s. The Python test steps overlapped, finishing within
+50 s from the first step. The CI workflow took 1 min 59 s including setup,
 builds and the aggregate gate. Dependency setup runs twice.
 
 The separate comment review at `8c723eb` on 2026-10-12 passed all 86 tests in
@@ -158,8 +159,7 @@ on that head too.
 
 ## Next actions
 
-1. Handle PR #14 bot reviews and the final head's CI results, then merge when
-   the checks and review deadlines permit.
+1. Pick the next work from [open-items.md](open-items.md).
 
 ## Resuming
 
