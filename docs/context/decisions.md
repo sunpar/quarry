@@ -934,11 +934,11 @@ them.
   leaves its temp, until the dataset's next save: a pinned one writes over it
   and a live one removes it. The rows' rename and the `meta.json` write remain
   two adjacent steps in one directory, so a crash between them, or a read
-  landing there, still pairs the new rows with the old metadata. One atomic
-  switch would need `meta.json` to name a versioned rows file, and a session
-  that recalled the earlier file would then fail to replay once a newer pin
-  removed it. Cost if wrong: a failed save's rows take disk space until that
-  next save.
+  landing there, still pairs the new rows with the old metadata. Versioned rows
+  could make publication atomic, but would need a retention policy: deleting a
+  file referenced by a recalled session would break its replay; keeping that
+  file would preserve it. Cost if wrong: a failed save's rows take disk space
+  until that next save.
 - **Pinned data is read by absolute path**: a pinned save keeps its rows at the
   absolute `data.parquet` path, and recall generates `pl.read_parquet` of that
   path at recall time rather than storing it in the project. That settles the
