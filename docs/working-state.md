@@ -8,13 +8,12 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Finish [subscription providers PR #16](https://github.com/sunpar/quarry/pull/16)
-on `codex/subscription-providers` through open-pr-and-babysit. Implementation,
-task reviews, simplify and native local reviews are complete. Astra's finding is
-fixed; Opus and Muse could not review because of subscription quota limits. The
-first GitHub Claude review is requested. The
+Claude Code and Codex subscription access merged in
+[PR #16](https://github.com/sunpar/quarry/pull/16) as `bc8dc2c` on 2026-10-14.
+The implementation followed the
 [accepted plan](superpowers/plans/2026-10-14-quarry-subscription-providers.md)
-records the implementation scope.
+with parallel adapter owners and the open-pr-and-babysit loop. Choose the next
+work from [open-items.md](open-items.md).
 
 ## Status by stage
 
@@ -125,23 +124,37 @@ files. Its documentation follow-up is
 
 ## Latest verification
 
-Exact-head verification on macOS, Python 3.11 passed with 1,069 Python tests
-(including all 10 browser tests), 235 frontend tests and 25 gate/transport
-regressions. The Python suite took 60.17 seconds. Three tests skipped: the Linux
-memory cap and two opt-in live API providers. Lint, formatting, types, web
-build, offline wheel/sdist build and wheel asset checks passed.
+The final PR head `200998a` passed full local verification on macOS with 1,069
+Python tests (including all 10 browser tests), 235 frontend tests and 25
+gate/transport regressions. The Python suite took 59.40 seconds. Three tests
+skipped: the Linux memory cap and two opt-in live API providers. Lint,
+formatting, types, web build, offline wheel/sdist build and wheel asset checks
+passed. The staged smoke gate passed in 5.06 seconds.
 
-Codex 0.162.1 completed a real Quarry Python execution and table render, and
+[Linux full CI](https://github.com/sunpar/quarry/actions/runs/38572143521)
+passed on that same head: 1,069 Python tests in 86.38 seconds, with the two live
+API providers and the filesystem case-folding test skipped. The squash merge has
+the same tree as the verified PR head.
+
+Codex 0.162.1 completed a live Quarry Python execution and table render, and
 cancellation joined the process and reader. Claude Code 2.1.299 passed login and
 tool-isolation probes; its monthly quota prevented successful live inference.
-All five allowed live probes per provider are used. Replay tests cover malformed
-tool arguments, budgets, interruption, late callbacks and protocol cleanup. Task
-reviews and the whole-branch simplify pass are complete.
+All five allowed live probes per provider were used. Offline replays cover
+malformed tool arguments, budgets, interruption, late callbacks, protocol
+cleanup and commentary separated from final answer text.
+
+Task reviews and simplify completed. Astra's native review found commentary
+mixed into Codex completion text; the fix passed 31 focused tests. Opus and Muse
+could not complete reviews because of subscription quota limits. The first
+GitHub Claude request failed without a substantive review. GitHub Codex returned
+clean on `200998a`, ending the bot loop after one explicit request to each
+provider. There are no unresolved findings or running review tasks.
 
 ## Next actions
 
-1. Complete the capped GitHub bot rotation and full CI for the current head.
-2. Merge after all findings are addressed and the exact-head checks pass.
+1. Use the [native-login setup](../README.md#using-codex-or-claude-code-login)
+   on the Quarry host when selecting a subscription provider.
+2. Choose the next item from [open-items.md](open-items.md).
 
 ## Resuming
 
