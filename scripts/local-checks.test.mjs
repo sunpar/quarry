@@ -108,3 +108,24 @@ test("offline Node and Python retain IPv4 and IPv6 loopback", async () => {
     );
   }
 });
+
+test("installing Quarry into shared tools invalidates their snapshot fingerprint", (t) => {
+  const target = mkdtempSync(join(tmpdir(), "quarry-tool-install-"));
+  t.after(() => rmSync(target, { recursive: true, force: true }));
+  for (const file of ["uv.lock", "pyproject.toml", ".python-version"])
+    cpSync(join(source, file), join(target, file));
+  execFileSync(
+    "uv",
+    ["venv", "--offline", "--python", python, join(target, ".venv")],
+    { stdio: "pipe" },
+  );
+  const runtime = join(target, ".venv/bin/python");
+  const before = dependencyFingerprint(target, "python");
+  const site = execFileSync(
+    runtime,
+    ["-I", "-c", "import site; print(site.getsitepackages()[0])"],
+    { encoding: "utf8" },
+  ).trim();
+  writeFileSync(join(site, "quarry.py"), 'SNAPSHOT = "installed checkout"\n');
+  assert.notEqual(dependencyFingerprint(target, "python"), before);
+});

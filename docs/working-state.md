@@ -134,7 +134,7 @@ Branch coverage passed the same suite in 61.92 seconds; the full coverage
 command took 90.34 seconds including setup/build checks. It covered 3,904 of
 4,012 statements and 882 of 946 branches. These figures cover pytest processes,
 not all kernel subprocess execution. The staged smoke gate took 4.27 seconds.
-All 16 gate/transport regressions passed, including snapshot imports in xdist
+All 17 gate/transport regressions passed, including snapshot imports in xdist
 and a real kernel. A real pre-commit rejected staged invalid Python despite an
 unstaged fix and preserved the index and HEAD. Workflow actionlint passed.
 

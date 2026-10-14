@@ -26,9 +26,17 @@ export function dependencyFingerprint(root, name, runtimeRoot = root) {
   );
   if (name === "python")
     digest.update(
-      execFileSync(join(runtimeRoot, ".venv/bin/python"), ["--version"], {
-        encoding: "utf8",
-      }),
+      execFileSync(
+        join(runtimeRoot, ".venv/bin/python"),
+        [
+          "-I",
+          "-c",
+          "import importlib.util, sys; print(sys.version); print(importlib.util.find_spec('quarry') is None)",
+        ],
+        {
+          encoding: "utf8",
+        },
+      ),
     );
   for (const file of inputs[name])
     digest.update(file).update(readFileSync(join(root, file)));
