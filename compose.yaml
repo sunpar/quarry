@@ -8,3 +8,37 @@ services:
     network_mode: none
     init: true
     shm_size: 1gb
+
+  quarry:
+    image: quarry-linux-app-${LINUX_PLATFORM_TAG:?Set LINUX_PLATFORM_TAG}:local
+    platform: ${LINUX_PLATFORM:?Set LINUX_PLATFORM}
+    build:
+      context: .
+      target: app
+    init: true
+    shm_size: 1gb
+    ports:
+      - "127.0.0.1:8765:8766"
+    volumes:
+      - home:/home/quarry
+    networks:
+      - interactive
+
+  relay:
+    image: quarry-linux-app-${LINUX_PLATFORM_TAG:?Set LINUX_PLATFORM_TAG}:local
+    platform: ${LINUX_PLATFORM:?Set LINUX_PLATFORM}
+    init: true
+    network_mode: service:quarry
+    depends_on:
+      - quarry
+    command:
+      - socat
+      - TCP-LISTEN:8766,bind=0.0.0.0,reuseaddr,fork
+      - TCP:127.0.0.1:8765
+
+volumes:
+  home:
+
+networks:
+  interactive:
+    driver: bridge

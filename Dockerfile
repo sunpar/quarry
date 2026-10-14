@@ -41,3 +41,20 @@ COPY --chown=quarry:quarry src ./src
 COPY --chown=quarry:quarry tests ./tests
 
 CMD ["make", "check"]
+
+FROM check AS app
+
+USER root
+RUN npm install --global --no-audit --no-fund \
+        @openai/codex@0.162.1 @anthropic-ai/claude-code@2.1.299 \
+    && install -d -o quarry -g quarry /opt/quarry-runtime
+
+USER quarry
+RUN uv build --offline --no-build-isolation --python .venv/bin/python \
+    && UV_PROJECT_ENVIRONMENT=/opt/quarry-runtime uv sync \
+        --locked --offline --no-dev --extra claude-code --no-install-project \
+    && uv pip install --offline --no-deps --python /opt/quarry-runtime/bin/python dist/*.whl
+
+ENV PATH="/opt/quarry-runtime/bin:${PATH}"
+
+CMD ["quarry", "serve", "--root", "/home/quarry/.quarry", "--port", "8765"]

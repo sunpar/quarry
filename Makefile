@@ -1,4 +1,4 @@
-.PHONY: deps hooks smoke check coverage check-commit pr linux-build linux-check linux-shell
+.PHONY: deps hooks smoke check coverage check-commit pr linux-build linux-check linux-shell linux-serve linux-down
 
 LINUX_PLATFORM ?= $(shell docker version --format '{{.Server.Os}}/{{.Server.Arch}}')
 LINUX_PLATFORM_TAG = $(subst /,-,$(LINUX_PLATFORM))
@@ -37,3 +37,12 @@ linux-check: linux-build
 
 linux-shell: linux-build
 	$(LINUX_COMPOSE) run --rm check /bin/bash
+
+linux-serve:
+	$(eval LINUX_PLATFORM := $(LINUX_PLATFORM))
+	$(LINUX_COMPOSE) build quarry
+	$(LINUX_COMPOSE) up quarry relay
+
+linux-down:
+	$(eval LINUX_PLATFORM := $(LINUX_PLATFORM))
+	$(LINUX_COMPOSE) down
