@@ -14,21 +14,35 @@ open when ready to merge. The researcher delegated routine design choices.
 Separate assessments cover parameterized workflows, session branching and the
 complete remaining-work inventory.
 
-| Work                  | Task thread                                                                        | Status                                                                                                                  |
-| --------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Reproducible exports  | Improve Quarry export reproducibility (`01a13c15-0c0d-7f13-84ca-d31c5bbbc160`)     | [PR #18](https://github.com/sunpar/quarry/pull/18) open at `06c3ea3`; fixing bot feedback                               |
-| Whole-series charts   | Show complete long series in Quarry (`01a13c15-15d9-78e3-a548-708275107f4f`)       | `4632a91`; fixing six local-review findings before PR creation                                                          |
-| Table filters         | Add reproducible Quarry table filters (`01a13c15-1c05-7273-afba-e9ae6f1e8df0`)     | [PR #19](https://github.com/sunpar/quarry/pull/19) open at `9328069`; local and Linux checks passed, bot review pending |
-| Mount and query reuse | Improve Quarry canvas query execution (`01a13c15-2207-7c50-a47a-5941b9f5dcc2`)     | `a1dd06c`; PR verification in progress                                                                                  |
-| Frozen HTML reports   | Export frozen Quarry research reports (`01a13c15-295e-7a70-a0bf-6ba0ba8e65b5`)     | [PR #20](https://github.com/sunpar/quarry/pull/20) open at `0d6ffb9`; Linux and bot checks pending                      |
-| Reusable workflows    | Assess reusable Quarry research workflows (`01a13c16-26b4-7ba0-b634-bf6107bcdbc0`) | Assessment complete; no implementation                                                                                  |
-| Session branching     | Assess Quarry session branching (`01a13c16-2d48-71c0-99cc-5cebb5b319a1`)           | Assessment complete; no implementation                                                                                  |
-| Remaining work        | Reconcile Quarry remaining work (`01a13c16-330f-7d80-b840-bd2ceb9a2f6b`)           | Complete inventory; final status reconciliation in progress                                                             |
+| Work                  | Open PR / code checkpoint                                     | Contract                                                                              | Verification                                                         | Review                                                                                                                          |
+| --------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Reproducible exports  | [PR #18](https://github.com/sunpar/quarry/pull/18), `7c59864` | Render saved queries against replayed schemas and record allowlisted runtime versions | Mac and Linux full passed: 1,086 Python, 235 frontend, 25 gate tests | Codex 2 clean on this head; all prior review threads resolved; readiness reconciled                                             |
+| Whole-series charts   | [PR #22](https://github.com/sunpar/quarry/pull/22), `c855625` | Reduce line points across the full time range                                         | Mac and Linux full passed: 1,176 Python, 237 frontend, 25 gate tests | All six review threads resolved; final Codex 2 pending, deadline 22:10:25 UTC                                                   |
+| Table filters         | [PR #19](https://github.com/sunpar/quarry/pull/19), `744d5ba` | Push both tables' filters into query specs                                            | Mac and Linux full passed: 1,071 Python, 249 frontend, 25 gate tests | Budget exhausted, no clean result; fallback elapsed at 21:31:27 UTC and eligibility reconciled at 21:34:21 UTC                  |
+| Mount and query reuse | [PR #21](https://github.com/sunpar/quarry/pull/21), `68fbc2d` | Mount views once and reuse in-flight queries                                          | Mac and Linux full passed: 1,069 Python, 253 frontend, 25 gate tests | Connection and early-restore fixes verified; budget exhausted without clean review; fallback deadline 22:10:18 UTC              |
+| Frozen HTML reports   | [PR #20](https://github.com/sunpar/quarry/pull/20), `dcf6581` | Export saved metadata and pinned rows as offline HTML without live execution          | Mac and Linux full passed: 1,100 Python, 236 frontend, 25 gate tests | All six review threads resolved; budget exhausted, no clean result; fallback elapsed at 21:48:57 UTC and eligibility reconciled |
 
-All five implementation branches remain unmerged. PR #18's bot found a recipe
-binding collision with `__builtins__`; its fix and regressions are still in
-progress. Table filters do not close `TABLE-SORT-RETAIN-ROWS`: same-spec
-refreshes retain rows, but changed sort or filter specs still show "Loading".
+Code checkpoints identify the candidate implementations. Later documentation
+commits can change PR heads; check and review evidence belongs to its exact SHA.
+The table-filter deadline is a silence fallback after the final push, not a
+clean review. New substantive feedback or another push can change it.
+
+| Work                  | Task thread                                                                        | Assessment status                                       |
+| --------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Reproducible exports  | Improve Quarry export reproducibility (`01a13c15-0c0d-7f13-84ca-d31c5bbbc160`)     | Implementation brief                                    |
+| Whole-series charts   | Show complete long series in Quarry (`01a13c15-15d9-78e3-a548-708275107f4f`)       | Implementation brief                                    |
+| Table filters         | Add reproducible Quarry table filters (`01a13c15-1c05-7273-afba-e9ae6f1e8df0`)     | Implementation brief                                    |
+| Mount and query reuse | Improve Quarry canvas query execution (`01a13c15-2207-7c50-a47a-5941b9f5dcc2`)     | Implementation brief                                    |
+| Frozen HTML reports   | Export frozen Quarry research reports (`01a13c15-295e-7a70-a0bf-6ba0ba8e65b5`)     | Implementation brief                                    |
+| Reusable workflows    | Assess reusable Quarry research workflows (`01a13c16-26b4-7ba0-b634-bf6107bcdbc0`) | Complete; no implementation                             |
+| Session branching     | Assess Quarry session branching (`01a13c16-2d48-71c0-99cc-5cebb5b319a1`)           | Complete; no implementation                             |
+| Remaining work        | Reconcile Quarry remaining work (`01a13c16-330f-7d80-b840-bd2ceb9a2f6b`)           | Complete inventory; final status reconciliation pending |
+
+All five implementation PRs remain open and unmerged. Their current heads have
+passed Mac and Linux full checks; whole-series review and the query-reuse
+silence deadline remain pending. Table filters do not close
+`TABLE-SORT-RETAIN-ROWS`: same-spec refreshes retain rows, but changed sort or
+filter specs still show "Loading".
 
 The app threads reached sandbox approval prompts for their external commands.
 Execution continues through delegated workers using the controller's authorized
@@ -37,20 +51,25 @@ its own worktree and branch from `38b07ac`. Full gates share one resource lock.
 The controller owns this page and the consolidated backlog; workers retain their
 reports and review budgets in their worktree Git directories.
 
-A read-only merge preview of the committed export, table-filter, query-reuse and
-report heads found only documentation conflicts between exports and reports, in
-`docs/context/code-map.md` and `docs/context/decisions.md`. Whole-series fixes
-are still in progress. A clean individual PR against `main` does not establish
-combined runtime compatibility: no combined full gate has run, and later
-integration must reconcile documentation after the first branch merges.
+A combined local check on Mac at `f707839` passed 1,226 Python, 270 frontend and
+25 gate tests, with three expected skips, in 77.01 seconds. It combined
+`7c59864`, `c855625`, `744d5ba`, `68fbc2d` and `dcf6581`, and a fresh GitHub
+check confirmed those heads after verification. Product code merged without
+conflicts. Three documentation files needed reconciliation, and the append-only
+export test conflict retained both branches' cases. This is local combined
+evidence; the Linux runs tested each feature separately. Later merges still need
+to reconcile this checkpoint and the feature-owned backlog edits.
 
 Local assessment evidence is under `/Users/sunpar/Documents/Codex/2026-10-14/`:
 the workflow assessment is
 `quarry-workflow-assessment/outputs/workflow_assessment.json`, the branching
 assessment is `quarry-branching-assessment/outputs/branching-assessment.json`,
 and the remaining-work inventory is
-`quarry-backlog-inventory/outputs/quarry_remaining_work.json`. These are local
-reports, not files distributed with the repository.
+`quarry-backlog-inventory/outputs/quarry_remaining_work.json`, with an offline
+HTML companion at `quarry-backlog-inventory/outputs/quarry_remaining_work.html`.
+The combined-check evidence is
+`quarry-integration-check/outputs/integration_verification.json`. These are
+local reports, not files distributed with the repository.
 
 The workflow probe confirmed that earlier scalar and dictionary bindings can be
 omitted from a saved recipe. Existing validation compares schema and row count,
@@ -205,7 +224,9 @@ files. Its documentation follow-up is
 Checks and reviews belong to each branch's exact head. The table above records
 completed evidence and pending work. Live providers, firm loaders and licensed
 integrations were not exercised in these assessments. The coordination change
-updates documentation only.
+updates documentation only. Whole-series standalone source generation still
+rejects float membership without a schema; notebook exports rely on PR #18 for
+runtime-schema rendering.
 
 ### Docker branch
 
@@ -262,8 +283,8 @@ external or licensed integrations, and hosted CI were not run in this work.
 
 ## Next actions
 
-1. Complete and verify the five bounded implementation branches, then finish
-   their local and GitHub review workflows without merging.
+1. Finish the remaining whole-series review and query-reuse silence window, then
+   reconcile fresh feedback and keep all five implementation PRs open.
 2. Reconcile implemented work, open PRs, research ideas and the existing backlog
    in one remaining-work inventory.
 3. Keep parameter contracts, metric definitions and session branching as
