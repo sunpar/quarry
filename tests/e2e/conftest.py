@@ -6,9 +6,11 @@ import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 import uvicorn
+from playwright.sync_api import BrowserContext, Route
 
 from quarry.agent.fake import FakeProvider
 from quarry.agent.types import AssistantTurn
@@ -17,6 +19,17 @@ from quarry.server.app import create_app
 
 STATIC = Path(__file__).resolve().parents[2] / "src" / "quarry" / "static"
 TOKEN = "e2e-token"
+
+
+@pytest.fixture(autouse=True)
+def local_browser(context: BrowserContext) -> None:
+    def route_request(route: Route) -> None:
+        if urlsplit(route.request.url).hostname in {"localhost", "127.0.0.1", "::1"}:
+            route.continue_()
+        else:
+            route.abort("blockedbyclient")
+
+    context.route("**/*", route_request)
 
 
 @dataclass(slots=True)
@@ -29,7 +42,7 @@ class RunningServer:
 @pytest.fixture
 def serve(tmp_path: Path) -> Iterator[Callable[[list[AssistantTurn]], RunningServer]]:
     if not (STATIC / "index.html").exists():
-        pytest.skip("web build missing; run `npm run build` in web/")
+        pytest.fail("web build missing; run `npm run build` in web/")
     servers: list[tuple[uvicorn.Server, threading.Thread, socket.socket]] = []
 
     def start(turns: list[AssistantTurn]) -> RunningServer:

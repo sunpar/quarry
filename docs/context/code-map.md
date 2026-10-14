@@ -1,8 +1,8 @@
 # Code map
 
-What each module in `src/quarry` is responsible for, which section of the design
-spec it implements, and which tests cover it. Each stage adds a section for its
-packages.
+What each module in `src/quarry` and the verification scripts is responsible
+for, which section of the design spec it implements, and which tests cover it.
+Each stage adds a section for its packages.
 
 ## quarry
 
@@ -177,11 +177,24 @@ in a sandboxed iframe that reaches the host only through `postMessage`.
 | `tests/e2e/test_perspective.py`      | Playwright: Perspective mounts in the sandbox over Arrow with no CSP or CORS error, and takes new query results.                                                                                                                                         |
 | `tests/e2e/test_breadth.py`          | Playwright: a bar and line view's "To code" runs as a step that writes only the grouped result; a custom view saved to the library is found and mounted in a later step; the scatter (Plotly) and large series (ECharts) built-ins render under the CSP. |
 
+## Local verification
+
+Verification scripts own the shared gate and snapshot selection; hooks and
+manual hosted jobs call them.
+
+| Module                                 | Responsibility                                                                                                                                 | Spec      | Tests                                                               |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------- | ------------------------------------------------------------------- |
+| `scripts/git-gate.mjs`                 | Install stable Git-directory hooks, export staged/committed snapshots, verify paginated PR branches, and create PRs after pushing checked HEAD | §14 Tests | `scripts/git-gate.test.mjs`                                         |
+| `scripts/local-checks.mjs`             | Provision locked tools and run smoke, full or coverage checks, including packaged snapshot installation                                        | §14 Tests | `scripts/local-checks.test.mjs`, `scripts/snapshot-import.test.mjs` |
+| `scripts/no-network.cjs`               | Restrict Node test TCP connections to loopback and Unix sockets                                                                                | §14 Tests | `scripts/local-checks.test.mjs`                                     |
+| `scripts/test_python/sitecustomize.py` | Restrict Python test TCP connections to loopback and Unix sockets, including isolated exports                                                  | §14 Tests | `scripts/local-checks.test.mjs`, kernel tests                       |
+
 ## Commands
 
 The gate commands are in the [README](../../README.md#development),
 [driving the server from curl](../../README.md#driving-the-server-from-curl-stage-2)
 shows `quarry serve` and its routes, and
 [using the browser UI](../../README.md#using-the-browser-ui-stage-3) covers the
-web build and dev loop. `.verify.toml` lists the same gates plus
-`uv lock --check` and a prettier check of the Markdown docs.
+web build and dev loop. `.verify.toml` delegates to `make check`. The Makefile
+exposes dependency setup, hook installation, staged smoke, full checks, branch
+coverage, committed checks and verified PR creation.

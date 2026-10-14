@@ -9,11 +9,45 @@ Project docs, starting with the current working state, are indexed in
 ## Development
 
 ```bash
-uv sync --all-extras
-uv run pytest
-uv run ruff check src tests && uv run ruff format --check src tests
-uv run mypy src tests
+make deps       # online dependency and Chromium setup, required after lock changes
+make hooks      # enable staged smoke and open-PR push checks
+make smoke      # check the exact staged snapshot
+make check      # offline lint, types, all tests, browser E2E and packaged assets
+make coverage   # the same checks with Python branch coverage
+make pr ARGS='--title "Change behavior" --body-file /path/to/body.txt'
 ```
+
+`make hooks` stores a stable bootstrap in this worktree's Git directory. Rerun
+it after gate updates. Branches missing the verifier fail and require an update
+from `origin/main`; switching branches no longer removes installed hooks.
+
+The PR wrapper supports `--title` (required), `--body`, `--body-file`, `--base`,
+`--draft` and `--no-maintainer-edit`; `make pr ARGS=--help` lists short aliases.
+It resolves the base before pushing and rejects a head/base match within the
+same repository. It verifies and pushes the committed snapshot, then creates the
+PR through the GitHub API, with the fork repository identified explicitly.
+Required self-assignment runs after creation, so a metadata permission failure
+leaves the created PR URL visible. Push hooks verify the actual outgoing commits
+for branches with open PRs, including upstream fork PRs, and for `main`. Missing
+tools, mismatched dependency locks and failed PR lookups stop the operation. Use
+`make check-commit REF=<sha>` to check a specific commit.
+
+Git has no PR-creation hook. Website/API PR creation, direct `gh pr create`,
+`--no-verify`, and uninstalled hooks can bypass these local gates.
+
+GitHub verification is manual: choose full, smoke or coverage and Linux or macOS
+in the `ci` workflow. Linux retains the kernel memory-cap check that macOS
+cannot run. Claude review is manual or requested through the existing `@claude`
+workflow. No branch protections or rulesets required hosted checks at migration
+time.
+
+Test commands remove live provider credentials, restrict Python/Node sockets to
+loopback and Unix sockets, and route browser HTTP requests to local servers.
+This is transport-level enforcement, not an operating-system network sandbox;
+native-library networking and other browser transports are outside that
+boundary. Tests use fake providers and synthetic local data. Licensed
+Highcharts/SciChart browser coverage and live providers remain outside the local
+gate.
 
 ## Using the core from a REPL (Stage 1)
 
