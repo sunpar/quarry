@@ -21,6 +21,7 @@ const nodeTests = [
 ];
 
 export default defineConfig({
+  cacheDir: ".cache/vitest",
   resolve: {
     alias: [
       // Built-ins live outside web/, so bare imports from them need an explicit home.

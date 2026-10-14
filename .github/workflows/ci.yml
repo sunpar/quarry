@@ -1,16 +1,23 @@
 name: ci
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Verification suite
+        type: choice
+        options: [full, smoke, coverage]
+        default: full
+      runner:
+        description:
+          Linux includes kernel memory-cap coverage unavailable on macOS
+        type: choice
+        options: [ubuntu-latest, macos-latest]
+        default: ubuntu-latest
 permissions:
   contents: read
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  python:
-    runs-on: ubuntu-latest
+  test:
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -19,48 +26,17 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: npm ci
-        working-directory: web
-      # Backend tests exercise the real runtime manifest and TSX checker.
-      - run: npm run build
-        working-directory: web
       # setup-uv publishes no major tags since v8, so it is pinned to a release.
       - uses: astral-sh/setup-uv@v10.3.0
-      - run: uv python install 3.11
-      - run: uv sync --locked
-      - run: uv run ruff check src tests
-      - run: uv run ruff format --check src tests
-      - run: uv run mypy src tests
-      - run: uv run pytest --ignore=tests/e2e -q --durations=10
-  web:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - run: make deps
+      - name: Run shared local verification
+        env:
+          SUITE: ${{ inputs.suite }}
+        run: node scripts/local-checks.mjs "$SUITE"
+      - name: Upload branch coverage
+        if: inputs.suite == 'coverage' && always()
+        uses: actions/upload-artifact@v7
         with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: npm ci
-        working-directory: web
-      - run: npm run check
-        working-directory: web
-      - run: npm test
-        working-directory: web
-      - run: npm run build
-        working-directory: web
-      - uses: astral-sh/setup-uv@v10.3.0
-      - run: uv python install 3.11
-      - run: uv sync --locked
-      - run: uv run playwright install --with-deps chromium
-      - run: uv run pytest tests/e2e -q -rs --durations=10
-      - run: uv build
-      - run: unzip -l dist/*.whl | grep quarry/static/index.html
-  # Keep the existing required check, and make it depend on both suites.
-  test:
-    runs-on: ubuntu-latest
-    needs: [python, web]
-    if: always()
-    steps:
-      - run: test "${{ needs.python.result }}" = success && test "${{ needs.web.result }}" = success
+          name: coverage-${{ inputs.runner }}
+          path: coverage.xml
+          if-no-files-found: error

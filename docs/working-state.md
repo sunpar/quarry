@@ -1,6 +1,6 @@
 # Working state
 
-Checkpoint as of 2026-10-13. This page holds temporary context: what is in
+Checkpoint as of 2026-10-14. This page holds temporary context: what is in
 flight, the latest check results and the next actions. Rewrite it at the end of
 each session and when a pull request opens or merges. Anything that will still
 be true next month belongs in [context/](context/) or
@@ -8,16 +8,12 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-CI speed work merged in
-[sunpar/quarry#14](https://github.com/sunpar/quarry/pull/14) as `a270c9c` on
-2026-10-13. It consolidates duplicate query checks, runs isolated pytest workers
-and parallel CI jobs, and reduces frontend environment setup. All four checks
-passed on `0e41787` before merge. Simplify found no cleanup issues; Astra's
-local review and Codex's GitHub review were clean on their recorded heads. Opus
-used both local requests, and its valid findings are fixed. Claude's six
-optional suggestions were declined with reasons; its post-review wait expired
-without further feedback. The workflow ledger retains the review heads and
-responses. The watch and deadline timer are stopped.
+Migrate routine verification to local staged and committed snapshots on
+`codex/local-first-ci`, based on the merged CI-speed work in
+[sunpar/quarry#14](https://github.com/sunpar/quarry/pull/14). The full local
+replacement passed before automatic hosted triggers were removed. GitHub has no
+branch protections or rulesets to migrate. Run the authorized
+open-pr-and-babysit workflow after implementation validation.
 
 ## Status by stage
 
@@ -128,38 +124,29 @@ files. Its documentation follow-up is
 
 ## Latest verification
 
-After rebasing onto `main` at `fed5672`, locally on 2026-10-12, the full Python
-suite passed 962 tests and skipped 3 in 40.46 s, including all 10 browser tests
-against a fresh build. All 235 frontend tests passed in 3.47 s. `ruff check`,
-`ruff format --check`, strict `mypy src tests`, `uv lock --check`,
-`npm run check` and `npm run build` passed.
+Local-first rollout, macOS and Python 3.11 on 2026-10-14: all 962 Python tests
+passed, with the same three skips (two live providers and the Linux memory cap).
+All 10 browser tests ran against a fresh build and all 235 frontend tests
+passed. Python lint/format/types, frontend checks and the offline wheel/sdist
+build passed; the wheel includes UI, runtime manifest, checker and assets.
 
-Before the rebase, on the code based on `2f00b0a`, the full serial run took
-69.55 s. Two workers passed the same 955 tests in 38.51 s, with the same 3
-skips; backend-only tests took 28.57 s. Inventories and skip outcomes matched.
-Removing 124 duplicate cases and changing scheduling preserved every covered
-line and branch: 3,879 of 3,986 statements and 871 of 934 branches, or 96.54%
-combined coverage. The parallel coverage run took 41.52 s. These figures measure
-pytest processes, not kernel subprocesses. All real kernel tests remain, and
-mutation probes caught incorrect SQL and generated rows for each backing.
+Branch coverage passed the same suite in 61.92 seconds; the full coverage
+command took 90.34 seconds including setup/build checks. It covered 3,904 of
+4,012 statements and 882 of 946 branches. These figures cover pytest processes,
+not all kernel subprocess execution. The staged smoke gate took 4.27 seconds.
+All 16 gate/transport regressions passed, including snapshot imports in xdist
+and a real kernel. A real pre-commit rejected staged invalid Python despite an
+unstaged fix and preserved the index and HEAD. Workflow actionlint passed.
 
-The frontend comparison before the rebase passed all 239 tests with two workers
-in 10.56 s before and 3.65 s after. The final GitHub run on `0e41787` passed 952
-backend tests with 3 skips in 48.12 s, all 10 browser tests in 20.65 s and all
-235 frontend tests in 6.46 s. The Python test steps overlapped, finishing within
-50 s from the first step. The CI workflow took 1 min 59 s including setup,
-builds and the aggregate gate. Dependency setup runs twice.
-
-The separate comment review at `8c723eb` on 2026-10-12 passed all 86 tests in
-`tests/projects/test_store.py`, `tests/projects/test_export.py`,
-`tests/server/test_projects_service.py` and `tests/server/test_app.py`. It did
-not rerun the full local suite or browser tests. The
-[CI test job](https://github.com/sunpar/quarry/actions/runs/38334508545) passed
-on that head too.
+Full checks install the snapshot wheel in a separate environment so the existing
+isolated Python export test still runs. Shared dependencies contain no editable
+Quarry install. Linux hosted validation and licensed Highcharts/SciChart browser
+coverage have not been exercised in this session.
 
 ## Next actions
 
-1. Pick the next work from [open-items.md](open-items.md).
+1. Finish the local and GitHub reviews for the local-first rollout, then merge
+   only when the workflow conditions hold.
 
 ## Resuming
 

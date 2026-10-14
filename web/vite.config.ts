@@ -23,6 +23,7 @@ function runtimeManifest(): Plugin {
 }
 
 export default defineConfig({
+  cacheDir: ".cache/vite",
   plugins: [react(), tailwindcss(), runtimeManifest()],
   resolve: {
     alias: [

@@ -1279,15 +1279,21 @@ them.
   install time rather than wrong results.
 - **`anthropic>=1.12`**: the beta request arguments `output_config` and
   `fallbacks` were checked only on 1.12.1, so the floor is that release line.
-- **CI installs from the lock**: CI runs `uv sync --locked`, so a stale
-  `uv.lock` fails instead of re-resolving.
-- **CI runs backend and browser checks in parallel**: the Python job builds the
-  UI, including its runtime manifest and TSX checker, then runs backend tests
-  and Python checks. The web job runs frontend checks, builds the UI, runs all
-  browser tests and checks the wheel. Both jobs stop after 20 minutes; the
-  existing `test` check requires both to succeed. New PR commits cancel
-  superseded CI runs; pushes to `main` each keep their own concurrency group.
-  Cost: dependency setup runs twice.
+- **Full verification runs locally**: `make check` owns Python and frontend
+  lint, formatting, types, all tests, fresh UI/manifest/checker builds, browser
+  E2E and wheel asset checks. `.verify.toml`, the PR wrapper and PR push hook
+  share it. Dependencies come from locked setup; committed checks export the
+  requested SHA and pre-commit exports the index. Fingerprints reject tools from
+  different lockfiles or runtimes. Full checks install the exported wheel in a
+  separate environment for isolated Python exports, keeping shared tools free of
+  editable checkout references. Cost: cold setup requires downloads.
+- **Hosted verification is on demand**: `ci` accepts full, smoke or branch
+  coverage on Linux or macOS. Linux retains the memory-cap check. Automatic
+  Claude review became manual; explicit `@claude` requests stay available. The
+  migration found no protections, rulesets, releases or deployment workflows.
+  Git has no PR-creation hook, so website/API creation and bypassed hooks remain
+  possible. Runtime transports restrict routine tests to local services, with
+  native networking and non-HTTP browser transports outside that boundary.
 - **Local Python matches CI**: `.python-version` pins 3.11. The local venv had
   resolved 3.14, so failures specific to 3.11 surfaced only in CI.
 - **Python tests use two isolated workers**: `pytest` defaults to

@@ -47,17 +47,18 @@ made and could revisit belongs in [decisions](decisions.md) instead.
 
 ## Quality gates
 
-- CI runs `pytest`, `ruff check`, `ruff format --check` and strict `mypy` on
-  `src` and `tests`, and all four must pass (spec §14). The commands are in the
-  [README](../../README.md#development).
+- The shared local gate runs `pytest`, `ruff check`, `ruff format --check` and
+  strict `mypy` on `src` and `tests`, and all four must pass (spec §14). The
+  commands are in the [README](../../README.md#development).
 - For every spec in the equivalence fixtures, `to_polars`, `to_sql` and the
   executed `to_source` output must return equal results (spec §14).
 - Kernel tests run the kernel as a real subprocess over its socket (spec §14).
 
 ## How work lands
 
-- Each stage lands as one pull request against `main` from its own branch. CI
-  must be green and the Codex review clear before merging.
+- Each stage lands as one pull request against `main` from its own branch. Local
+  verification and any requested hosted checks must pass, with review findings
+  addressed, before merging.
 - Commit messages start with a bare type such as `feat:`, `fix:` or `docs:`,
   with no scope and no attribution trailer. The agent's commit hook enforces
   this.

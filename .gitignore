@@ -1,4 +1,5 @@
 .venv/
+.check-venv/
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -9,3 +10,6 @@ dist/
 src/quarry/static/
 web/node_modules/
 web/dist/
+web/.cache/
+coverage.xml
+.coverage*
