@@ -28,7 +28,12 @@ from quarry.projects.store import ProjectStore, check_view_name
 from quarry.projects.tidy import tidy_recipe
 from quarry.projects.validate import validate_recipe
 from quarry.server.models import Step, View, now_iso
-from quarry.server.service import ProviderFactory, SessionService, StepNotFound
+from quarry.server.service import (
+    SHUTDOWN_WAIT_SECONDS,
+    RuntimeFactory,
+    SessionService,
+    StepNotFound,
+)
 
 
 class SaveDatasetRequest(BaseModel):
@@ -71,14 +76,17 @@ class ProjectService:
         config: QuarryConfig,
         store: ProjectStore,
         sessions: SessionService,
-        provider_factory: ProviderFactory,
+        runtime_factory: RuntimeFactory,
     ) -> None:
         self._config = config
         self._store = store
         self._sessions = sessions
-        self._provider_factory = provider_factory
+        self._runtime_factory = runtime_factory
         self._saving: set[tuple[str, str, str]] = set()
         self._saving_lock = threading.Lock()
+        self._tidying: set[threading.Event] = set()
+        self._tidy_finished = threading.Condition()
+        self._shutdown = False
 
     @property
     def store(self) -> ProjectStore:
@@ -245,8 +253,26 @@ class ProjectService:
 
     def _tidy(self, raw: str, dataset: str) -> str | None:
         """The tidied recipe, or None when no provider is configured: a save never needs one."""
+        cancel = threading.Event()
+        with self._tidy_finished:
+            if self._shutdown:
+                return None
+            self._tidying.add(cancel)
         try:
-            provider = self._provider_factory(self._config)
-        except ConfigError:
-            return None
-        return tidy_recipe(provider, raw, dataset)
+            try:
+                runtime = self._runtime_factory(self._config)
+            except ConfigError:
+                return None
+            return tidy_recipe(runtime, raw, dataset, cancel=cancel)
+        finally:
+            with self._tidy_finished:
+                self._tidying.remove(cancel)
+                self._tidy_finished.notify_all()
+
+    def shutdown(self) -> None:
+        """Cancel active recipe model requests and wait for their runtime cleanup."""
+        with self._tidy_finished:
+            self._shutdown = True
+            for cancel in self._tidying:
+                cancel.set()
+            self._tidy_finished.wait_for(lambda: not self._tidying, SHUTDOWN_WAIT_SECONDS)

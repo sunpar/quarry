@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
+import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -33,16 +35,23 @@ from quarry.server.projects import ProjectService
 from quarry.server.service import (
     CreateSessionRequest,
     ManualStepRequest,
-    ProviderFactory,
+    RuntimeFactory,
     SessionService,
     SessionStatus,
     StepNotFound,
     StepRequest,
-    provider_from_config,
+    runtime_from_config,
 )
 from quarry.server.store import SessionStore
 
 log = logging.getLogger(__name__)
+
+
+class QuarryServer(uvicorn.Server):
+    async def _wait_tasks_to_complete(self) -> None:
+        # Uvicorn closes listeners before this drain, but sends lifespan shutdown after it.
+        await asyncio.to_thread(cast(FastAPI, self.config.app).state.projects.shutdown)
+        await super()._wait_tasks_to_complete()
 
 
 class SnapshotRequest(BaseModel):
@@ -59,7 +68,7 @@ def create_app(
     *,
     config: QuarryConfig,
     token: str,
-    provider_factory: ProviderFactory = provider_from_config,
+    runtime_factory: RuntimeFactory = runtime_from_config,
     static_dir: Path | None = None,
 ) -> FastAPI:
     static = static_dir or Path(__file__).parent.parent / "static"
@@ -74,7 +83,7 @@ def create_app(
         config=config,
         store=SessionStore(config.root),
         kernels=KernelManager(config.root, threads=config.data.kernel_threads),
-        provider_factory=provider_factory,
+        runtime_factory=runtime_factory,
         library=library,
         transpiler=transpiler,
         libraries=enabled_libraries(config, runtime_libraries(static)),
@@ -83,18 +92,20 @@ def create_app(
         config=config,
         store=ProjectStore(config.root),
         sessions=service,
-        provider_factory=provider_factory,
+        runtime_factory=runtime_factory,
     )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         yield
+        projects.shutdown()
         service.shutdown()
 
     app = FastAPI(
         title="Quarry", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
     )
     app.state.service = service
+    app.state.projects = projects
 
     def authed(authorization: Annotated[str | None, Header()] = None) -> None:
         # Bytes: compare_digest raises on a str with non-ASCII characters, which a client sends.

@@ -103,6 +103,56 @@ curl -s -X POST $U/sessions/$SID/query -H "Authorization: $T" -H 'Content-Type: 
 
 Server-side refusal fallbacks are enabled by default on Anthropic requests.
 
+### Using Codex or Claude Code login
+
+Install the provider CLI on the Linux server that runs Quarry, then sign in as
+the same OS user. Quarry leaves login and credential storage to that CLI. It
+never copies tokens into API requests or switches to API billing on failure.
+
+For Codex, install `codex` and run `codex login` on the server. Over SSH, use
+`codex login --device-auth` when a browser callback cannot reach the server. Set
+the following in the Quarry root's `config.toml`:
+
+```toml
+[provider]
+name = "codex"
+model = "gpt-6.1-sol"
+# cli_path = "/path/to/codex"  # optional; otherwise use PATH
+```
+
+Choose a model available to your account; the example does not establish access.
+Use the tested Codex `0.162.1` CLI. The adapter requires this version and uses a
+private per-operation model catalog to enable direct Quarry tool calls. It
+leaves your normal Codex configuration unchanged.
+
+For Claude Code, install `claude`, run `claude auth login` on the server, and
+check `claude auth status`. Install Quarry's optional SDK dependency too:
+
+```bash
+uv sync --extra claude-code
+```
+
+Then select Claude Code in `config.toml`:
+
+```toml
+[provider]
+name = "claude-code"
+model = "opus"
+# cli_path = "/path/to/claude"  # optional; otherwise use PATH
+```
+
+Choose a Claude model available to your account. Use the tested Claude Code
+`2.1.299` CLI; the adapter requires this version, and the optional extra pins
+its Python Agent SDK. Account access and subscription limits still apply.
+
+Both modes require an explicit, nonblank `model` and reject `api_key_file`.
+`cli_path` expands `~`; relative paths resolve under the Quarry root. Each
+prompt or recipe tidy starts a fresh native conversation. Recipe validation
+still runs locally, and a failed tidy falls back to the raw recipe. Codex
+model-wait cancellation normally closes its process within 2 seconds; Claude
+uses its SDK cleanup, which can take about 12 seconds. Native login checks can
+take up to 20 seconds before a cancelled operation returns.
+
 ## Using the browser UI (Stage 3)
 
 Build the UI once, then serve:

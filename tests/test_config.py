@@ -10,6 +10,7 @@ from quarry.config import (
     ConfigError,
     DataConfig,
     LibrariesConfig,
+    ProviderConfig,
     QuarryConfig,
     api_key,
     load_config,
@@ -45,6 +46,44 @@ def test_reads_toml(tmp_path: Path) -> None:
     assert cfg.provider.model == "gpt-5"
     assert cfg.data.parquet_root == Path("/data/cache")
     assert cfg.data.row_cap == 100
+
+
+@pytest.mark.parametrize("name", ["codex", "claude-code"])
+def test_native_provider_reads_explicit_model_and_cli_path(name: str, tmp_path: Path) -> None:
+    (tmp_path / "config.toml").write_text(
+        f'[provider]\nname = "{name}"\nmodel = "account-model"\ncli_path = "bin/agent"\n'
+    )
+    cfg = load_config(tmp_path, env={})
+    assert cfg.provider.name == name
+    assert cfg.provider.model == "account-model"
+    assert cfg.provider.cli_path == tmp_path / "bin/agent"
+    assert QuarryConfig.model_validate(cfg.model_dump()) == cfg
+
+
+@pytest.mark.parametrize("name", ["codex", "claude-code"])
+@pytest.mark.parametrize("model", [None, "", " \t\n"])
+def test_native_provider_requires_an_explicit_nonblank_model(name: str, model: str | None) -> None:
+    values = {"name": name} if model is None else {"name": name, "model": model}
+    with pytest.raises(ValidationError, match=r"explicit.*model"):
+        ProviderConfig.model_validate(values)
+
+
+@pytest.mark.parametrize("name", ["codex", "claude-code"])
+def test_native_provider_rejects_api_key_file(name: str) -> None:
+    with pytest.raises(ValidationError, match="api_key_file"):
+        ProviderConfig.model_validate(
+            {"name": name, "model": "account-model", "api_key_file": "secret.key"}
+        )
+
+
+@pytest.mark.parametrize("name", ["codex", "claude-code"])
+def test_api_key_for_native_provider_explains_cli_login(name: str, tmp_path: Path) -> None:
+    cfg = QuarryConfig(
+        root=tmp_path,
+        provider=ProviderConfig.model_validate({"name": name, "model": "account-model"}),
+    )
+    with pytest.raises(ConfigError, match=r"login.*Quarry host"):
+        api_key(cfg, env={"QUARRY_ANTHROPIC_API_KEY": "sk-api", "QUARRY_OPENAI_API_KEY": "sk-api"})
 
 
 @pytest.mark.parametrize("row_cap", [0, -1])
@@ -123,12 +162,13 @@ def test_api_key_missing_raises(tmp_path: Path) -> None:
 
 def test_blank_paths_mean_unset(tmp_path: Path) -> None:
     (tmp_path / "config.toml").write_text(
-        '[provider]\napi_key_file = ""\n'
+        '[provider]\napi_key_file = ""\ncli_path = ""\n'
         '[data]\nparquet_root = ""\n'
         '[libraries]\nteam_components = ""\nhighcharts_path = ""\nscichart_path = ""\n'
     )
     cfg = load_config(tmp_path, env={})
     assert cfg.provider.api_key_file is None
+    assert cfg.provider.cli_path is None
     assert cfg.data.parquet_root is None
     assert cfg.libraries.team_components is None
     assert cfg.libraries.highcharts_path is None
@@ -332,13 +372,14 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def test_paths_expand_the_home_directory(home: Path, tmp_path: Path) -> None:
     (tmp_path / "config.toml").write_text(
-        '[provider]\napi_key_file = "~/k"\n'
+        '[provider]\napi_key_file = "~/k"\ncli_path = "~/bin/agent"\n'
         '[data]\nparquet_root = "~/cache"\n'
         '[libraries]\nteam_components = "~/team"\n'
         'highcharts_path = "~/hc"\nscichart_path = "~/sci"\n'
     )
     cfg = load_config(tmp_path, env={})
     assert cfg.provider.api_key_file == home / "k"
+    assert cfg.provider.cli_path == home / "bin/agent"
     assert cfg.data.parquet_root == home / "cache"
     assert cfg.libraries.team_components == home / "team"
     assert cfg.libraries.highcharts_path == home / "hc"
@@ -354,13 +395,14 @@ def test_relative_paths_resolve_against_the_root_not_the_cwd(
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)
     (root / "config.toml").write_text(
-        '[provider]\napi_key_file = "keys/k"\n'
+        '[provider]\napi_key_file = "keys/k"\ncli_path = "bin/agent"\n'
         '[data]\nparquet_root = "cache"\n'
         '[libraries]\nteam_components = "team"\n'
         'highcharts_path = "lib/hc"\nscichart_path = "/abs/sci"\n'
     )
     cfg = load_config(root, env={})
     assert cfg.provider.api_key_file == root / "keys/k"
+    assert cfg.provider.cli_path == root / "bin/agent"
     assert cfg.data.parquet_root == root / "cache"
     assert cfg.libraries.team_components == root / "team"
     assert cfg.libraries.highcharts_path == root / "lib/hc"
@@ -408,6 +450,7 @@ def test_root_with_an_unknown_user_is_a_config_error() -> None:
     "section_and_key",
     [
         "provider.api_key_file",
+        "provider.cli_path",
         "data.parquet_root",
         "libraries.team_components",
         "libraries.highcharts_path",

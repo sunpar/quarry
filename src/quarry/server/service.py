@@ -14,11 +14,11 @@ from pydantic import BaseModel
 
 from quarry.agent.anthropic_provider import AnthropicProvider
 from quarry.agent.context import SystemContext, build_summary, build_system, enabled_libraries
-from quarry.agent.loop import run_agent_step, step_lineage
+from quarry.agent.loop import step_lineage
 from quarry.agent.openai_provider import OpenAIProvider
+from quarry.agent.runtime import AgentRuntime, ApiRuntime
 from quarry.agent.tools import CodeRun, ToolExecutor
 from quarry.agent.transpile import Transpiler
-from quarry.agent.types import Provider
 from quarry.components.library import ComponentLibrary
 from quarry.config import QuarryConfig
 from quarry.data.loaders import describe_failures, describe_loaders, load_loaders
@@ -45,17 +45,25 @@ from quarry.server.store import SessionStore
 
 log = logging.getLogger(__name__)
 # Past this wait, a step still running at shutdown is lost, as in a crash.
-SHUTDOWN_WAIT_SECONDS: Final = 10.0
+SHUTDOWN_WAIT_SECONDS: Final = 30.0
 
 MAX_SNAPSHOTS: Final = 500
 
-ProviderFactory = Callable[[QuarryConfig], Provider]
+RuntimeFactory = Callable[[QuarryConfig], AgentRuntime]
 
 
-def provider_from_config(config: QuarryConfig) -> Provider:
+def runtime_from_config(config: QuarryConfig) -> AgentRuntime:
+    if config.provider.name == "codex":
+        from quarry.agent.codex_runtime import CodexRuntime
+
+        return CodexRuntime.from_config(config)
+    if config.provider.name == "claude-code":
+        from quarry.agent.claude_runtime import ClaudeRuntime
+
+        return ClaudeRuntime.from_config(config)
     if config.provider.name == "openai":
-        return OpenAIProvider.from_config(config)
-    return AnthropicProvider.from_config(config)
+        return ApiRuntime(OpenAIProvider.from_config(config))
+    return ApiRuntime(AnthropicProvider.from_config(config))
 
 
 class RepairRequest(BaseModel):
@@ -95,7 +103,7 @@ class SessionService:
         config: QuarryConfig,
         store: SessionStore,
         kernels: KernelManager,
-        provider_factory: ProviderFactory,
+        runtime_factory: RuntimeFactory,
         library: ComponentLibrary,
         transpiler: Transpiler,
         libraries: list[str] | None = None,
@@ -103,7 +111,7 @@ class SessionService:
         self._config = config
         self._store = store
         self._kernels = kernels
-        self._provider_factory = provider_factory
+        self._runtime_factory = runtime_factory
         self._library = library
         self._transpiler = transpiler
         self._libraries = libraries if libraries is not None else enabled_libraries(config)
@@ -352,16 +360,15 @@ class SessionService:
         started = time.monotonic()
         ran: list[tuple[str, ExecResult]] = []
         try:
-            provider = self._provider_factory(self._config)
+            runtime = self._runtime_factory(self._config)
             kernel = self._kernels.get(session_id, has_steps=self._has_steps(session_id))
             tools = ToolExecutor(kernel=kernel, library=self._library, transpiler=self._transpiler)
             ran = tools.runs
             summary = build_summary(self._store.get(session_id).steps, _safe_datasets(kernel))
-            outcome = run_agent_step(
+            outcome = runtime.run_step(
                 prompt=prompt,
                 system=build_system(self._system_context()),
                 summary=summary,
-                provider=provider,
                 tools=tools,
                 cancel=cancel,
             )
@@ -379,6 +386,10 @@ class SessionService:
                 error=error,
                 transcript=outcome.transcript,
                 view=View.from_pending(outcome.view) if outcome.view else None,
+                provider=ProviderInfo(
+                    name=self._config.provider.name,
+                    model=outcome.model or self._config.provider.model,
+                ),
             )
         except KernelDead as exc:
             done = _died(step, exc, cancel, started)

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from quarry.agent.fake import FakeProvider
+from quarry.agent.runtime import ApiRuntime
 from quarry.agent.transpile import NoopTranspiler
 from quarry.agent.types import Provider
 from quarry.components.library import ComponentLibrary, builtin_root
@@ -36,7 +37,7 @@ def build(tmp_path: Path, provider: FakeProvider) -> tuple[SessionService, Proje
         config=config,
         store=SessionStore(tmp_path),
         kernels=KernelManager(tmp_path),
-        provider_factory=lambda _cfg: provider,
+        runtime_factory=lambda _cfg: ApiRuntime(provider),
         library=ComponentLibrary([builtin_root()]),
         transpiler=NoopTranspiler(),
     )
@@ -44,7 +45,7 @@ def build(tmp_path: Path, provider: FakeProvider) -> tuple[SessionService, Proje
         config=config,
         store=ProjectStore(tmp_path),
         sessions=sessions,
-        provider_factory=lambda _cfg: provider,
+        runtime_factory=lambda _cfg: ApiRuntime(provider),
     )
     return sessions, projects
 
@@ -166,7 +167,7 @@ def test_save_without_a_provider_skips_the_tidy(tmp_path: Path) -> None:
         config=QuarryConfig(root=tmp_path),
         store=ProjectStore(tmp_path),
         sessions=sessions,
-        provider_factory=no_key,
+        runtime_factory=lambda cfg: ApiRuntime(no_key(cfg)),
     )
     sid = sessions.create("t").id
     sessions.start_manual(sid, PRICES)

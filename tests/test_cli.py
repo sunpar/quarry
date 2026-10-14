@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import uvicorn
 
 from quarry.cli import banner, free_port, main, new_token
 from tests.fixtures import umask
@@ -37,17 +38,17 @@ def test_serve_binds_loopback_and_banner_token_is_the_app_token(
 ) -> None:
     app = object()
     app_calls: list[dict[str, Any]] = []
-    run_calls: list[tuple[object, dict[str, Any]]] = []
+    run_calls: list[uvicorn.Config] = []
 
     def fake_create_app(**kwargs: Any) -> object:
         app_calls.append(kwargs)
         return app
 
-    def fake_run(served: object, **kwargs: Any) -> None:
-        run_calls.append((served, kwargs))
+    def fake_run(server: uvicorn.Server) -> None:
+        run_calls.append(server.config)
 
     monkeypatch.setattr("quarry.cli.create_app", fake_create_app)
-    monkeypatch.setattr("quarry.cli.uvicorn.run", fake_run)
+    monkeypatch.setattr("quarry.cli.QuarryServer.run", fake_run)
     root = tmp_path / "root"
 
     code = main(["serve", "--port", "4321", "--root", str(root), "--host-hint", "devbox"])
@@ -55,10 +56,11 @@ def test_serve_binds_loopback_and_banner_token_is_the_app_token(
     assert code == 0
     assert root.is_dir()
     assert len(run_calls) == 1
-    served, run_kwargs = run_calls[0]
-    assert served is app
-    assert run_kwargs["host"] == "127.0.0.1"
-    assert run_kwargs["port"] == 4321
+    config = run_calls[0]
+    assert config.app is app
+    assert config.host == "127.0.0.1"
+    assert config.port == 4321
+    assert config.log_level == "warning"
     out = capsys.readouterr().out
     match = re.search(r"^Token \(keep private\): (\S+)$", out, re.MULTILINE)
     assert match is not None
@@ -72,7 +74,7 @@ def test_serve_binds_loopback_and_banner_token_is_the_app_token(
 def serve_stubs(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """`quarry serve` with the app and server stubbed, under a umask that lets others in."""
     monkeypatch.setattr("quarry.cli.create_app", lambda **_: object())
-    monkeypatch.setattr("quarry.cli.uvicorn.run", lambda *_, **__: None)
+    monkeypatch.setattr("quarry.cli.QuarryServer.run", lambda _: None)
     with umask(0o022):
         yield
 

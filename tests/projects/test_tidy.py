@@ -1,7 +1,15 @@
+import threading
+
 from quarry.agent.fake import FakeProvider
-from quarry.agent.types import AssistantTurn, Message, ProviderError, ToolDef
-from quarry.projects.tidy import TIDY_SYSTEM, strip_fences, tidy_recipe
+from quarry.agent.runtime import ApiRuntime
+from quarry.agent.types import AssistantTurn, Message, Provider, ProviderError, ToolDef
+from quarry.projects.tidy import TIDY_SYSTEM, strip_fences
+from quarry.projects.tidy import tidy_recipe as run_tidy
 from tests.server.test_app import end
+
+
+def tidy_recipe(provider: Provider, raw: str, dataset: str) -> str | None:
+    return run_tidy(ApiRuntime(provider), raw, dataset, cancel=threading.Event())
 
 
 def test_strip_fences() -> None:

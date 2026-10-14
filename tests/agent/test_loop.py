@@ -7,6 +7,7 @@ import pytest
 
 from quarry.agent.fake import FakeProvider
 from quarry.agent.loop import StepOutcome, run_agent_step, step_lineage
+from quarry.agent.runtime import ApiRuntime
 from quarry.agent.tools import ToolExecutor
 from quarry.agent.transpile import NoopTranspiler
 from quarry.agent.types import (
@@ -18,7 +19,7 @@ from quarry.agent.types import (
     ToolResult,
 )
 from quarry.components.library import ComponentLibrary
-from quarry.kernel.client import KernelClient
+from quarry.kernel.client import KernelClient, KernelDead
 from quarry.kernel.executor import ExecResult
 
 
@@ -261,3 +262,74 @@ def test_cancel_during_a_final_answer_is_not_ok(kernel: KernelClient, tmp_path: 
     cancel = threading.Event()
     out = run(CancelsOnCall([end()], cancel, 1), kernel, tmp_path, cancel)
     assert out.status == "interrupted" and out.error_message == "interrupted by researcher"
+
+
+def test_api_runtime_preserves_tool_result_batches(kernel: KernelClient, tmp_path: Path) -> None:
+    calls = [
+        ToolCall(id="python", name="run_python", input={"code": "x = 1"}),
+        ToolCall(id="search", name="search_components", input={"dataset": "", "tags": []}),
+    ]
+    provider = FakeProvider(
+        [AssistantTurn(text="working", tool_calls=calls, stop="tool_use"), end("loaded")]
+    )
+    out = ApiRuntime(provider).run_step(
+        prompt="load",
+        system="sys",
+        summary="# Session so far",
+        tools=tools(kernel, tmp_path),
+        cancel=threading.Event(),
+    )
+    assert out.status == "ok" and out.note == "loaded" and out.code == "x = 1"
+    assert out.iterations == 2 and len(provider.calls) == 2
+    assert [m.role for m in out.transcript] == ["user", "assistant", "user", "assistant"]
+    assert out.transcript[0].text == "# Session so far\n\n# Request\nload"
+    assert [r.call_id for r in out.transcript[2].tool_results] == ["python", "search"]
+    assert [m.role for m in provider.calls[1][1]] == ["user", "assistant", "user"]
+
+
+def test_non_python_tool_does_not_reset_failures(kernel: KernelClient, tmp_path: Path) -> None:
+    search = AssistantTurn(
+        text="",
+        tool_calls=[
+            ToolCall(id="search", name="search_components", input={"dataset": "", "tags": []})
+        ],
+        stop="tool_use",
+    )
+    provider = FakeProvider([py("first", "1/0"), search, py("second", "1/0"), end()])
+    out = run(provider, kernel, tmp_path)
+    assert out.status == "error" and out.iterations == 3
+    assert "ZeroDivisionError" in (out.error_message or "")
+    assert [r.code for r in out.runs] == ["1/0", "1/0"]
+
+
+def test_kernel_death_preserves_completed_runs_without_partial_result_batch(
+    kernel: KernelClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executor = tools(kernel, tmp_path)
+    execute = executor.run
+
+    def run_until_kernel_death(call: ToolCall) -> ToolResult:
+        if call.id == "dies":
+            raise KernelDead("kernel exited")
+        return execute(call)
+
+    monkeypatch.setattr(executor, "run", run_until_kernel_death)
+    turn = AssistantTurn(
+        text="working",
+        tool_calls=[
+            ToolCall(id="first", name="run_python", input={"code": "x = 1"}),
+            ToolCall(id="dies", name="run_python", input={"code": "x = 2"}),
+        ],
+        stop="tool_use",
+    )
+    out = ApiRuntime(FakeProvider([turn])).run_step(
+        prompt="load",
+        system="sys",
+        summary="",
+        tools=executor,
+        cancel=threading.Event(),
+    )
+    assert out.status == "error" and out.error_message == "kernel died during execution"
+    assert out.iterations == 1 and out.code == "x = 1"
+    assert [m.role for m in out.transcript] == ["user", "assistant"]
+    assert [(r.code, r.status) for r in out.runs] == [("x = 1", "ok")]

@@ -44,9 +44,19 @@ class _Model(BaseModel):
 
 
 class ProviderConfig(_Model):
-    name: Literal["anthropic", "openai"] = "anthropic"
+    name: Literal["anthropic", "openai", "codex", "claude-code"] = "anthropic"
     model: str = "claude-opus-5-5"
     api_key_file: OptionalPath = None
+    cli_path: OptionalPath = None
+
+    @model_validator(mode="after")
+    def _native_credentials(self) -> Self:
+        if self.name in ("codex", "claude-code"):
+            if "model" not in self.model_fields_set or not self.model.strip():
+                raise ValueError(f"provider {self.name} requires an explicit nonblank model")
+            if self.api_key_file is not None:
+                raise ValueError(f"provider {self.name} uses CLI login; remove api_key_file")
+        return self
 
 
 class DataConfig(_Model):
@@ -121,6 +131,11 @@ def load_config(root: Path, env: Mapping[str, str] | None = None) -> QuarryConfi
 
 
 def api_key(config: QuarryConfig, env: Mapping[str, str] | None = None) -> str:
+    if config.provider.name in ("codex", "claude-code"):
+        command = "codex login" if config.provider.name == "codex" else "claude auth login"
+        raise ConfigError(
+            f"provider {config.provider.name} uses CLI login; run {command} on the Quarry host"
+        )
     environment = os.environ if env is None else env
     env_name = ENV_API_KEY[config.provider.name]
     from_env = environment.get(env_name)
