@@ -151,9 +151,7 @@ def _render(
             if integer_type:
                 transport += f", {value_col}.cast(pl.String)"
             transport += ")"
-            connection = f"_quarry_{result_name}_connection"
-            while connection in {spec.dataset, result_name}:
-                connection += "_"
+            connection = _line_connection_name(result_name, spec.dataset)
             register = f'{connection}.register("points", {transport})'
             chain = (
                 f"with duckdb.connect(config={LINE_CONNECTION_CONFIG!r}) as {connection}:\n"
@@ -205,15 +203,27 @@ def _render(
     return f"try:\n{_indent(assign)}\nfinally:\n{_indent(drop)}\n"
 
 
+def _line_connection_name(result_name: str, dataset: str) -> str:
+    connection = f"_quarry_{result_name}_connection"
+    while connection in {dataset, result_name}:
+        connection += "_"
+    return connection
+
+
 def result_names(queries: Sequence[tuple[int, str]], taken: Container[str]) -> list[str]:
     """`<dataset>_<n>` for each `(n, dataset)`, n being the query's 1-based position in its list,
     its suffix raised past every name in `taken`, any query's dataset, and the names chosen
-    before it, so no block overwrites what another reads."""
+    before it or a private connection name, so no block overwrites what another reads."""
     reserved = {dataset for _, dataset in queries}
     names: list[str] = []
     for n, dataset in queries:
         suffix = n
-        while (name := f"{dataset}_{suffix}") in reserved or name in taken:
+        while (
+            (name := f"{dataset}_{suffix}") in reserved
+            or name in taken
+            or (connection := _line_connection_name(name, dataset)) in reserved
+            or connection in taken
+        ):
             suffix += 1
         reserved.add(name)
         names.append(name)

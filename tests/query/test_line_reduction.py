@@ -246,6 +246,23 @@ def test_source_assigns_helper_names_after_reduction(backing: Backing, result_na
     assert_frame_equal(result, frame[[0, 1, 4, 5]])
 
 
+def test_to_code_allocates_around_private_connection_names() -> None:
+    frame = ticks([3, 1, 5, 4, 9, 2])
+    keep = pl.DataFrame({"keep": [1]})
+    namespace: dict[str, object] = {
+        "pl": pl,
+        "ticks": frame,
+        "_quarry_ticks_1_connection": keep,
+        "_quarry_ticks_2_connection": 42,
+    }
+    ex = Executor(namespace, conn=utc_connection(), row_cap=4)
+    exec(ex.to_code([line_spec(4)]).code, namespace)
+    assert namespace["_quarry_ticks_1_connection"] is keep
+    assert namespace["_quarry_ticks_2_connection"] == 42
+    assert isinstance(namespace["ticks_3"], pl.DataFrame)
+    assert_frame_equal(namespace["ticks_3"], frame[[0, 1, 4, 5]])
+
+
 def test_extrema_and_duplicate_time_ties_are_deterministic() -> None:
     frame = ticks([3, 9, -4, -4, 7, 2, 1], [0, 0, 1, 1, 2, 9, 10])
     spec = line_spec(4)
