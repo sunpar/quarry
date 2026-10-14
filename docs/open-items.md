@@ -61,6 +61,12 @@ Decisions already made are in [decisions.md](context/decisions.md).
   function, such as a helper that sets `df.columns`. A literal reading
   `FROM RECENT` is not matched to dataset `recent`, though DuckDB's catalog
   ignores case. Silent: a saved recipe can miss a source step.
+- **Scalar and dictionary recipe inputs**: earlier ordinary bindings can be
+  omitted from a saved recipe. A result that reads `params["scale"]` can save
+  without the step that defined `params`, then fail fresh replay with
+  `NameError`. Extend the existing
+  [lineage analyzer](../src/quarry/kernel/lineage.py) to retain those producer
+  steps.
 - **Lineage approximations**: a failed step's in-place mutation is not a write,
   while a successful step's store that never ran is one. Class bodies report
   every name they load as a read, and a SQL literal's CTE named like a dataset
@@ -273,6 +279,13 @@ one up when a researcher needs it.
   code" gives; the viewer stays a client-side explorer.
 - Perspective server mode and Arrow for every view stay deferred, as spec §16
   records.
+- Inventory repeated recipes before adding workflow parameters or shared metric
+  definitions. Keep formulas in plain Python until examples establish common
+  input, output, calendar, weighting and missing-data rules.
+- Evaluate reusable time comparisons, dimension drilldown and filter bookmarks
+  against those repeated workflows. Assess financial-data adapters and
+  discoverable parameter schemas only after their source and input contracts are
+  specified.
 - Load Highcharts modules such as indicators and annotations: only
   `highstock.js` loads. A list of entry files per library could add them.
 - Configure SciChart 3D and a wasm fallback: the loader points `wasmUrl` at
@@ -372,3 +385,15 @@ one up when a researcher needs it.
 - **Result streams on the shared connection**: should the kernel protect result
   streams left open across steps from later queries, or only document the limit?
   Neither option has been evaluated.
+- **Reusable workflow inputs**: which recurring research question should accept
+  a replacement universe, date range and benchmark first? Choose its calendar,
+  alignment, output names and live versus pinned refresh behavior before
+  extending save and recall.
+- **Recipe validation**: validation currently proves matching schema and row
+  count. Whether it should compare values, a sample or source identity needs a
+  product decision, especially when live recall refreshes data.
+- **Session-prefix copying**: branching remains deferred and sessions stay
+  linear. Is a new session rebuilt through a completed step with current inputs
+  sufficient, or are immutable historical inputs required? Replay skips
+  interrupted runs, can repeat external writes and reads mutable pinned paths;
+  copying a namespace cannot restore arbitrary process state.

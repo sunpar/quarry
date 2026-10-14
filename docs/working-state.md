@@ -1,79 +1,118 @@
 # Working state
 
-Checkpoint as of 2026-10-14. This page holds temporary context: what is in
-flight, the latest check results and the next actions. Rewrite it at the end of
-each session and when a pull request opens or merges. Anything that will still
-be true next month belongs in [context/](context/) or
+Checkpoint as of 2026-10-14 22:47 UTC. This page holds temporary context: what
+is in flight, the latest check results and the next actions. Rewrite it at the
+end of each session and when a pull request opens or merges. Anything that will
+still be true next month belongs in [context/](context/) or
 [open-items.md](open-items.md), as the [docs index](README.md) explains.
 
 ## Current objective
 
-Prepare five related-project survey follow-ups as separate PRs. Keep them open
-after local checks, bounded GitHub review and current-head Linux verification.
-The controller maintains the consolidated checkpoint in its coordination branch.
+Finish the coordination PR's GitHub review and leave all six PRs open for
+integration. The bounded feature work and the workflow, branching and
+remaining-work assessments are complete. The researcher delegated routine design
+choices for that batch.
 
-### Whole-series review
+| Work                  | Open PR / code checkpoint                                     | Contract                                                                              | Verification                                                         | Review                                                                                                                                                |
+| --------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reproducible exports  | [PR #18](https://github.com/sunpar/quarry/pull/18), `7c59864` | Render saved queries against replayed schemas and record allowlisted runtime versions | Mac and Linux full passed: 1,086 Python, 235 frontend, 25 gate tests | Codex 2 clean on this head; all prior review threads resolved; readiness reconciled                                                                   |
+| Whole-series charts   | [PR #22](https://github.com/sunpar/quarry/pull/22), `706f4f1` | Reduce line points across the full time range                                         | Mac and Linux full passed: 1,188 Python, 237 frontend, 25 gate tests | All eight review threads resolved; budget exhausted without clean review; fallback elapsed at 22:35:03 UTC and eligibility reconciled at 22:36:18 UTC |
+| Table filters         | [PR #19](https://github.com/sunpar/quarry/pull/19), `744d5ba` | Push both tables' filters into query specs                                            | Mac and Linux full passed: 1,071 Python, 249 frontend, 25 gate tests | Budget exhausted, no clean result; fallback elapsed at 21:31:27 UTC and eligibility reconciled at 21:34:21 UTC                                        |
+| Mount and query reuse | [PR #21](https://github.com/sunpar/quarry/pull/21), `68fbc2d` | Mount views once and reuse in-flight queries                                          | Mac and Linux full passed: 1,069 Python, 253 frontend, 25 gate tests | Connection and early-restore fixes verified; budget exhausted without clean review; fallback elapsed at 22:10:18 UTC and eligibility reconciled       |
+| Frozen HTML reports   | [PR #20](https://github.com/sunpar/quarry/pull/20), `dcf6581` | Export saved metadata and pinned rows as offline HTML without live execution          | Mac and Linux full passed: 1,100 Python, 236 frontend, 25 gate tests | All six review threads resolved; budget exhausted, no clean result; fallback elapsed at 21:48:57 UTC and eligibility reconciled                       |
 
-The whole-domain line query in
-[PR #22](https://github.com/sunpar/quarry/pull/22) preserves endpoints, bin
-extrema and every null-run endpoint within the row cap. It refuses insufficient
-budgets and reproduces the same representatives in generated Python. Its private
-Polars reducer uses one thread, 256 MiB and no spill. The
-[query spec](superpowers/specs/2026-10-08-quarry-design.md#query-spec) defines
-ordering, ties and transport precision.
+Code checkpoints identify the implementations under review. Check and review
+evidence belongs to its exact SHA. A silence fallback ends the capped review
+workflow without a clean verdict; new substantive feedback or another push can
+change eligibility.
 
-All six native Astra findings were fixed before `81738ea`; Opus and Muse were
-unavailable because of quota limits. Automatic Codex then found the stale
-checkpoint, missing agent hook contract and public `pl`/`duckdb` result names
-rebinding helper modules. This fix updates the checkpoint and hook contract and
-assigns the result after its helper calls complete. Explicit Codex review then
-found a private connection binding collision, omitted schema-less notebook
-queries and missing source axis-type validation. The export now isolates its
-execution scope, restores runtime axis types and validates supplied schemas
-with the live compiler. The final Codex request found unchecked DuckDB axis
-types and uncapped notebook budgets. Shared schema validation now rejects
-invalid axes even for empty domains, and all exports share the live effective
-budget. A captured server cap takes precedence over disk config. Focused query,
-kernel, agent, notebook and route tests pass.
-Final-head local and Linux verification remain pending at this commit. Both
-GitHub bot budgets are exhausted; all known findings are fixed, and the required
-silence window will run from the final push. The prior `c855625` passed full
-Mac and Linux gates with 1,176 Python tests, 237 frontend tests and 25
-gate/transport tests. The prior `933f52b` passed 1,141 Python tests locally; its
-Linux run failed the unchanged save-and-recall browser test during a new-session
-transition. One isolated run and five traced repetitions passed on that head;
-the failed run is retained in the review ledger.
+| Work                  | Task thread                                                                        | Assessment status                                  |
+| --------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Reproducible exports  | Improve Quarry export reproducibility (`01a13c15-0c0d-7f13-84ca-d31c5bbbc160`)     | Implementation brief                               |
+| Whole-series charts   | Show complete long series in Quarry (`01a13c15-15d9-78e3-a548-708275107f4f`)       | Implementation brief                               |
+| Table filters         | Add reproducible Quarry table filters (`01a13c15-1c05-7273-afba-e9ae6f1e8df0`)     | Implementation brief                               |
+| Mount and query reuse | Improve Quarry canvas query execution (`01a13c15-2207-7c50-a47a-5941b9f5dcc2`)     | Implementation brief                               |
+| Frozen HTML reports   | Export frozen Quarry research reports (`01a13c15-295e-7a70-a0bf-6ba0ba8e65b5`)     | Implementation brief                               |
+| Reusable workflows    | Assess reusable Quarry research workflows (`01a13c16-26b4-7ba0-b634-bf6107bcdbc0`) | Complete; no implementation                        |
+| Session branching     | Assess Quarry session branching (`01a13c16-2d48-71c0-99cc-5cebb5b319a1`)           | Complete; no implementation                        |
+| Remaining work        | Reconcile Quarry remaining work (`01a13c16-330f-7d80-b840-bd2ceb9a2f6b`)           | Complete; final snapshot validated at 22:43:46 UTC |
 
-The prior `81738ea` passed full Mac and Linux x86-64 gates: 1,136 Python tests,
-237 frontend tests and 25 gate/transport tests on each. Mac skipped memory-cap
-coverage and the two live providers; Linux ran the memory-cap test and skipped
-filesystem case folding and the two live providers. Its timed staged smoke took
-5.60 seconds. A bounded synthetic 1,000,001-row probe returned identical
-48,037-row results on both backings, preserving endpoints, global extrema and
-all 60 gap markers within the private memory allowance.
+All five implementation PRs are open, unmerged and ready for integration after
+fresh eligibility reconciliation. Table filters do not close
+`TABLE-SORT-RETAIN-ROWS`: same-spec refreshes retain rows, but changed sort or
+filter specs still show "Loading".
 
-### Frozen-report review
+The app threads reached sandbox approval prompts for their external commands.
+Execution continues through delegated workers using the controller's authorized
+workspace tools; the app threads retain their briefs. Each implementation has
+its own worktree and branch from `38b07ac`. Full gates share one resource lock.
+The controller owns this page and the consolidated backlog; workers retain their
+reports and review budgets in their worktree Git directories.
 
-The export in [PR #20](https://github.com/sunpar/quarry/pull/20) reads saved
-metadata, recipes, view source/state/specs and at most 20 rows from each pinned
-dataset. It runs no recipes, queries or view code, loads no external assets,
-escapes saved text and caps the HTML at 5 MiB. CLI exports use exclusive private
-temporary files with failure cleanup.
+A combined local check on Mac at `5f0ef9e` passed 1,238 Python, 270 frontend and
+25 gate tests, with three expected skips, in 78.35 seconds. It combined
+`7c59864`, `706f4f1`, `744d5ba`, `68fbc2d` and `dcf6581`; all five source heads
+were unchanged after the check. The export-code conflict retained runtime-schema
+rendering and protected helper bindings while applying the configured line
+budget. Documentation and appended export tests also needed reconciliation. This
+is local combined evidence; Linux tested each feature separately. Later merges
+still need to preserve that export composition and reconcile this checkpoint and
+the feature-owned backlog edits.
 
-The first Codex review's four P2 findings are fixed: temporary-file cleanup,
-project lookup error scope, the obsolete CLI permission backlog and bounds
-before HTML/JSON expansion. The final review found a missing referenced dataset
-and a stale checkpoint. The report now rejects a view whose dataset directory or
-metadata is missing; regression tests retain a valid sibling. This checkpoint
-records the report work while preserving the Docker history.
+The documentation checkpoint is published in
+[PR #23](https://github.com/sunpar/quarry/pull/23). Its
+[review ledger](/Users/sunpar/workspace/quarry/.git/worktrees/quarry6/open-pr-and-babysit.json)
+and
+[report](/Users/sunpar/workspace/quarry/.git/worktrees/quarry6/quarry-coordination-report.json)
+record later review outcomes and exact-head gates. At this checkpoint, Codex 1's
+two documentation findings are fixed and resolved, both Claude requests failed,
+and the final Codex request is still to run. Local Astra reviewed the initial
+documentation commit without findings; Opus and Muse stopped before reviewing
+because of account limits. The opening head, `0916e77`, passed the Mac PR
+wrapper: 1,069 Python, 235 frontend and 25 gate tests, with three expected
+skips, in 100.02 seconds including push and creation.
 
-The prior head `2aebcb5` passed full Mac and Linux checks: 1,097 Python tests,
-236 frontend tests and 25 gate/transport tests on each platform, with three
-expected Python skips. The final fix passed 66 focused tests in 3.25 seconds,
-lint and strict types. Full outgoing-head and Linux verification are pending at
-this commit; the controller records their final evidence. Both GitHub bot
-request budgets are exhausted without a clean review, so readiness requires the
-workflow's silence fallback after all findings and final checks pass.
+Local assessment evidence is under `/Users/sunpar/Documents/Codex/2026-10-14/`:
+the workflow assessment is
+`quarry-workflow-assessment/outputs/workflow_assessment.json`, the branching
+assessment is `quarry-branching-assessment/outputs/branching-assessment.json`,
+and the remaining-work inventory is
+`quarry-backlog-inventory/outputs/quarry_remaining_work.json`, with an offline
+HTML companion at `quarry-backlog-inventory/outputs/quarry_remaining_work.html`.
+The combined-check evidence is
+`quarry-integration-check/outputs/integration_verification.json`. These are
+local reports, not files distributed with the repository.
+
+The final inventory preserves 266 stable IDs and maps all 114 original backlog
+bullets plus six supplemental entries. It records 15 implemented but unmerged
+items and 251 open records, including 152 independent local follow-ups. JSON and
+HTML counts, source mappings and acyclic dependencies passed validation; the
+HTML has no scripts or external assets.
+
+The workflow probe confirmed that earlier scalar and dictionary bindings can be
+omitted from a saved recipe. Existing validation compares schema and row count,
+not values. The branching assessment ran 23 passing replay/recall tests and a
+synthetic prefix replay, while reproducing pinned-file drift and lost
+interrupted partial state. The workflow assessment prioritizes dependency
+capture before parameterization. The branching assessment keeps prefix copying
+deferred pending its replay and input contract. The backlog retains both
+follow-ups.
+
+### Additional feature review evidence
+
+Whole-series had six native Astra findings, fixed before `81738ea`. At that
+head, a bounded 1,000,001-row probe produced identical 48,037-row results on
+both backings, preserving all 60 gap markers within the private 256 MiB
+allowance.
+
+On `933f52b`, the unchanged save-and-recall browser test failed during a Linux
+session transition; one isolated run and five traced repetitions passed. The
+ledger retains the failed run.
+
+Frozen-report review covered private temporary-file cleanup, lookup error
+ownership, the 5 MiB escaped-output limit and bounded HTML/JSON encoding.
+Missing directory or metadata for a referenced dataset now fails export; the
+regression retains a valid sibling.
 
 ### Docker integration
 
@@ -214,6 +253,17 @@ files. Its documentation follow-up is
 
 ## Latest verification
 
+### Improvement branches
+
+Checks and reviews belong to each branch's exact head. The table above records
+completed evidence and pending work. Live providers, firm loaders and licensed
+integrations were not exercised in these assessments. The coordination change
+updates documentation only. Whole-series standalone source generation still
+rejects float membership without a schema; notebook exports rely on PR #18 for
+runtime-schema rendering.
+
+### Docker branch
+
 The implementation at `5392889` plus Task 4's documentation passed the unchanged
 full gates on Mac and native Linux ARM64. Each passed 1,069 Python tests
 (including browser tests), 235 frontend tests, and 25 gate/transport tests.
@@ -267,9 +317,14 @@ external or licensed integrations, and hosted CI were not run in this work.
 
 ## Next actions
 
-1. Review the completed branch and choose its integration path.
-2. Use the existing full verification and PR gates if publishing it; retain the
-   native-x86 and live-integration limits until their own checks run.
+1. Finish the documentation PR review workflow and keep all implementation and
+   coordination PRs open.
+2. Use the validated remaining-work inventory to select follow-up work; keep its
+   source identities when implementation or priorities change.
+3. Keep parameter contracts, metric definitions and session branching as
+   explicit follow-up decisions where the assessments find missing semantics.
+4. Integrate the completed Docker branch separately; retain its native-x86 and
+   live-integration limits until those checks run.
 
 ## Docker preflight
 
