@@ -1,6 +1,6 @@
 # Working state
 
-Checkpoint as of 2026-10-14 22:38 UTC. This page holds temporary context: what
+Checkpoint as of 2026-10-14 22:47 UTC. This page holds temporary context: what
 is in flight, the latest check results and the next actions. Rewrite it at the
 end of each session and when a pull request opens or merges. Anything that will
 still be true next month belongs in [context/](context/) or
@@ -8,11 +8,10 @@ still be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Finish the review workflows for the five bounded improvements selected from the
-related-project survey, and leave the implementation and coordination PRs open
-when ready to merge. The researcher delegated routine design choices. Separate
-assessments cover parameterized workflows, session branching and the complete
-remaining-work inventory.
+Finish the coordination PR's GitHub review and leave all six PRs open for
+integration. The bounded feature work and the workflow, branching and
+remaining-work assessments are complete. The researcher delegated routine design
+choices for that batch.
 
 | Work                  | Open PR / code checkpoint                                     | Contract                                                                              | Verification                                                         | Review                                                                                                                                                |
 | --------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -27,16 +26,16 @@ evidence belongs to its exact SHA. A silence fallback ends the capped review
 workflow without a clean verdict; new substantive feedback or another push can
 change eligibility.
 
-| Work                  | Task thread                                                                        | Assessment status                                       |
-| --------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| Reproducible exports  | Improve Quarry export reproducibility (`01a13c15-0c0d-7f13-84ca-d31c5bbbc160`)     | Implementation brief                                    |
-| Whole-series charts   | Show complete long series in Quarry (`01a13c15-15d9-78e3-a548-708275107f4f`)       | Implementation brief                                    |
-| Table filters         | Add reproducible Quarry table filters (`01a13c15-1c05-7273-afba-e9ae6f1e8df0`)     | Implementation brief                                    |
-| Mount and query reuse | Improve Quarry canvas query execution (`01a13c15-2207-7c50-a47a-5941b9f5dcc2`)     | Implementation brief                                    |
-| Frozen HTML reports   | Export frozen Quarry research reports (`01a13c15-295e-7a70-a0bf-6ba0ba8e65b5`)     | Implementation brief                                    |
-| Reusable workflows    | Assess reusable Quarry research workflows (`01a13c16-26b4-7ba0-b634-bf6107bcdbc0`) | Complete; no implementation                             |
-| Session branching     | Assess Quarry session branching (`01a13c16-2d48-71c0-99cc-5cebb5b319a1`)           | Complete; no implementation                             |
-| Remaining work        | Reconcile Quarry remaining work (`01a13c16-330f-7d80-b840-bd2ceb9a2f6b`)           | Complete inventory; final status reconciliation pending |
+| Work                  | Task thread                                                                        | Assessment status                                  |
+| --------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Reproducible exports  | Improve Quarry export reproducibility (`01a13c15-0c0d-7f13-84ca-d31c5bbbc160`)     | Implementation brief                               |
+| Whole-series charts   | Show complete long series in Quarry (`01a13c15-15d9-78e3-a548-708275107f4f`)       | Implementation brief                               |
+| Table filters         | Add reproducible Quarry table filters (`01a13c15-1c05-7273-afba-e9ae6f1e8df0`)     | Implementation brief                               |
+| Mount and query reuse | Improve Quarry canvas query execution (`01a13c15-2207-7c50-a47a-5941b9f5dcc2`)     | Implementation brief                               |
+| Frozen HTML reports   | Export frozen Quarry research reports (`01a13c15-295e-7a70-a0bf-6ba0ba8e65b5`)     | Implementation brief                               |
+| Reusable workflows    | Assess reusable Quarry research workflows (`01a13c16-26b4-7ba0-b634-bf6107bcdbc0`) | Complete; no implementation                        |
+| Session branching     | Assess Quarry session branching (`01a13c16-2d48-71c0-99cc-5cebb5b319a1`)           | Complete; no implementation                        |
+| Remaining work        | Reconcile Quarry remaining work (`01a13c16-330f-7d80-b840-bd2ceb9a2f6b`)           | Complete; final snapshot validated at 22:43:46 UTC |
 
 All five implementation PRs are open, unmerged and ready for integration after
 fresh eligibility reconciliation. Table filters do not close
@@ -61,10 +60,17 @@ still need to preserve that export composition and reconcile this checkpoint and
 the feature-owned backlog edits.
 
 The documentation checkpoint is published in
-[PR #23](https://github.com/sunpar/quarry/pull/23). Its worktree Git directory
-holds the review ledger and exact-head gate evidence. The opening head,
-`0916e77`, passed the Mac PR wrapper: 1,069 Python, 235 frontend and 25 gate
-tests, with three expected skips, in 100.02 seconds including push and creation.
+[PR #23](https://github.com/sunpar/quarry/pull/23). Its
+[review ledger](/Users/sunpar/workspace/quarry/.git/worktrees/quarry6/open-pr-and-babysit.json)
+and
+[report](/Users/sunpar/workspace/quarry/.git/worktrees/quarry6/quarry-coordination-report.json)
+record later review outcomes and exact-head gates. At this checkpoint, Codex 1's
+two documentation findings are fixed and resolved, both Claude requests failed,
+and the final Codex request is still to run. Local Astra reviewed the initial
+documentation commit without findings; Opus and Muse stopped before reviewing
+because of account limits. The opening head, `0916e77`, passed the Mac PR
+wrapper: 1,069 Python, 235 frontend and 25 gate tests, with three expected
+skips, in 100.02 seconds including push and creation.
 
 Local assessment evidence is under `/Users/sunpar/Documents/Codex/2026-10-14/`:
 the workflow assessment is
@@ -76,6 +82,12 @@ HTML companion at `quarry-backlog-inventory/outputs/quarry_remaining_work.html`.
 The combined-check evidence is
 `quarry-integration-check/outputs/integration_verification.json`. These are
 local reports, not files distributed with the repository.
+
+The final inventory preserves 266 stable IDs and maps all 114 original backlog
+bullets plus six supplemental entries. It records 15 implemented but unmerged
+items and 251 open records, including 152 independent local follow-ups. JSON and
+HTML counts, source mappings and acyclic dependencies passed validation; the
+HTML has no scripts or external assets.
 
 The workflow probe confirmed that earlier scalar and dictionary bindings can be
 omitted from a saved recipe. Existing validation compares schema and row count,
@@ -291,8 +303,8 @@ external or licensed integrations, and hosted CI were not run in this work.
 
 1. Finish the documentation PR review workflow and keep all implementation and
    coordination PRs open.
-2. Reconcile implemented work, open PRs, research ideas and the existing backlog
-   in one remaining-work inventory.
+2. Use the validated remaining-work inventory to select follow-up work; keep its
+   source identities when implementation or priorities change.
 3. Keep parameter contracts, metric definitions and session branching as
    explicit follow-up decisions where the assessments find missing semantics.
 4. Integrate the completed Docker branch separately; retain its native-x86 and
