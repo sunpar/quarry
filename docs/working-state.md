@@ -1,6 +1,6 @@
 # Working state
 
-Checkpoint as of 2026-10-14 22:47 UTC. This page holds temporary context: what
+Checkpoint as of 2026-10-14 23:01 UTC. This page holds temporary context: what
 is in flight, the latest check results and the next actions. Rewrite it at the
 end of each session and when a pull request opens or merges. Anything that will
 still be true next month belongs in [context/](context/) or
@@ -60,17 +60,19 @@ still need to preserve that export composition and reconcile this checkpoint and
 the feature-owned backlog edits.
 
 The documentation checkpoint is published in
-[PR #23](https://github.com/sunpar/quarry/pull/23). Its
-[review ledger](/Users/sunpar/workspace/quarry/.git/worktrees/quarry6/open-pr-and-babysit.json)
+[PR #23](https://github.com/sunpar/quarry/pull/23). Local review outcomes and
+exact-head gate evidence are recorded in
+`/Users/sunpar/workspace/quarry/.git/worktrees/quarry6/open-pr-and-babysit.json`
 and
-[report](/Users/sunpar/workspace/quarry/.git/worktrees/quarry6/quarry-coordination-report.json)
-record later review outcomes and exact-head gates. At this checkpoint, Codex 1's
-two documentation findings are fixed and resolved, both Claude requests failed,
-and the final Codex request is still to run. Local Astra reviewed the initial
-documentation commit without findings; Opus and Muse stopped before reviewing
-because of account limits. The opening head, `0916e77`, passed the Mac PR
-wrapper: 1,069 Python, 235 frontend and 25 gate tests, with three expected
-skips, in 100.02 seconds including push and creation.
+`/Users/sunpar/workspace/quarry/.git/worktrees/quarry6/quarry-coordination-report.json`.
+These files are not published with the repository. Both Claude requests failed;
+both Codex reviews returned documentation findings. All four bot requests are
+consumed, with no clean verdict. This update addresses the final four findings;
+the ledger records their resolution and the required silence fallback. Local
+Astra reviewed the initial documentation commit without findings; Opus and Muse
+stopped before reviewing because of account limits. The opening head, `0916e77`,
+passed the Mac PR wrapper: 1,069 Python, 235 frontend and 25 gate tests, with
+three expected skips, in 100.02 seconds including push and creation.
 
 Local assessment evidence is under `/Users/sunpar/Documents/Codex/2026-10-14/`:
 the workflow assessment is
@@ -84,19 +86,18 @@ The combined-check evidence is
 local reports, not files distributed with the repository.
 
 The final inventory preserves 266 stable IDs and maps all 114 original backlog
-bullets plus six supplemental entries. It records 15 implemented but unmerged
-items and 251 open records, including 152 independent local follow-ups. JSON and
-HTML counts, source mappings and acyclic dependencies passed validation; the
-HTML has no scripts or external assets.
+bullets plus ten supplemental entries after the workflow follow-ups were split.
+It records 15 implemented but unmerged items and 251 open records, including 152
+independent local follow-ups. JSON and HTML counts, source mappings and acyclic
+dependencies passed validation; the HTML has no scripts or external assets.
 
-The workflow probe confirmed that earlier scalar and dictionary bindings can be
-omitted from a saved recipe. Existing validation compares schema and row count,
-not values. The branching assessment ran 23 passing replay/recall tests and a
-synthetic prefix replay, while reproducing pinned-file drift and lost
-interrupted partial state. The workflow assessment prioritizes dependency
-capture before parameterization. The branching assessment keeps prefix copying
-deferred pending its replay and input contract. The backlog retains both
-follow-ups.
+The workflow assessment produced the
+[scalar-input backlog item](open-items.md#known-problems) and a
+[validation question](open-items.md#open-questions). Its next priority is
+dependency capture before parameterization. The branching assessment ran 23
+passing replay/recall tests and a synthetic prefix replay; the
+[copying question](open-items.md#open-questions) records the unresolved replay
+and input contract.
 
 ### Additional feature review evidence
 
