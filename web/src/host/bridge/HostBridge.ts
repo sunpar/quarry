@@ -58,6 +58,7 @@ export class HostBridge {
 
   /** Ask the listening runtime to acknowledge readiness after our listener is installed. */
   connect(): void {
+    this.ready = false;
     this.send({ type: "connect", viewId: this.options.viewId });
   }
 

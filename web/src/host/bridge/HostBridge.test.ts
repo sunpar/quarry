@@ -31,6 +31,21 @@ function setup() {
 }
 
 describe("HostBridge", () => {
+  it("queues changed content and linked state until a reloaded frame acknowledges connect", () => {
+    const { bridge, posted, send } = setup();
+    bridge.mount({ source: "first", initialState: {}, datasets: [] });
+    send({ type: "ready" });
+    posted.length = 0;
+    bridge.connect();
+    bridge.mount({ source: "next", initialState: {}, datasets: [] });
+    bridge.merge({ "shared:k": 2 });
+    expect(posted).toEqual([{ type: "connect", viewId: "v1" }]);
+    send({ type: "ready" });
+    expect(posted.map((m) => m.type)).toEqual(["connect", "mount", "merge"]);
+    expect(posted[1]).toMatchObject({ source: "next" });
+    expect(posted[2]).toMatchObject({ state: { "shared:k": 2 } });
+  });
+
   it("detaches pending reply subscriptions when its listener stops", async () => {
     const posted: HostToRuntime[] = [];
     let release: () => void = () => undefined;

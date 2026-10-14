@@ -806,6 +806,8 @@ them.
   listener before sending `connect` after the iframe loads. The runtime answers
   `ready`, which sends the queued mount. A late libraries answer connects the
   already loaded frame; content changes mount through the existing bridge.
+  Reconnecting clears the previous runtime's readiness, keeping changed content
+  and linked state queued until the new acknowledgment.
   Removing the runtime's unprompted `ready` leaves one mount trigger, so a late
   acknowledgment cannot reset state or repeat the first query.
 - **A repair step keeps the researcher's prompt**: the view source and browser
