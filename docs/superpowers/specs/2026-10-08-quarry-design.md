@@ -529,15 +529,18 @@ hooks module, and renders the default export inside an error boundary.
 
 postMessage with correlation ids. Every view-specific message carries `viewId`.
 
-Host to runtime: `connect`, `mount { source, initialState, datasets }`,
+Host to runtime: `connect { id }`, `mount { source, initialState, datasets }`,
 `restore { state }`, `queryResult { id, ok, schema, rows | arrow | error }`,
 `schemaResult { id, ok, schema | error }`.
 
-Runtime to host: `ready`, `query { id, spec }`, `schema { id, dataset }`,
+Runtime to host: `ready { id }`, `query { id, spec }`, `schema { id, dataset }`,
 `stateChanged { state, queries }`, `error { message, stack }`.
 
 The host installs its listener before `connect`; the runtime acknowledges with
-`ready`, and the host sends its queued mount. Content changes reuse the bridge.
+`ready` echoing the connection ID, and the host consumes that acknowledgment once
+before sending its queued mount. Content changes reuse the bridge. History restores
+and linked changes wait for the mount; the latest full restore replaces earlier
+queued linked changes, and later linked changes follow it.
 The host serves concurrent identical `query` specs in the same session and data
 generation through one in-flight `POST /sessions/{id}/query`, which forwards to
 the kernel. Settled host results are discarded; runtime caches and state remain

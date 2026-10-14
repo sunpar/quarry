@@ -1,5 +1,6 @@
 import { act, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { HostBridge } from "@/host/bridge/HostBridge";
 import type { RuntimeToHost } from "@/shared/bridge-types";
 import { licensed } from "./libs/registry";
 import type { ModuleTable } from "./loader";
@@ -22,11 +23,68 @@ function setup() {
 }
 
 describe("runtime mount", () => {
+  it("restores during component loading before query registration without reporting a new snapshot", async () => {
+    let release: () => void = () => undefined;
+    const loading = new Promise<void>((resolve) => (release = resolve));
+    const sent: RuntimeToHost[] = [];
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const runtime = createRuntime((m) => sent.push(m), root, {
+      ...table,
+      "@quarry/hooks": async () => {
+        await loading;
+        return { __esModule: true, ...(await import("./hooks")) };
+      },
+    });
+    const bridge = new HostBridge({
+      viewId: "restored",
+      frame: { postMessage: (m) => runtime.handle(m) },
+      isFrame: () => true,
+      onQuery: async () => ({
+        schema: [],
+        rows: [],
+        arrow_base64: null,
+        row_count: 0,
+        truncated: false,
+      }),
+      onSchema: async () => [],
+      onStateChanged: () => undefined,
+      onError: () => undefined,
+    });
+    await act(async () => {
+      bridge.mount({
+        source: `
+        import { useQuery, useViewState } from "@quarry/hooks";
+        export default function V() {
+          const [n] = useViewState("n", 0);
+          useQuery({ dataset: "df", limit: n });
+          return <p>restored:{n}</p>;
+        }`,
+        initialState: { n: 1 },
+        datasets: [],
+      });
+      bridge.connect();
+      bridge.restore({ n: 7 });
+      bridge.handleEvent({ data: sent[0], source: null });
+    });
+    expect(sent.map((m) => m.type)).toEqual(["ready"]);
+    await act(async () => release());
+    await waitFor(() => expect(screen.getByText("restored:7")).toBeTruthy());
+    expect(sent).toContainEqual(
+      expect.objectContaining({
+        type: "query",
+        spec: { dataset: "df", limit: 7 },
+      }),
+    );
+    await act(() => new Promise((resolve) => setTimeout(resolve, 400)));
+    expect(sent.some((m) => m.type === "stateChanged")).toBe(false);
+  });
+
   it("acknowledges connect, mounts a component with datasets, and restores state", async () => {
     const { runtime, sent } = setup();
     expect(sent).toHaveLength(0);
-    runtime.handle({ type: "connect", viewId: "v1" });
-    expect(sent[0]).toEqual({ type: "ready" });
+    runtime.handle({ type: "connect", viewId: "v1", id: "c1" });
+    expect(sent[0]).toEqual({ type: "ready", id: "c1" });
     const source = `
       import { useViewState } from "@quarry/hooks";
       export default function V({ datasets }) {

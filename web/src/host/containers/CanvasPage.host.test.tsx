@@ -3,6 +3,7 @@ import { act, render, screen } from "@testing-library/react";
 import { useLayoutEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Project, SavedView } from "@/shared/api-types";
+import type { HostToRuntime } from "@/shared/bridge-types";
 import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
 import { keys } from "../api/keys";
@@ -88,9 +89,14 @@ describe("canvas host identity", () => {
           ),
         ),
     );
+    const posted: HostToRuntime[] = [];
     function Caller({ sessionId }: { sessionId: string }) {
       useLayoutEffect(() => {
-        screen.getByTitle("Canvas card table").dispatchEvent(new Event("load"));
+        const frame = screen.getByTitle(
+          "Canvas card table",
+        ) as HTMLIFrameElement;
+        (frame.contentWindow as Window).postMessage = (m) => posted.push(m);
+        frame.dispatchEvent(new Event("load"));
       }, [sessionId]);
       return <CanvasPage project={project} sessionId={sessionId} />;
     }
@@ -109,14 +115,13 @@ describe("canvas host identity", () => {
     expect(frame).not.toBe(oldFrame);
     expect(connect).toHaveBeenCalledTimes(2);
     expect(connect.mock.instances[1]).not.toBe(first);
-    const posted: unknown[] = [];
-    vi.spyOn(frame.contentWindow as Window, "postMessage").mockImplementation(
-      (m: unknown) => posted.push(m),
-    );
+    const connection = posted.findLast((m) => m.type === "connect");
+    if (connection?.type !== "connect") throw new Error("not connected");
+    posted.length = 0;
     await act(async () =>
       window.dispatchEvent(
         new MessageEvent("message", {
-          data: { type: "ready" },
+          data: { type: "ready", id: connection.id },
           source: frame.contentWindow,
         }),
       ),

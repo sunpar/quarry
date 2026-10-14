@@ -71,7 +71,7 @@ function mount(
   win.postMessage = (m: HostToRuntime) => {
     posted.push(m);
     if (m.type === "connect" && readyOnConnect)
-      queueMicrotask(() => send({ type: "ready" }));
+      queueMicrotask(() => send({ type: "ready", id: m.id }));
   };
   const send = (data: unknown) =>
     window.dispatchEvent(new MessageEvent("message", { data, source: win }));
@@ -80,7 +80,21 @@ function mount(
   // Once the frame has loaded, a remounted bridge posts its mount straight away.
   const load = () => iframe.dispatchEvent(new Event("load"));
   const mounts = () => posted.filter((m) => m.type === "mount");
-  return { posted, send, rerender, load, mounts, qc, unmount: view.unmount };
+  const ready = () => {
+    const connection = posted.findLast((m) => m.type === "connect");
+    if (connection?.type !== "connect") throw new Error("not connected");
+    send({ type: "ready", id: connection.id });
+  };
+  return {
+    posted,
+    send,
+    ready,
+    rerender,
+    load,
+    mounts,
+    qc,
+    unmount: view.unmount,
+  };
 }
 
 describe("ViewHost", () => {
@@ -88,7 +102,7 @@ describe("ViewHost", () => {
     const card = mount({ hub: new SharedStateHub() }, undefined, false);
     await act(async () => card.load());
     card.rerender({ hub: new SharedStateHub(), contentKey: "next" });
-    await act(async () => card.send({ type: "ready" }));
+    await act(async () => card.ready());
     expect(card.posted.filter((m) => m.type === "connect")).toHaveLength(1);
     expect(card.mounts()).toHaveLength(1);
   });
@@ -348,10 +362,10 @@ describe("ViewHost", () => {
   });
 
   it("mounts once when ready arrives after the frame loads", async () => {
-    const { send, load, mounts } = mount({}, undefined, false);
+    const { ready, load, mounts } = mount({}, undefined, false);
     await act(async () => load());
     expect(mounts()).toHaveLength(0);
-    await act(async () => send({ type: "ready" }));
+    await act(async () => ready());
     expect(mounts()).toHaveLength(1);
   });
 
@@ -386,6 +400,24 @@ describe("ViewHost", () => {
       state: { k: 2 },
     });
     expect(mounts()).toHaveLength(1);
+  });
+
+  it("delivers a restore selected before libraries and readiness arrive", async () => {
+    let release: (response: Response) => void = () => undefined;
+    const libraries = new Promise<Response>((resolve) => (release = resolve));
+    const card = mount({}, () => libraries, false);
+    await act(async () => card.load());
+    card.rerender({ restoreState: { n: 7 } });
+    expect(card.posted).toHaveLength(0);
+    await act(async () => release(new Response("[]")));
+    await waitFor(() => expect(card.posted).toHaveLength(1));
+    await act(async () => card.ready());
+    expect(card.posted.map((m) => m.type)).toEqual([
+      "connect",
+      "mount",
+      "restore",
+    ]);
+    expect(card.posted.at(-1)).toMatchObject({ state: { n: 7 } });
   });
 
   it("remounts on a new contentKey only, with the latest source", async () => {

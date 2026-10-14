@@ -85,7 +85,7 @@ export function createRuntime(
   return {
     handle(message) {
       if (message.type === "connect") {
-        post({ type: "ready" });
+        post({ type: "ready", id: message.id });
         return;
       }
       if (message.type === "mount") {

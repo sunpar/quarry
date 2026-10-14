@@ -143,7 +143,7 @@ export function ViewHost(props: ViewHostProps) {
 
   useEffect(() => {
     if (restoreState) bridgeRef.current?.restore(restoreState);
-  }, [restoreState]);
+  }, [restoreState, isFetched]);
 
   return (
     <ViewFrame
