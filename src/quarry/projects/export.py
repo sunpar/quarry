@@ -49,8 +49,10 @@ def notebook(project: Project, store: ProjectStore) -> dict[str, Json]:
             _code(
                 left_out
                 + "# Render against the rebuilt datasets, show the Python, then run it.\n"
-                + "__import__('quarry.projects.export', fromlist=['run_queries']).run_queries(\n"
-                + f"    {queries!r}, globals()\n"
+                + "(lambda: None).__builtins__['__import__'](\n"
+                + "    'quarry.projects.export', fromlist=['run_queries']\n"
+                + ").run_queries(\n"
+                + f"    {queries!r}, (lambda: None).__globals__\n"
                 + ")\n"
             )
         )

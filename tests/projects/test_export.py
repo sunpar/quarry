@@ -247,6 +247,22 @@ def test_query_results_preserve_recipe_bindings_and_helper_names(tmp_path: Path)
     assert isinstance(helper_name, pl.DataFrame) and helper_name.to_dicts() == [{"a": 9}]
 
 
+@pytest.mark.parametrize("name", ["globals", "__import__"])
+def test_runtime_rendering_preserves_recipes_that_shadow_builtins(
+    tmp_path: Path, name: str
+) -> None:
+    store = project_with_saved_items(tmp_path)
+    recipe = f"{name} = pl.DataFrame({{'a': [9]}})\n" + RECIPE
+    store.write_dataset("momentum", store.get("momentum").datasets[0], recipe=recipe, raw=recipe)
+    namespace = run_code_cells(notebook(store.get("momentum"), store))
+    result = namespace["prices_1"]
+    assert isinstance(result, pl.DataFrame) and result.to_dicts() == [
+        {"ts": "2024-01-02", "px": 1.0}
+    ]
+    binding = namespace[name]
+    assert isinstance(binding, pl.DataFrame) and binding.to_dicts() == [{"a": 9}]
+
+
 def test_a_query_whose_import_would_rebind_a_saved_dataset_is_not_rendered(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
