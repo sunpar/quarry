@@ -1324,8 +1324,12 @@ them.
   informed first/last/min/max selection; Quarry adds deterministic ties and
   reserves null-run endpoints instead of hiding gaps. Polars transports integer
   time ticks and 128-bit decimal strings to preserve precision, then restores
-  axis dtypes; its generated source needs the live schema, which the kernel
-  supplies.
+  axis dtypes. Generated source keeps its private connection in an isolated
+  scope and assigns only the requested result after success, preserving caller
+  bindings on refusal. It reads runtime axis dtypes, so saved notebook exports
+  can reduce lines without parsing saved dtype strings. Supplied schemas share
+  live axis validation and filter coercion; schema-less exports retain the
+  documented filter-literal limits.
 - **No two roles share a column, and no pick hides the pickers**: a saved column
   counts only while the live schema offers it, so a stale choice falls back to
   the default instead of failing the query. Roles resolve in an order that

@@ -35,9 +35,9 @@ import polars as pl
 
 from quarry.query.columns import check_columns
 from quarry.query.polars_target import (
-    LINE_INTEGER_TYPES,
     CoercedLiteral,
     CompareOp,
+    check_line_axes,
     coerce_literal,
     sums_as_decimal,
 )
@@ -96,8 +96,8 @@ def to_source(
     `relation_projection`, for a DuckDB relation, is the DuckDB select list the kernel reads
     the relation through (`importable_projection`): it renames repeated columns and casts
     INTERVAL and UNION columns to VARCHAR so `.pl()` can import them. Every failure caused by
-    the spec is a QueryError. Polars line reduction requires `schema` to restore the original
-    axis dtypes after its lossless DuckDB transport; the kernel always supplies it.
+    the spec is a QueryError. Polars line reduction restores its runtime axis dtypes after
+    lossless DuckDB transport; a supplied schema also validates the axes before rendering.
     """
     require_identifier(spec.dataset, "dataset", spec)
     require_identifier(result_name, "result_name", spec)
@@ -119,48 +119,76 @@ def _render(
 ) -> str:
     if backing != "duckdb":
         if spec.line_reduce is not None:
-            if schema is None:
-                raise QueryError(
-                    "line_reduce Polars source requires the axis schema", dataset=spec.dataset
-                )
-            axes = [spec.line_reduce.time, spec.line_reduce.value]
-            time, value = axes
-            integer_type = LINE_INTEGER_TYPES.get(schema[value])
-            values = quote_ident(value)
-            if integer_type:
-                values = f"CAST({values} AS {integer_type})"
+            if schema is not None:
+                check_line_axes(spec.line_reduce, schema, dataset=spec.dataset)
+            time, value = spec.line_reduce.time, spec.line_reduce.value
+            axes = [time, value]
             sql = py_literal(
                 line_sql(
                     spec,
-                    'SELECT * FROM "points"',
+                    'SELECT * FROM "typed_points"',
                     time_ticks=quote_ident(time),
-                    value_expression=values,
-                    output_value="CAST(v AS VARCHAR)" if integer_type else "v",
+                    output_value="CAST(v AS VARCHAR)",
                 )
             )
-            time_col, value_col = f"pl.col({py_literal(time)})", f"pl.col({py_literal(value)})"
+            time_name, value_name = py_literal(time), py_literal(value)
+            time_col, value_col = f"pl.col({time_name})", f"pl.col({value_name})"
             source = "\n".join(
                 [
-                    f"{spec.dataset}.lazy()",
+                    "_frame.lazy()",
                     *_filter_steps(spec, schema),
                     f".select({py_literal(axes)})",
                     ".collect()",
                 ]
             )
-            transport = f"(\n{_indent(source)}\n).with_columns({time_col}.cast(pl.Int64)"
-            if integer_type:
-                transport += f", {value_col}.cast(pl.String)"
-            transport += ")"
-            connection = _line_connection_name(result_name, spec.dataset)
-            register = f'{connection}.register("points", {transport})'
-            chain = (
-                f"with duckdb.connect(config={LINE_CONNECTION_CONFIG!r}) as {connection}:\n"
-                f"{_indent(register)}\n"
-                f"    {result_name} = {connection}.sql({sql}).pl().with_columns(\n"
-                f"        {time_col}.cast(pl.{schema[time]!r}),\n"
-                f"        {value_col}.cast(pl.{schema[value]!r}),\n"
+            body = (
+                "_schema = _frame.lazy().collect_schema()\n"
+                f"if not (_schema[{time_name}] == pl.Date "
+                f"or isinstance(_schema[{time_name}], pl.Datetime)):\n"
+                '    raise ValueError("line_reduce time must be Date or Datetime")\n'
+                f"if not _schema[{value_name}].is_numeric():\n"
+                '    raise ValueError("line_reduce value must be numeric")\n'
+                "_integer_type = {pl.Int128(): 'HUGEINT', pl.UInt128(): 'UHUGEINT'}"
+                f".get(_schema[{value_name}])\n"
+                f"_points = (\n{_indent(source)}\n).with_columns(\n"
+                f"    {time_col}.cast(pl.Int64),\n"
+                f"    {value_col}.cast(pl.String) if _integer_type else {value_col},\n"
+                ")\n"
+                f"with duckdb.connect(config={LINE_CONNECTION_CONFIG!r}) as _connection:\n"
+                '    _connection.register("points", _points)\n'
+                f"    _value = {py_literal(quote_ident(value))}\n"
+                "    if _integer_type:\n"
+                "        _value = 'CAST(' + _value + ' AS ' + _integer_type + ') AS ' + _value\n"
+                '    _connection.table("points").project('
+                f"{py_literal(quote_ident(time) + ', ')} + _value"
+                ').create_view("typed_points")\n'
+                f"    return _connection.sql({sql}).pl().with_columns(\n"
+                f"        {time_col}.cast(_schema[{time_name}]),\n"
+                f"        {value_col}.cast(_schema[{value_name}]),\n"
                 "    )"
-                f"\ndel {connection}"
+            )
+            function = f"def _reduce():\n{_indent(body)}"
+            quoted = "\n".join(
+                "            " + py_literal(line + "\n") for line in function.splitlines()
+            )
+            scope = ", ".join(
+                [
+                    '"__builtins__": builtins.__dict__',
+                    f'"_frame": {spec.dataset}',
+                    '"pl": pl',
+                    *(f"{py_literal(n)}: {n}" for n in _imported_names(spec, schema)),
+                ]
+            )
+            chain = (
+                f"{result_name} = (\n"
+                "    lambda _scope: (\n"
+                "        builtins.exec(\n"
+                f"{quoted},\n"
+                "            _scope,\n"
+                "        ),\n"
+                '        _scope["_reduce"](),\n'
+                "    )[1]\n"
+                f")({{{scope}}})"
             )
         else:
             chain = _chain_source(
@@ -203,27 +231,15 @@ def _render(
     return f"try:\n{_indent(assign)}\nfinally:\n{_indent(drop)}\n"
 
 
-def _line_connection_name(result_name: str, dataset: str) -> str:
-    connection = f"_quarry_{result_name}_connection"
-    while connection in {dataset, result_name}:
-        connection += "_"
-    return connection
-
-
 def result_names(queries: Sequence[tuple[int, str]], taken: Container[str]) -> list[str]:
     """`<dataset>_<n>` for each `(n, dataset)`, n being the query's 1-based position in its list,
     its suffix raised past every name in `taken`, any query's dataset, and the names chosen
-    before it or a private connection name, so no block overwrites what another reads."""
+    before it, so no block overwrites what another reads."""
     reserved = {dataset for _, dataset in queries}
     names: list[str] = []
     for n, dataset in queries:
         suffix = n
-        while (
-            (name := f"{dataset}_{suffix}") in reserved
-            or name in taken
-            or (connection := _line_connection_name(name, dataset)) in reserved
-            or connection in taken
-        ):
+        while (name := f"{dataset}_{suffix}") in reserved or name in taken:
             suffix += 1
         reserved.add(name)
         names.append(name)
@@ -428,18 +444,18 @@ def _imported_names(spec: QuerySpec, schema: Schema | None) -> list[str]:
     ]
     return sorted(
         {name for value in literals for name in _temporal_names(value)}
-        | ({"duckdb"} if spec.line_reduce else set())
+        | ({"builtins", "duckdb"} if spec.line_reduce else set())
     )
 
 
 def _import_lines(names: list[str]) -> str:
-    temporal = [n for n in names if n != "duckdb"]
+    modules = [n for n in names if n in {"builtins", "duckdb"}]
+    temporal = [n for n in names if n not in modules]
     lines = [
         f"from {module} import {', '.join(n for n in temporal if IMPORTED_FROM[n] == module)}\n"
         for module in sorted({IMPORTED_FROM[n] for n in temporal})
     ]
-    if "duckdb" in names:
-        lines.append("import duckdb\n")
+    lines.extend(f"import {module}\n" for module in modules)
     return "".join(lines) + "\n" if lines else ""
 
 

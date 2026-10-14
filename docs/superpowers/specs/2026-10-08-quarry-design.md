@@ -313,9 +313,11 @@ increase resource limits.
 Polars sends time as integer ticks in its original unit, and 128-bit values as
 decimal strings, restoring both axis dtypes after reduction. This preserves
 zoned nanosecond timestamps and the full integer range. Polars `to_source`
-requires the axis schema for this operation; the kernel supplies its live
-schema. DuckDB relation output uses the relation's existing temporal precision
-and UTC timezone schema.
+restores its runtime axis dtypes inside an isolated execution scope. Supplied
+schemas validate axes and coerce filter literals before rendering; schema-less
+exports retain the compiler's documented literal-coercion limits. DuckDB
+relation output uses the relation's existing temporal precision and UTC timezone
+schema.
 
 ## 6. Kernel
 
