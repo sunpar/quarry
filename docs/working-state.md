@@ -12,8 +12,8 @@ Implement Claude Code and Codex subscription access on
 `codex/subscription-providers` using the
 [accepted plan](superpowers/plans/2026-10-14-quarry-subscription-providers.md).
 The user requested parallel implementation and the open-pr-and-babysit loop.
-Native adapters, shared execution, configuration and docs have separate owners;
-server prompt/save/shutdown wiring is integrated by the controller.
+Implementation and task reviews are complete. The branch is pushed. Native PR
+reviews are in progress before the PR is opened.
 
 ## Status by stage
 
@@ -124,11 +124,12 @@ files. Its documentation follow-up is
 
 ## Latest verification
 
-Subscription work on macOS, Python 3.11: `make check` passed with 1,067 Python
-tests (including all 10 browser tests), 235 frontend tests and 25 gate/transport
-regressions. The Python suite took 65.01 seconds. Three tests skipped: the Linux
-memory cap and two opt-in live API providers. Lint, formatting, types, web
-build, offline wheel/sdist build and wheel asset checks passed.
+The initial implementation on macOS, Python 3.11 passed `make check` with 1,067
+Python tests (including all 10 browser tests), 235 frontend tests and 25
+gate/transport regressions. The Python suite took 65.01 seconds. Three tests
+skipped: the Linux memory cap and two opt-in live API providers. Lint,
+formatting, types, web build, offline wheel/sdist build and wheel asset checks
+passed.
 
 Codex 0.162.1 completed a real Quarry Python execution and table render, and
 cancellation joined the process and reader. Claude Code 2.1.299 passed login and
@@ -139,8 +140,8 @@ reviews and the whole-branch simplify pass are complete.
 
 ## Next actions
 
-1. Commit through the staged smoke gate and push the branch.
-2. Run the required native local reviews, then open and babysit one PR.
+1. Finish the Muse native review and exact-head verification.
+2. Open and babysit one PR through the capped bot rotation and current-head CI.
 
 ## Resuming
 

@@ -19,6 +19,7 @@ from quarry.agent.types import ProviderError, ToolCall, ToolResult
 from quarry.components.library import ComponentLibrary
 from quarry.config import ProviderConfig, QuarryConfig
 from quarry.kernel.client import KernelClient
+from quarry.projects.tidy import tidy_recipe
 from tests.components.test_library import write_component
 
 _FAKE = r"""
@@ -50,14 +51,8 @@ def terminal():
         "item/agentMessage/delta",
         {"threadId": "thread", "turnId": "turn", "itemId": "answer", "delta": "done"},
     )
-    notify(
-        "item/completed",
-        {
-            "threadId": "thread",
-            "turnId": "turn",
-            "item": {"type": "agentMessage", "id": "answer", "text": "done"},
-        },
-    )
+    for item in plan.get("messages", [{"type":"agentMessage","id":"answer","text":"done"}]):
+        notify("item/completed", {"threadId":"thread","turnId":"turn","item":item})
     notify(
         "turn/completed",
         {
@@ -697,3 +692,27 @@ def test_missing_terminal_status_returns_error_and_closes_transport(
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
+
+
+@pytest.mark.parametrize("final_phase", ["final_answer", None])
+def test_commentary_is_preserved_but_tidy_and_step_note_receive_only_answer(
+    codex_cli: tuple[Path, Path, Path],
+    codex_tools: ToolExecutor,
+    final_phase: str | None,
+) -> None:
+    cli, plan, _ = codex_cli
+    commentary = "I will check the recipe and simplify it"
+    partial = "The dataset assignment is the part to keep"
+    code = "df = pl.DataFrame({'a':[1]})\n"
+    answer = f"```python\n{code}```"
+    messages = [
+        {"type": "agentMessage", "id": "progress", "text": commentary, "phase": "commentary"},
+        {"type": "agentMessage", "id": "partial", "text": partial, "phase": "partial_answer"},
+        {"type": "agentMessage", "id": "answer", "text": answer, "phase": final_phase},
+    ]
+    plan.write_text(json.dumps({"messages": messages}))
+    runtime = CodexRuntime(model="gpt-6.1-sol", cli_path=cli)
+    assert tidy_recipe(runtime, code, "df", cancel=threading.Event()) == code
+    out = step(cli, codex_tools)
+    assert out.status == "ok" and out.note == answer
+    assert [message.text for message in out.transcript[1:]] == [commentary, partial, answer]

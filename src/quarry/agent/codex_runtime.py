@@ -338,6 +338,8 @@ class CodexRuntime:
         settled: set[str] = set()
         workers = ThreadPoolExecutor(max_workers=1)
         terminal: dict[str, Any] | None = None
+        final_texts: list[str] = []
+        legacy_texts: list[str] = []
         try:
             initialized = connection.request(
                 "initialize",
@@ -486,7 +488,12 @@ class CodexRuntime:
                     )
                     calls.append((message["id"], call, future))
                 elif method == "item/completed" and params["item"]["type"] == "agentMessage":
-                    transcript.append(Message(role="assistant", text=params["item"]["text"]))
+                    item = params["item"]
+                    transcript.append(Message(role="assistant", text=item["text"]))
+                    if item.get("phase") == "final_answer":
+                        final_texts.append(item["text"])
+                    elif item.get("phase") is None:
+                        legacy_texts.append(item["text"])
                 elif method == "turn/completed":
                     completed = params["turn"]
                     if completed["id"] != turn_id:
@@ -506,7 +513,7 @@ class CodexRuntime:
                 raise ProviderError(
                     error.get("message") or f"Codex turn {terminal['status']}", retryable=False
                 )
-            text = "\n".join(m.text for m in transcript[1:] if m.text)
+            text = "\n".join(final_texts or legacy_texts)
             return AssistantTurn(text=text, tool_calls=[], stop="end")
         except ProviderError as exc:
             if execution is not None:
