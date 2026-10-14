@@ -3,7 +3,7 @@ import type { JsonObject } from "./json";
 import type { LicensedLibrary } from "./library-types";
 
 export type HostToRuntime =
-  | { type: "connect"; viewId: string }
+  | { type: "connect"; viewId: string; id: string }
   | {
       type: "mount";
       viewId: string;
@@ -47,7 +47,7 @@ export type HostToRuntime =
     };
 
 export type RuntimeToHost =
-  | { type: "ready" }
+  | { type: "ready"; id: string }
   | { type: "query"; viewId: string; id: string; spec: QuerySpec }
   | { type: "schema"; viewId: string; id: string; dataset: string }
   | {
@@ -67,7 +67,7 @@ export function isRuntimeMessage(data: unknown): data is RuntimeToHost {
   if (!isRecord(data)) return false;
   switch (data["type"]) {
     case "ready":
-      return true;
+      return isString(data["id"]);
     case "query":
       return (
         isString(data["viewId"]) &&

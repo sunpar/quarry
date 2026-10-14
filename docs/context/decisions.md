@@ -804,13 +804,17 @@ them.
   the planned one.
 - **The runtime acknowledges the host's connection**: the host installs its
   listener before sending `connect` after the iframe loads. The runtime answers
-  `ready`, which sends the queued mount. Callers key the host by session and
-  view, keeping refs and subscriptions with their iframe. A late libraries
-  answer connects an already loaded frame; content changes reuse its bridge.
-  Reconnecting clears the previous runtime's readiness, keeping changed content
-  and linked state queued until the new acknowledgment. Removing the runtime's
-  unprompted `ready` leaves one mount trigger, so a late acknowledgment cannot
-  reset state or repeat the first query.
+  `ready` with the connection's UUID, consumed once before sending the queued
+  mount. Listener cleanup cancels its pending acknowledgment. Callers key the
+  host by session and view, keeping refs and subscriptions with their iframe. A
+  late libraries answer connects an already loaded frame; content changes reuse
+  its bridge. Reconnecting clears the previous runtime's readiness, keeping
+  changed content and controls queued until the new acknowledgment. The host
+  sends mount, the latest History restore, then later linked changes; a full
+  restore replaces earlier queued linked changes. A restore selected while
+  libraries load reaches the bridge when the answer arrives. Removing the
+  runtime's unprompted `ready` leaves one mount trigger, so a late
+  acknowledgment cannot reset state or repeat the first query.
 - **A repair step keeps the researcher's prompt**: the view source and browser
   error go only to the agent; the persisted step shows "Fix the view so it
   mounts." The plan stored the composed text as the step prompt, which put a
