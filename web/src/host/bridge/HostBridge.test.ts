@@ -31,6 +31,64 @@ function setup() {
 }
 
 describe("HostBridge", () => {
+  it("queues changed content and linked state until a reloaded frame acknowledges connect", () => {
+    const { bridge, posted, send } = setup();
+    bridge.mount({ source: "first", initialState: {}, datasets: [] });
+    send({ type: "ready" });
+    posted.length = 0;
+    bridge.connect();
+    bridge.mount({ source: "next", initialState: {}, datasets: [] });
+    bridge.merge({ "shared:k": 2 });
+    expect(posted).toEqual([{ type: "connect", viewId: "v1" }]);
+    send({ type: "ready" });
+    expect(posted.map((m) => m.type)).toEqual(["connect", "mount", "merge"]);
+    expect(posted[1]).toMatchObject({ source: "next" });
+    expect(posted[2]).toMatchObject({ state: { "shared:k": 2 } });
+  });
+
+  it("detaches pending reply subscriptions when its listener stops", async () => {
+    const posted: HostToRuntime[] = [];
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const bridge = new HostBridge({
+      viewId: "v1",
+      frame: { postMessage: (m) => posted.push(m) },
+      isFrame: () => true,
+      onQuery: async () => {
+        await gate;
+        return {
+          schema: [],
+          rows: [],
+          arrow_base64: null,
+          row_count: 0,
+          truncated: false,
+        };
+      },
+      onSchema: async () => {
+        await gate;
+        return [];
+      },
+      onStateChanged: () => undefined,
+      onError: () => undefined,
+    });
+    const stop = bridge.listen(window);
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "query", viewId: "v1", id: "q", spec: { dataset: "df" } },
+      }),
+    );
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "schema", viewId: "v1", id: "s", dataset: "df" },
+      }),
+    );
+    stop();
+    release();
+    await gate;
+    await Promise.resolve();
+    expect(posted).toHaveLength(0);
+  });
+
   it("mounts after ready and answers queries", async () => {
     const { bridge, posted, send, onQuery } = setup();
     const licensed: LicensedLibrary[] = [
@@ -55,16 +113,13 @@ describe("HostBridge", () => {
     });
   });
 
-  it("mounts on the frame's load when ready was missed, once", () => {
+  it("connects before mounting, then waits for the acknowledgment", () => {
     const { bridge, posted, send } = setup();
     bridge.mount({ source: "x", initialState: {}, datasets: ["df"] });
-    bridge.frameLoaded();
-    bridge.frameLoaded();
-    expect(posted).toHaveLength(1);
-    expect(posted[0]).toMatchObject({ type: "mount", viewId: "v1" });
+    bridge.connect();
+    expect(posted).toEqual([{ type: "connect", viewId: "v1" }]);
     send({ type: "ready" });
-    bridge.frameLoaded();
-    expect(posted).toHaveLength(2);
+    expect(posted[1]).toMatchObject({ type: "mount", viewId: "v1" });
   });
 
   it("holds linked keys that arrive before the view mounts", () => {

@@ -802,14 +802,14 @@ them.
   fallback cannot work. `ensureEngine` starts Perspective's own worker script as
   a classic worker from a Blob URL, which `worker-src blob:` admits; the CSP is
   the planned one.
-- **The frame's `load` event is the mount fallback**: the runtime posts `ready`
-  once while loading, which can beat the host's listener;
-  `HostBridge.frameLoaded` sends the queued mount if `ready` was missed. The
-  `onLoad` handler is wired on the iframe element itself and remembered, so a
-  frame that loaded before the bridge existed mounts as soon as the effect runs.
-  A `ready` that arrives after `load` mounts a second time, which the runtime
-  tolerates; the double mount is a
-  [known problem](../open-items.md#known-problems).
+- **The runtime acknowledges the host's connection**: the host installs its
+  listener before sending `connect` after the iframe loads. The runtime answers
+  `ready`, which sends the queued mount. A late libraries answer connects the
+  already loaded frame; content changes mount through the existing bridge.
+  Reconnecting clears the previous runtime's readiness, keeping changed content
+  and linked state queued until the new acknowledgment.
+  Removing the runtime's unprompted `ready` leaves one mount trigger, so a late
+  acknowledgment cannot reset state or repeat the first query.
 - **A repair step keeps the researcher's prompt**: the view source and browser
   error go only to the agent; the persisted step shows "Fix the view so it
   mounts." The plan stored the composed text as the step prompt, which put a
@@ -834,9 +834,23 @@ them.
   The server's TSX check, `web/tools/transpile-check.ts`, calls the same
   `transpile()`, so the check and the frame agree on what a view imports.
 - **Mount is queued and resent**: the host sends `mount` only after the runtime
-  posts `ready`, keeps the spec and resends it on every later `ready`; the
-  runtime drops a mount that an even newer mount has overtaken. A reloaded frame
-  therefore remounts, and a slow first load cannot clobber a second.
+  acknowledges `connect`, keeps the spec and resends it after a frame reload;
+  the runtime drops a mount that an even newer mount has overtaken. A reloaded
+  frame therefore remounts, and a slow first load cannot clobber a second.
+- **Concurrent view queries share the host's in-flight request**: the existing
+  QueryClient keys a request by session, `dataVersion`, and the full query spec.
+  A completed step or changed kernel PID starts another generation, including
+  while an older request is pending. The host discards settled query entries;
+  each runtime keeps its own answers, Arrow decoding, state and held specs.
+  Failures are shared without retrying and a later request can recover. Cost:
+  staggered requests after settlement execute again, and `dataVersion` is the
+  existing step/kernel boundary rather than a dataset revision.
+- **Request IDs survive view replacement without collision**: every query and
+  schema request gets a UUID, so a pending reply from a replaced view cannot
+  resolve the new view's request under the same `viewId`. Listener cleanup
+  detaches pending reply subscriptions; runtime replacement rejects its
+  abandoned local requests. Neither interrupts a query executing in the kernel
+  or cancels a shared fetch another card needs.
 - **The time series drops what it cannot plot**: rows whose time does not parse
   or whose value is not finite are skipped, equal seconds collapse to the last
   row, and a naive ISO datetime is read as UTC because the kernel's DuckDB

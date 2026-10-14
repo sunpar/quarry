@@ -53,8 +53,8 @@ export function ViewHost(props: ViewHostProps) {
   const [error, setError] = useState<string | null>(null);
   // Callers rebuild the view and callbacks every render (snapshots append on every poll), so the
   // effect keys on contentKey and reads the source, initial state, datasets and callbacks here.
-  const latest = useRef(props);
-  latest.current = props;
+  const latest = useRef({ ...props, api, queryClient });
+  latest.current = { ...props, api, queryClient };
   // The view mounts once, after the first libraries answer, error or not: `isFetched` never
   // turns back, so a later refetch cannot remount the view and reset its state.
   const { data: statuses, isFetched } = useLibraries();
@@ -65,14 +65,15 @@ export function ViewHost(props: ViewHostProps) {
   useEffect(() => {
     const frame = frameRef.current;
     if (frame === null || !isFetched) return;
-    const { source, initialState, datasets } = latest.current;
     // Schemas come from the live kernel, as queries do: a later step may have redefined the
     // name. Fetched fresh so a view never sees a list from before its step ran.
     const schemaFor = async (dataset: string): Promise<Column[]> => {
+      const { api, queryClient, dataVersion } = latest.current;
       const all = await queryClient.fetchQuery({
-        queryKey: keys.datasets(sessionId),
+        queryKey: [...keys.datasets(sessionId), dataVersion],
         queryFn: () => api.datasets(sessionId),
         staleTime: 0,
+        retry: false,
       });
       const match = all.find((d) => d.name === dataset);
       if (match === undefined) throw new Error(`unknown dataset ${dataset}`);
@@ -84,19 +85,38 @@ export function ViewHost(props: ViewHostProps) {
         postMessage: (m, origin) => frame.contentWindow?.postMessage(m, origin),
       },
       isFrame: (s) => s === frame.contentWindow,
-      onQuery: (spec) => api.query(sessionId, spec),
+      onQuery: (spec) => {
+        const { api, queryClient, dataVersion } = latest.current;
+        return queryClient.fetchQuery({
+          queryKey: keys.query(sessionId, dataVersion, spec),
+          queryFn: () => api.query(sessionId, spec),
+          // Share only requests in flight; each frame keeps its own settled answers.
+          staleTime: 0,
+          gcTime: 0,
+          retry: false,
+        });
+      },
       onSchema: schemaFor,
       onStateChanged: (state, queries) => {
-        hub?.report(viewId, state);
+        latest.current.hub?.report(viewId, state);
         latest.current.onStateChanged?.(state, queries);
       },
       onError: setError,
     });
     const stop = bridge.listen(window);
     bridgeRef.current = bridge;
-    const unregister = hub?.register(viewId, initialState, (shared) =>
-      bridge.merge(shared),
-    );
+    if (loaded.current) bridge.connect();
+    return () => {
+      stop();
+      bridgeRef.current = null;
+      loaded.current = false;
+    };
+  }, [sessionId, viewId, isFetched]);
+
+  useEffect(() => {
+    const bridge = bridgeRef.current;
+    if (bridge === null) return;
+    const { source, initialState, datasets } = latest.current;
     setError(null);
     bridge.mount({
       source,
@@ -104,15 +124,15 @@ export function ViewHost(props: ViewHostProps) {
       datasets,
       licensed: licensed.current,
     });
-    // The runtime posts `ready` once while loading, which can beat this listener; a frame
-    // that has already loaded is listening, so mount now.
-    if (loaded.current) bridge.frameLoaded();
-    return () => {
-      unregister?.();
-      stop();
-      bridgeRef.current = null;
-    };
-  }, [api, queryClient, sessionId, viewId, contentKey, hub, isFetched]);
+  }, [sessionId, viewId, contentKey, isFetched]);
+
+  useEffect(() => {
+    const bridge = bridgeRef.current;
+    if (bridge === null) return;
+    return hub?.register(viewId, latest.current.initialState, (shared) =>
+      bridge.merge(shared),
+    );
+  }, [sessionId, viewId, contentKey, hub, isFetched]);
 
   // A mounted view caches its answers; later steps and restarts change what the kernel holds.
   const seenVersion = useRef(dataVersion);
@@ -128,6 +148,7 @@ export function ViewHost(props: ViewHostProps) {
 
   return (
     <ViewFrame
+      key={JSON.stringify([sessionId, viewId])}
       ref={frameRef}
       title={title}
       error={error}
@@ -138,7 +159,7 @@ export function ViewHost(props: ViewHostProps) {
       }
       onLoad={() => {
         loaded.current = true;
-        bridgeRef.current?.frameLoaded();
+        bridgeRef.current?.connect();
       }}
     />
   );

@@ -3,6 +3,7 @@ import type { JsonObject } from "./json";
 import type { LicensedLibrary } from "./library-types";
 
 export type HostToRuntime =
+  | { type: "connect"; viewId: string }
   | {
       type: "mount";
       viewId: string;

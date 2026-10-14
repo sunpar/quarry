@@ -91,8 +91,8 @@ describe("ViewFrameContainer", () => {
     expect(posted).toEqual([{ type: "refresh", viewId: "s1" }]);
   });
 
-  it("mounts on the frame's load when ready never arrives", async () => {
-    const { iframe } = mount();
+  it("connects on frame load and mounts after the acknowledgment", async () => {
+    const { iframe, send } = mount();
     const posted: unknown[] = [];
     vi.spyOn(iframe.contentWindow as Window, "postMessage").mockImplementation(
       (m: unknown) => posted.push(m),
@@ -101,6 +101,11 @@ describe("ViewFrameContainer", () => {
       iframe.dispatchEvent(new Event("load"));
     });
     expect(posted).toEqual([
+      expect.objectContaining({ type: "connect", viewId: "s1" }),
+    ]);
+    await act(async () => send({ type: "ready" }));
+    expect(posted).toEqual([
+      expect.objectContaining({ type: "connect", viewId: "s1" }),
       expect.objectContaining({ type: "mount", viewId: "s1" }),
     ]);
   });
