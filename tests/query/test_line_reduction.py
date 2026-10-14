@@ -1,7 +1,9 @@
 """Whole-domain lines agree across backings and exported Python."""
 
+import struct
 from collections.abc import Sequence
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 import duckdb
 import polars as pl
@@ -10,7 +12,7 @@ from polars.testing import assert_frame_equal
 from pydantic import ValidationError
 
 from quarry.kernel.executor import Executor
-from quarry.query import Backing, Filter, QuerySpec, to_polars, to_source, to_sql
+from quarry.query import Backing, Filter, QueryError, QuerySpec, to_polars, to_source, to_sql
 from tests.query.fixtures import BACKINGS, bind, execute, utc_connection
 
 
@@ -246,7 +248,7 @@ def test_source_assigns_helper_names_after_reduction(backing: Backing, result_na
     assert_frame_equal(result, frame[[0, 1, 4, 5]])
 
 
-def test_to_code_allocates_around_private_connection_names() -> None:
+def test_to_code_keeps_private_namespace_bindings() -> None:
     frame = ticks([3, 1, 5, 4, 9, 2])
     keep = pl.DataFrame({"keep": [1]})
     namespace: dict[str, object] = {
@@ -259,8 +261,8 @@ def test_to_code_allocates_around_private_connection_names() -> None:
     exec(ex.to_code([line_spec(4)]).code, namespace)
     assert namespace["_quarry_ticks_1_connection"] is keep
     assert namespace["_quarry_ticks_2_connection"] == 42
-    assert isinstance(namespace["ticks_3"], pl.DataFrame)
-    assert_frame_equal(namespace["ticks_3"], frame[[0, 1, 4, 5]])
+    assert isinstance(namespace["ticks_1"], pl.DataFrame)
+    assert_frame_equal(namespace["ticks_1"], frame[[0, 1, 4, 5]])
 
 
 def test_extrema_and_duplicate_time_ties_are_deterministic() -> None:
@@ -314,3 +316,145 @@ def test_filters_apply_before_whole_domain_reduction() -> None:
 def test_line_reduction_rejects_partial_domain_and_reshaping(extra: dict[str, object]) -> None:
     with pytest.raises(ValidationError, match="line_reduce"):
         QuerySpec.model_validate({**line_spec().model_dump(), **extra})
+
+
+@pytest.mark.parametrize("backing", ["polars", "polars_lazy"])
+@pytest.mark.parametrize("budget", [1, 4])
+def test_public_source_keeps_private_connection_bindings(backing: Backing, budget: int) -> None:
+    frame = ticks([3, 1, 5, 4, 9, 2])
+    keep = object()
+    private = {
+        n: object()
+        for n in ["_scope", "_reduce", "_connection", "_frame", "_schema", "_points", "_value"]
+    }
+    namespace: dict[str, object] = {
+        "pl": pl,
+        "ticks": bind(frame, backing),
+        "_quarry_out_connection": keep,
+        **private,
+    }
+    source = to_source(line_spec(budget), backing, result_name="out", schema=frame.schema)
+    if budget == 1:
+        with pytest.raises(duckdb.InvalidInputException, match="row budget"):
+            exec(source, namespace)
+    else:
+        exec(source, namespace)
+        assert isinstance(namespace["out"], pl.DataFrame)
+        assert_frame_equal(namespace["out"], frame[[0, 1, 4, 5]])
+    assert namespace["_quarry_out_connection"] is keep
+    assert all(namespace[n] is v for n, v in private.items())
+
+
+@pytest.mark.parametrize("backing", ["polars", "polars_lazy"])
+@pytest.mark.parametrize("invalid", ["time", "value"])
+def test_source_rejects_the_same_invalid_axes_as_live_query(backing: Backing, invalid: str) -> None:
+    frame = ticks([3, 1, 5, 4, 9, 2]).with_columns(
+        pl.col("ts").cast(pl.Int64) if invalid == "time" else pl.col("px").cast(pl.String)
+    )
+    with pytest.raises(QueryError, match=f"line_reduce {invalid} must be"):
+        to_polars(line_spec(4), frame)
+    with pytest.raises(QueryError, match=f"line_reduce {invalid} must be"):
+        to_source(line_spec(4), backing, schema=frame.schema)
+
+
+@pytest.mark.parametrize("backing", ["polars", "polars_lazy"])
+@pytest.mark.parametrize("dtype", [pl.Float32, pl.Decimal(20, 2), pl.Int128, pl.UInt128])
+def test_source_without_schema_restores_runtime_axis_types(
+    backing: Backing, dtype: pl.DataType
+) -> None:
+    frame = ticks([3, 1, 5, 4, 9, 2]).with_columns(
+        pl.col("ts").cast(pl.Datetime("ns", "UTC")), pl.col("px").cast(dtype)
+    )
+    assert_frame_equal(
+        execute(to_source(line_spec(4), backing), {"ticks": bind(frame, backing)}),
+        to_polars(line_spec(4), frame).collect(),
+    )
+
+
+@pytest.mark.parametrize("backing", ["polars", "polars_lazy"])
+@pytest.mark.parametrize("invalid", ["time", "value"])
+def test_source_without_schema_refuses_invalid_axes(backing: Backing, invalid: str) -> None:
+    frame = ticks([3, 1, 5, 4, 9, 2]).with_columns(
+        pl.col("ts").cast(pl.Int64) if invalid == "time" else pl.col("px").cast(pl.String)
+    )
+    with pytest.raises(ValueError, match=f"line_reduce {invalid} must be"):
+        execute(to_source(line_spec(4), backing), {"ticks": bind(frame, backing)})
+
+
+def test_source_without_schema_keeps_date_literal_filters() -> None:
+    frame = ticks([3, 1, 5, 4, 9, 2]).with_columns(pl.col("ts").cast(pl.Date))
+    spec = line_spec(4).model_copy(
+        update={"filters": [Filter(col="ts", op="ge", value="2026-01-01")]}
+    )
+    assert_frame_equal(
+        execute(to_source(spec, "polars"), {"ticks": frame}), to_polars(spec, frame).collect()
+    )
+
+
+def test_source_filter_literal_coercion_still_requires_schema() -> None:
+    frame = ticks([0, 1, 2, 3, 4, 5])
+    spec = line_spec(4).model_copy(update={"filters": [Filter(col="px", op="in", value=[1])]})
+    with pytest.raises(pl.exceptions.InvalidOperationError, match="is_in"):
+        execute(to_source(spec, "polars"), {"ticks": frame})
+    assert_frame_equal(
+        execute(to_source(spec, "polars", schema=frame.schema), {"ticks": frame}),
+        to_polars(spec, frame).collect(),
+    )
+
+
+@pytest.mark.parametrize("dtype", [pl.Float32, pl.Float64])
+def test_generated_floating_values_match_live_reduction_bit_for_bit(dtype: pl.DataType) -> None:
+    scalar, integer, bits = (
+        ("f", "I", [1, 0x80000000, 0x3F800001, 0x3F800002, 0x7F7FFFFF])
+        if dtype == pl.Float32
+        else (
+            "d",
+            "Q",
+            [1, 0x8000000000000000, 0x3FF0000000000001, 0x3FF0000000000002, 0x7FEFFFFFFFFFFFFF],
+        )
+    )
+    values = [struct.unpack(scalar, struct.pack(integer, b))[0] for b in bits]
+    frame = ticks(values).with_columns(pl.col("px").cast(dtype))
+    expected = to_polars(line_spec(8), frame).collect()
+    result = execute(to_source(line_spec(8), "polars"), {"ticks": frame})
+    assert_frame_equal(result, expected, check_exact=True)
+    assert [struct.pack(scalar, v) for v in result["px"]] == [
+        struct.pack(scalar, v) for v in expected["px"]
+    ]
+
+
+def test_generated_fractional_decimals_match_live_reduction_exactly() -> None:
+    frame = ticks([0, 1, 2, 3, 4, 5]).with_columns(
+        pl.Series(
+            "px",
+            [Decimal(s) for s in ["0.01", "1.03", "-2.12", "99.99", "0.05", "6.23"]],
+            dtype=pl.Decimal(20, 2),
+        )
+    )
+    assert_frame_equal(
+        execute(to_source(line_spec(4), "polars"), {"ticks": frame}),
+        to_polars(line_spec(4), frame).collect(),
+        check_exact=True,
+    )
+
+
+@pytest.mark.parametrize("result_name", ["ticks", "pl", "isinstance", "ValueError"])
+def test_source_refusal_preserves_requested_output(result_name: str) -> None:
+    frame = ticks([3, 1, 5, 4, 9, 2])
+    namespace: dict[str, object] = {"pl": pl, "ticks": frame}
+    if result_name not in namespace:
+        namespace[result_name] = object()
+    previous = namespace[result_name]
+    with pytest.raises(duckdb.InvalidInputException, match="row budget"):
+        exec(to_source(line_spec(1), "polars", result_name=result_name), namespace)
+    assert namespace[result_name] is previous
+
+
+@pytest.mark.parametrize("result_name", ["isinstance", "ValueError"])
+def test_source_accepts_builtin_result_names(result_name: str) -> None:
+    frame = ticks([3, 1, 5, 4, 9, 2])
+    namespace: dict[str, object] = {"pl": pl, "ticks": frame}
+    exec(to_source(line_spec(4), "polars", result_name=result_name), namespace)
+    result = namespace[result_name]
+    assert isinstance(result, pl.DataFrame)
+    assert_frame_equal(result, to_polars(line_spec(4), frame).collect())

@@ -27,9 +27,16 @@ All six native Astra findings were fixed before `81738ea`; Opus and Muse were
 unavailable because of quota limits. Automatic Codex then found the stale
 checkpoint, missing agent hook contract and public `pl`/`duckdb` result names
 rebinding helper modules. This fix updates the checkpoint and hook contract and
-assigns the result after its helper calls complete. Focused query, kernel and
-agent tests pass. Final-head local and Linux verification and GitHub review
-remain pending at this commit.
+assigns the result after its helper calls complete. Explicit Codex review then
+found a private connection binding collision, omitted schema-less notebook
+queries and missing source axis-type validation. The export now isolates its
+execution scope, restores runtime axis types and validates supplied schemas
+with the live compiler. Focused query, kernel, agent and notebook tests pass.
+Final-head local and Linux verification and GitHub review remain pending at
+this commit. The prior `933f52b` passed 1,141 Python tests locally; its Linux
+run failed the unchanged save-and-recall browser test during a new-session
+transition. One isolated run and five traced repetitions passed on that head;
+the failed run is retained in the review ledger.
 
 The prior `81738ea` passed full Mac and Linux x86-64 gates: 1,136 Python tests,
 237 frontend tests and 25 gate/transport tests on each. Mac skipped memory-cap

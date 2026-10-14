@@ -339,3 +339,43 @@ def test_a_view_that_publishes_its_spec_exports_that_spec(tmp_path: Path) -> Non
     code = sources(notebook(store.get("momentum"), store), "code")[2]
     assert code.startswith('# To code leaves out: filter px "!="\n')
     assert "prices_1 = (" in code and "prices_2" not in code and "limit" not in code
+
+
+@pytest.mark.parametrize("backing", ["polars", "polars_lazy"])
+@pytest.mark.parametrize("time_dtype", ["Date", "Datetime('ns', 'UTC')"])
+def test_saved_whole_series_query_executes_in_notebook(
+    tmp_path: Path, backing: str, time_dtype: str
+) -> None:
+    store = project_with_saved_items(tmp_path)
+    recipe = (
+        "prices = pl.DataFrame({'ts': pl.Series(range(60001), dtype=pl.Int64)"
+        f".cast(pl.{time_dtype}), "
+        "'px': pl.Series([n % 17 for n in range(59999)] + [-10000, 2**127 - 1], dtype=pl.Int128)})"
+        + (".lazy()" if backing == "polars_lazy" else "")
+        + "\n"
+    )
+    meta = store.get("momentum").datasets[0].model_copy(update={"backing": backing})
+    store.write_dataset("momentum", meta, recipe=recipe, raw=recipe)
+    query: dict[str, Json] = {
+        "dataset": "prices",
+        "line_reduce": {"time": "ts", "value": "px", "max_rows": 4},
+    }
+    store.write_view(
+        "momentum",
+        store.get("momentum").views[0],
+        source=VIEW_SOURCE,
+        state={},
+        queries=[query],
+    )
+    doc = notebook(store.get("momentum"), store)
+    assert "query 1 could not be rendered" not in sources(doc, "code")[-1]
+    namespace = run_code_cells(doc)
+    result = namespace["prices_1"]
+    assert isinstance(result, pl.DataFrame)
+    assert result.height <= 4
+    assert result[0, "px"] == 0
+    assert result[-1, "px"] == 2**127 - 1
+    assert result["px"].min() == -10000
+    frame = namespace["prices"]
+    assert isinstance(frame, pl.DataFrame | pl.LazyFrame)
+    assert result.schema == frame.lazy().collect_schema()
