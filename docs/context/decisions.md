@@ -1078,11 +1078,11 @@ them.
   `quarry.projects.export` writes nbformat 4.5 JSON itself, with `kernelspec`,
   `language_info` and deterministic `cell-<n>` ids, so the same project exports
   the same file, and `nbformat` is a dev dependency that the export tests
-  validate against. The wheel then needs no Jupyter package. Saved queries
-  render without a schema, since only dtype strings are on disk; the cell's
-  first comment says so, and a view's TSX sits in a fence one backtick longer
-  than any run in its source. Cost if wrong: a format change goes unnoticed
-  until a test validates it.
+  validate against. The wheel then needs no Jupyter package. Metadata records
+  the export environment's Quarry, Python, Polars and DuckDB versions; it does
+  not freeze configuration, input data or the later execution environment. A
+  view's TSX sits in a fence one backtick longer than any run in its source.
+  Cost if wrong: a format change goes unnoticed until a test validates it.
 - **Exports rebuild the kernel namespace**: a recipe is step code, so it calls
   the kernel's preloads (`pl`, `duckdb`, `pq`, `sql`, `sql_local`, `loaders`)
   without importing them, and an export without them failed on its first cell.
@@ -1092,27 +1092,33 @@ them.
   `build_namespace` from `quarry` and bind the namespace built for the export's
   Quarry root, written in as an absolute path, with DuckDB spilling under a new
   `tempfile.mkdtemp()` directory. An export therefore needs `quarry` importable,
-  in a Jupyter kernel too. The cells stay the plain Python the spec's goals (§1)
-  promise, and only this setup leans on Quarry; "To code" output needs none of
-  it. Cost if wrong: an export moved to another machine needs that root's
-  `config.toml` and `loaders.toml` there, or an edit to the path, and the file
-  names where the root lives.
+  in a Jupyter kernel too. After every recipe runs, each view cell calls
+  `run_queries` to render, display and execute Python using the rebuilt objects'
+  backing, schema and importable DuckDB projection, through the same helpers as
+  "To code". Export generation runs no recipes or live queries. This preserves
+  typed literals, exact integer sums and INTERVAL/UNION conversion without
+  parsing saved dtype strings. Supplied limits stay as "To code" renders them;
+  the server's row cap applies to interactive queries. Cost if wrong: an export
+  moved to another machine needs that root's `config.toml` and `loaders.toml`
+  there, or an edit to the path, and the file names where the root lives.
 - **Export names results across the whole notebook**: a view's queries assign
   `<dataset>_<n>`, n being the query's position in its view, through
   `result_names` in `quarry.query.source_target`, which "To code" uses too. The
-  suffix rises past every saved dataset and every name an earlier view took, so
-  no result overwrites what a later cell reads, and a query that fails
-  validation keeps its number. A query whose generated import, such as
-  `from datetime import date`, would rebind a saved dataset stays a
-  `# query N could not be rendered` comment naming it, as "To code" refuses one.
-  Free text in an exported comment, such as a description, a validation error or
-  a pydantic message quoting a raw JSON key, goes through `py_comment`, which
-  `raw_recipe` shares: line breaks become spaces and anything else unprintable
-  is escaped, so a line break cannot run the rest as code, a NUL cannot stop the
-  cell compiling, and a bidi control cannot disguise it. The plan named results
-  with no check and put the multi-line pydantic message into a comment. Cost if
-  wrong: such a query is missing from the export until the dataset is renamed,
-  and a view's result numbers depend on the views that sort before it.
+  suffix rises past every name in the execution namespace, including recipe
+  helpers and earlier results, so no result overwrites what a later cell reads,
+  and a query that fails validation keeps its number. A query whose generated
+  import, such as `from datetime import date`, would rebind a saved dataset
+  stays a displayed `# query N could not be rendered` comment naming it, as "To
+  code" refuses one. Runtime calls import their renderer without binding a
+  helper name in the notebook namespace. Free text in an exported comment, such
+  as a description, a validation error or a pydantic message quoting a raw JSON
+  key, goes through `py_comment`, which `raw_recipe` shares: line breaks become
+  spaces and anything else unprintable is escaped, so a line break cannot run
+  the rest as code, a NUL cannot stop the cell compiling, and a bidi control
+  cannot disguise it. The plan named results with no check and put the
+  multi-line pydantic message into a comment. Cost if wrong: such a query is
+  missing from the export until the dataset is renamed, and a view's result
+  numbers depend on the views that sort before it.
 - **Exported recipes run in dependency order**: a raw recipe replays its
   upstream steps, so the recipe of `returns`, derived before a later step
   filtered `prices`, also rebinds `prices` to the unfiltered frame. The notebook

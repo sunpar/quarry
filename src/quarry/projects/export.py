@@ -3,25 +3,29 @@
 from __future__ import annotations
 
 import json
+import platform
 import re
-from collections.abc import Mapping
 from pathlib import Path
 
+import duckdb
+import polars as pl
 from pydantic import ValidationError
 
+from quarry import __version__
+from quarry.kernel.datasets import (
+    backing_of,
+    dataset_names,
+    importable_projection,
+    is_dataset,
+    schema_of,
+)
 from quarry.kernel.lineage import analyze
 from quarry.projects.models import Project, SavedDatasetMeta, SavedViewMeta
 from quarry.projects.recipe import split_leading_future
 from quarry.projects.store import ProjectStore
 from quarry.query.source_target import imported_names, py_comment, result_names, to_source
-from quarry.query.spec import Backing, Json, QueryError, QuerySpec
+from quarry.query.spec import Json, QueryError, QuerySpec
 from quarry.server.models import to_code_input
-
-NO_SCHEMA_NOTE = (
-    "# Rendered from the saved view's queries without a schema: literals are as the view sent\n"
-    '# them, and integer sums are plain, so an Int64 sum can wrap. Run "To code" in a session\n'
-    "# for a rendering against the live schema.\n"
-)
 
 
 def notebook(project: Project, store: ProjectStore) -> dict[str, Json]:
@@ -36,15 +40,20 @@ def notebook(project: Project, store: ProjectStore) -> dict[str, Json]:
     for i, rebinds in _recipe_order(names, recipes):
         cells.append(_markdown(_dataset_heading(project.datasets[i])))
         cells.append(_code(_rebind_warning(rebinds) + recipes[i]))
-    backings = {d.name: d.backing for d in project.datasets}
-    # Every name a cell binds, so no view's result overwrites what another cell reads.
-    taken = set(backings)
     for view in project.views:
         saved = store.read_view(slug, view.name)
         cells.append(_markdown(_view_heading(view)))
         queries, dropped = to_code_input(saved.state, saved.queries)
         left_out = py_comment(f"To code leaves out: {', '.join(dropped)}") + "\n" if dropped else ""
-        cells.append(_code(left_out + _queries_source(queries, backings, taken)))
+        cells.append(
+            _code(
+                left_out
+                + "# Render against the rebuilt datasets, show the Python, then run it.\n"
+                + "__import__('quarry.projects.export', fromlist=['run_queries']).run_queries(\n"
+                + f"    {queries!r}, globals()\n"
+                + ")\n"
+            )
+        )
         cells.append(_markdown(_fenced("tsx", saved.source.rstrip())))
     numbered: list[Json] = [{"id": f"cell-{n}", **cell} for n, cell in enumerate(cells)]
     return {
@@ -53,6 +62,14 @@ def notebook(project: Project, store: ProjectStore) -> dict[str, Json]:
         "metadata": {
             "kernelspec": {"name": "python3", "display_name": "Python 3", "language": "python"},
             "language_info": {"name": "python"},
+            "quarry": {
+                "export_environment": {
+                    "quarry": __version__,
+                    "python": platform.python_version(),
+                    "polars": pl.__version__,
+                    "duckdb": duckdb.__version__,
+                }
+            },
         },
         "cells": numbered,
     }
@@ -160,12 +177,11 @@ def _rebind_warning(rebinds: list[str]) -> str:
     return py_comment(warning) + "\n"
 
 
-def _queries_source(
-    queries: list[dict[str, Json]], backings: Mapping[str, Backing], taken: set[str]
-) -> str:
-    """The view's queries as Python, each assigning a name outside `taken`, which gains them.
+def run_queries(queries: list[dict[str, Json]], namespace: dict[str, object]) -> None:
+    """Render, display and execute a saved view's queries against the notebook's datasets.
 
-    A query that fails validation still uses up its position's number.
+    Result names avoid the execution namespace. An invalid query keeps its position number
+    and is displayed as a comment; other queries in its view still run.
     """
     blocks: dict[int, str] = {}
     specs: list[tuple[int, QuerySpec]] = []
@@ -174,21 +190,33 @@ def _queries_source(
             specs.append((n, QuerySpec.model_validate(raw)))
         except ValidationError as exc:
             blocks[n] = _unrendered(n, str(exc))
-    names = result_names([(n, spec.dataset) for n, spec in specs], taken)
-    taken.update(names)
+    names = result_names([(n, spec.dataset) for n, spec in specs], namespace)
+    datasets = dataset_names(namespace)
     for (n, spec), name in zip(specs, names, strict=True):
-        backing = backings.get(spec.dataset, "polars")
-        # An import binds its name for every later cell, a saved dataset's included.
-        shadowed = sorted(set(imported_names(spec, backing)) & backings.keys())
-        if shadowed:
-            reason = f"dataset {shadowed[0]!r} would be shadowed by a generated import; rename it"
-            blocks[n] = _unrendered(n, reason)
-            continue
+        obj = namespace[spec.dataset]
+        if not is_dataset(obj):
+            raise KeyError(spec.dataset)
+        backing = backing_of(obj)
+        schema = schema_of(obj)
+        projection = (
+            importable_projection(obj) if isinstance(obj, duckdb.DuckDBPyRelation) else None
+        )
         try:
-            blocks[n] = to_source(spec, backing, result_name=name)
+            blocks[n] = to_source(
+                spec, backing, result_name=name, schema=schema, relation_projection=projection
+            )
+            # An import binds its name for every later cell, a recipe's dataset included.
+            shadowed = sorted(set(imported_names(spec, backing, schema=schema)) & datasets)
+            if shadowed:
+                reason = (
+                    f"dataset {shadowed[0]!r} would be shadowed by a generated import; rename it"
+                )
+                blocks[n] = _unrendered(n, reason)
         except QueryError as exc:
             blocks[n] = _unrendered(n, str(exc))
-    return "\n".join([NO_SCHEMA_NOTE, *(blocks[n] for n in sorted(blocks))])
+    source = "\n".join(blocks[n] for n in sorted(blocks))
+    print(source)
+    exec(source, namespace)
 
 
 def _unrendered(n: int, reason: str) -> str:
