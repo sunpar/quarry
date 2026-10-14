@@ -8,6 +8,7 @@ import {
   type SortChangedEvent,
 } from "ag-grid-community";
 import { useDatasetSchema, useQuery, useViewState } from "@quarry/hooks";
+import { TableFilters, type TableFilter } from "@/components/ui/table-filters";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -30,17 +31,14 @@ const theme = themeQuartz.withParams({
 
 export default function DataTable({ datasets }: Props) {
   const dataset = datasets[0] ?? "";
-  const [saved, setSort] = useViewState<SortState | null>("sort", null);
+  const [sort, setSort] = useViewState<SortState | null>("sort", null);
   const [limit] = useViewState<number>("limit", 1000);
-  // A saved sort on a column the live dataset no longer has would fail every query.
-  const schema = useDatasetSchema(dataset);
-  const sort =
-    saved !== null && schema?.some((c) => c.name === saved.col) === false
-      ? null
-      : saved;
+  const [filters, setFilters] = useViewState<TableFilter[]>("filters", []);
+  const live = useDatasetSchema(dataset);
   const result = useQuery({
     dataset,
     limit,
+    ...(filters.length === 0 ? {} : { filters }),
     ...(sort === null ? {} : { sort: [{ col: sort.col, desc: sort.desc }] }),
   });
 
@@ -61,15 +59,6 @@ export default function DataTable({ datasets }: Props) {
     }));
   }, [result, sort]);
 
-  if (result.status === "loading")
-    return <p className="p-4 text-sm text-muted-foreground">Loading</p>;
-  if (result.status === "error")
-    return (
-      <pre className="p-4 font-mono text-sm text-destructive">
-        {result.message}
-      </pre>
-    );
-
   const onSortChanged = (event: SortChangedEvent) => {
     const sorted = event.api
       .getColumnState()
@@ -83,21 +72,38 @@ export default function DataTable({ datasets }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      {(result.truncated || result.rows.length >= limit) && (
-        <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
-          Showing the first {result.rows.length.toLocaleString()} rows.
-        </p>
+      <TableFilters
+        schema={live ?? (result.status === "success" ? result.schema : null)}
+        filters={filters}
+        onChange={setFilters}
+        sort={sort}
+        onClearSort={() => setSort(null)}
+      />
+      {result.status === "loading" ? (
+        <p className="p-4 text-sm text-muted-foreground">Loading</p>
+      ) : result.status === "error" ? (
+        <pre className="p-4 font-mono text-sm text-destructive">
+          {result.message}
+        </pre>
+      ) : (
+        <>
+          {(result.truncated || result.rows.length >= limit) && (
+            <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
+              Showing the first {result.rows.length.toLocaleString()} rows.
+            </p>
+          )}
+          <div className="min-h-0 flex-1">
+            <AgGridReact
+              theme={theme}
+              rowData={result.rows}
+              columnDefs={columnDefs}
+              onSortChanged={onSortChanged}
+              suppressMultiSort
+              suppressFieldDotNotation
+            />
+          </div>
+        </>
       )}
-      <div className="min-h-0 flex-1">
-        <AgGridReact
-          theme={theme}
-          rowData={result.rows}
-          columnDefs={columnDefs}
-          onSortChanged={onSortChanged}
-          suppressMultiSort
-          suppressFieldDotNotation
-        />
-      </div>
     </div>
   );
 }

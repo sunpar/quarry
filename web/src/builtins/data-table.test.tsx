@@ -76,7 +76,7 @@ describe("data-table built-in", () => {
     expect(screen.queryByText(/Showing the first/)).toBeNull();
   });
 
-  it("drops a saved sort on a column the live schema lacks", () => {
+  it("keeps a missing saved sort visible so it can be cleared", () => {
     query.mockReturnValue({ status: "loading" });
     saved.sort = { col: "gone", desc: true };
     schema.current = [{ name: "a", dtype: "Int64" }];
@@ -86,7 +86,14 @@ describe("data-table built-in", () => {
       delete saved.sort;
       schema.current = null;
     }
-    expect(query).toHaveBeenLastCalledWith({ dataset: "df", limit: 1000 });
+    expect(query).toHaveBeenLastCalledWith({
+      dataset: "df",
+      limit: 1000,
+      sort: [{ col: "gone", desc: true }],
+    });
+    expect(
+      screen.getByRole("button", { name: "Clear sort (gone)" }),
+    ).toBeTruthy();
   });
 
   it("shows query errors in place", () => {

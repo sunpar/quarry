@@ -6,6 +6,7 @@ import {
   useTable,
 } from "@tanstack/react-table";
 import { useDatasetSchema, useQuery, useViewState } from "@quarry/hooks";
+import { TableFilters, type TableFilter } from "@/components/ui/table-filters";
 import type { Row } from "@/shared/api-types";
 
 interface Props {
@@ -28,17 +29,14 @@ const NONE: never[] = [];
 
 export default function DataTableTanstack({ datasets }: Props) {
   const dataset = datasets[0] ?? "";
-  const [saved, setSort] = useViewState<SortState | null>("sort", null);
+  const [sort, setSort] = useViewState<SortState | null>("sort", null);
   const [limit] = useViewState<number>("limit", 500);
-  // A saved sort on a column the live dataset no longer has would fail every query.
+  const [filters, setFilters] = useViewState<TableFilter[]>("filters", []);
   const live = useDatasetSchema(dataset);
-  const sort =
-    saved !== null && live?.some((c) => c.name === saved.col) === false
-      ? null
-      : saved;
   const result = useQuery({
     dataset,
     limit,
+    ...(filters.length === 0 ? {} : { filters }),
     ...(sort === null ? {} : { sort: [{ col: sort.col, desc: sort.desc }] }),
   });
   const rows = result.status === "success" ? result.rows : NONE;
@@ -59,15 +57,6 @@ export default function DataTableTanstack({ datasets }: Props) {
   );
   const table = useTable({ features, columns, data: rows });
 
-  if (result.status === "loading")
-    return <p className="p-4 text-sm text-muted-foreground">Loading</p>;
-  if (result.status === "error")
-    return (
-      <pre className="p-4 font-mono text-sm text-destructive">
-        {result.message}
-      </pre>
-    );
-
   // Ascending, then descending, then back to the order the rows came in.
   const onHeader = (col: string) =>
     setSort(
@@ -80,50 +69,67 @@ export default function DataTableTanstack({ datasets }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      {(result.truncated || rows.length >= limit) && (
-        <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
-          Showing the first {rows.length.toLocaleString()} rows.
-        </p>
+      <TableFilters
+        schema={live ?? (result.status === "success" ? result.schema : null)}
+        filters={filters}
+        onChange={setFilters}
+        sort={sort}
+        onClearSort={() => setSort(null)}
+      />
+      {result.status === "loading" ? (
+        <p className="p-4 text-sm text-muted-foreground">Loading</p>
+      ) : result.status === "error" ? (
+        <pre className="p-4 font-mono text-sm text-destructive">
+          {result.message}
+        </pre>
+      ) : (
+        <>
+          {(result.truncated || rows.length >= limit) && (
+            <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
+              Showing the first {rows.length.toLocaleString()} rows.
+            </p>
+          )}
+          <div className="min-h-0 flex-1 overflow-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead className="sticky top-0 bg-card">
+                {table.getHeaderGroups().map((group) => (
+                  <tr key={group.id}>
+                    {group.headers.map((header) => (
+                      <th
+                        key={header.id}
+                        className="cursor-pointer border-b border-border px-2 py-1 text-left font-medium"
+                        onClick={() => onHeader(header.column.id)}
+                      >
+                        <table.FlexRender header={header} />
+                        {sort?.col === header.column.id &&
+                          (sort.desc ? " ▼" : " ▲")}
+                      </th>
+                    ))}
+                  </tr>
+                ))}
+              </thead>
+              <tbody>
+                {table.getRowModel().rows.map((row) => (
+                  <tr key={row.id} className="border-b border-border/60">
+                    {row.getAllCells().map((cell) => (
+                      <td
+                        key={cell.id}
+                        className={
+                          cell.column.columnDef.meta?.numeric
+                            ? "px-2 py-1 text-right font-mono"
+                            : "px-2 py-1"
+                        }
+                      >
+                        <table.FlexRender cell={cell} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
-      <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full border-collapse text-sm">
-          <thead className="sticky top-0 bg-card">
-            {table.getHeaderGroups().map((group) => (
-              <tr key={group.id}>
-                {group.headers.map((header) => (
-                  <th
-                    key={header.id}
-                    className="cursor-pointer border-b border-border px-2 py-1 text-left font-medium"
-                    onClick={() => onHeader(header.column.id)}
-                  >
-                    <table.FlexRender header={header} />
-                    {sort?.col === header.column.id &&
-                      (sort.desc ? " ▼" : " ▲")}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.map((row) => (
-              <tr key={row.id} className="border-b border-border/60">
-                {row.getAllCells().map((cell) => (
-                  <td
-                    key={cell.id}
-                    className={
-                      cell.column.columnDef.meta?.numeric
-                        ? "px-2 py-1 text-right font-mono"
-                        : "px-2 py-1"
-                    }
-                  >
-                    <table.FlexRender cell={cell} />
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }

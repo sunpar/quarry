@@ -819,6 +819,14 @@ them.
   first N rows." whenever a page is full. AG Grid's client-side filters are off,
   since a filter over one page gives wrong answers; filters belong in the query
   spec (spec §9).
+- **Table filters run in the kernel**: both tables share a filter bar through
+  the runtime UI module table. Numeric comparisons accept finite numbers and
+  safe integers; text filters are literal and dates use calendar days. Decimal,
+  datetime and other types offer only null filters. Saved predicates stay
+  visible and removable after schema changes, without dropping them from the
+  mounted query. Filters and sort use view state; snapshots and "To code" use
+  the mounted query rather than a second saved spec. Cost: exact decimal, large
+  integer and datetime value filters need a later typed literal design.
 - **Loader keeps unused imports**: Sucrase runs with `keepUnusedImports`, so a
   refused module is refused even when nothing uses it. A type-only value import
   of a non-allowlisted path is refused too. The allowlist is checked with
@@ -1248,8 +1256,8 @@ them.
   `rowSortingFeature` and `enableSorting: false` are gone; v9's `TableOptions`
   refuses `enableSorting` without that feature. The numeric flag is typed
   through the `columnMeta: metaHelper<…>()` slot instead of a cast. As the AG
-  Grid table does, it drops a saved sort on a column the live schema lacks and
-  shows "Showing the first N rows." when a page is full; the plan's "N of M
+  Grid table does, it keeps a saved sort visible with a Clear sort action when
+  the live schema loses its column, and shows "Showing the first N rows." when a page is full; the plan's "N of M
   rows" would repeat the page size, since `row_count` counts the rows returned.
 - **OHLC reads times and prices as the time series does**: naive ISO datetimes
   are UTC, Decimal strings become numbers, a candle whose time or any price is
