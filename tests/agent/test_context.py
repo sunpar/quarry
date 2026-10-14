@@ -49,6 +49,9 @@ def test_build_system_is_deterministic_and_filtered() -> None:
     assert "datasets: string[]" in a
     assert "@/components/ui/textarea" in a
     assert "failed to load" not in a
+    assert "line_reduce?" in a and "line_reduce = {time, value, max_rows?}" in a
+    assert "sourceRowCount" in a and "reduced" in a
+    assert "whole time domain" in a
 
 
 def test_guide_names_the_runtime_modules() -> None:

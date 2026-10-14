@@ -5,7 +5,7 @@ import type { Row } from "@/shared/api-types";
 
 interface Option {
   useUTC: boolean;
-  series: { data: [number, number][] }[];
+  series: { data: [number, number | null][]; sampling?: string }[];
 }
 
 const query = vi.fn<(spec: unknown) => QueryHookResult>();
@@ -31,7 +31,10 @@ vi.mock("echarts-for-react", () => ({
 
 import LargeSeries from "@builtin/large-series/component";
 
-const success = (rows: Row[], truncated = false): QueryHookResult => ({
+const success = (
+  rows: Row[],
+  truncated = false,
+): Extract<QueryHookResult, { status: "success" }> => ({
   status: "success",
   rows,
   schema: [],
@@ -41,19 +44,18 @@ const success = (rows: Row[], truncated = false): QueryHookResult => ({
 });
 
 describe("large-series built-in", () => {
-  it("asks for up to 500,000 rows sorted by time and downsamples the line", () => {
+  it("requests whole-domain reduction without browser sampling", () => {
     query.mockReturnValue(success([{ ts: "2024-01-02T10:00:00", px: 1 }]));
     render(<LargeSeries datasets={["ticks"]} />);
     expect(query).toHaveBeenCalledWith({
       dataset: "ticks",
-      select: ["ts", "px"],
-      sort: [{ col: "ts" }],
-      limit: 500000,
+      line_reduce: { time: "ts", value: "px", max_rows: 50000 },
     });
     expect(chart.mock.lastCall?.[0].series[0]).toMatchObject({
-      sampling: "lttb",
+      connectNulls: false,
       showSymbol: false,
     });
+    expect(chart.mock.lastCall?.[0].series[0]?.sampling).toBeUndefined();
     expect(screen.queryByText(/Showing the first/)).toBeNull();
   });
 
@@ -76,7 +78,9 @@ describe("large-series built-in", () => {
     expect(option?.useUTC).toBe(true);
     expect(option?.series[0]?.data).toEqual([
       [base, 1],
+      [base + 1000, null],
       [base + 2000, 2.5],
+      [base + 3000, null],
     ]);
     // The server's row cap sits below the chart's limit.
     expect(screen.getByText("Showing the first 5 rows.")).toBeTruthy();
@@ -91,7 +95,35 @@ describe("large-series built-in", () => {
       delete saved.columns;
     }
     expect(query).toHaveBeenLastCalledWith(
-      expect.objectContaining({ select: ["ts", "px"] }),
+      expect.objectContaining({
+        line_reduce: { time: "ts", value: "px", max_rows: 50000 },
+      }),
     );
+  });
+
+  it("distinguishes whole-domain reduction from prefix truncation", () => {
+    query.mockReturnValue({
+      ...success([{ ts: "2026-01-01", px: 1 }]),
+      reduced: true,
+      sourceRowCount: 60001,
+    });
+    render(<LargeSeries datasets={["ticks"]} />);
+    expect(
+      screen.getByText(
+        "Reduced 60,001 rows across the whole time range to 1 representative row.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Showing the first/)).toBeNull();
+  });
+
+  it("keeps column selectors available after a query error", () => {
+    query.mockReturnValue({
+      status: "error",
+      message: "row budget cannot preserve gaps",
+    });
+    render(<LargeSeries datasets={["ticks"]} />);
+    expect(screen.getByLabelText("Time")).toBeTruthy();
+    expect(screen.getByLabelText("Value")).toBeTruthy();
+    expect(screen.getByText("row budget cannot preserve gaps")).toBeTruthy();
   });
 });

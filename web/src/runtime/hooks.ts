@@ -16,6 +16,8 @@ export type QueryHookResult =
       schema: Column[];
       rowCount: number;
       truncated: boolean;
+      reduced?: boolean;
+      sourceRowCount?: number | null;
       arrow: ArrayBuffer | null;
     }
   | { status: "error"; message: string };
@@ -40,6 +42,8 @@ export function useQuery(spec: QuerySpec): QueryHookResult {
       schema: result.schema,
       rowCount: result.row_count,
       truncated: result.truncated,
+      reduced: result.reduced ?? false,
+      sourceRowCount: result.source_row_count ?? null,
       arrow: state.arrow,
     };
   }, [state]);

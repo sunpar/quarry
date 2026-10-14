@@ -29,6 +29,8 @@ def check_output_columns(spec: QuerySpec, available: set[str]) -> None:
 
 def _input_columns(spec: QuerySpec) -> list[str]:
     names = [f.col for f in spec.filters]
+    if spec.line_reduce is not None:
+        names += [spec.line_reduce.time, spec.line_reduce.value]
     if spec.group_by is not None:
         names += [*spec.group_by, *(a.col for a in spec.aggs)]
     if spec.pivot is not None:

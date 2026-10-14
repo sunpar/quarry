@@ -7,15 +7,21 @@ from datetime import UTC, date, datetime
 from typing import Final, Literal
 from zoneinfo import ZoneInfo
 
+import duckdb
 import polars as pl
 
 from quarry.query.columns import check_columns, check_output_columns
-from quarry.query.spec import Agg, AggFn, Filter, Json, Pivot, QuerySpec
+from quarry.query.spec import Agg, AggFn, Filter, Json, Pivot, QueryError, QuerySpec
+from quarry.query.sql_target import LINE_CONNECTION_CONFIG, line_sql, quote_ident
 
 CompareOp = Literal["eq", "ne", "lt", "le", "gt", "ge", "in", "not_in", "between"]
 _UP_TO_64_BIT_INTEGERS: Final = frozenset(
     {pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64}
 )
+LINE_INTEGER_TYPES: Final[dict[pl.DataType, str]] = {
+    pl.Int128(): "HUGEINT",
+    pl.UInt128(): "UHUGEINT",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,12 +32,54 @@ class CoercedLiteral:
     compare_as_float: bool
 
 
-def to_polars(spec: QuerySpec, frame: pl.DataFrame | pl.LazyFrame) -> pl.LazyFrame:
+def to_polars(
+    spec: QuerySpec,
+    frame: pl.DataFrame | pl.LazyFrame,
+    *,
+    reduction_stats: bool = False,
+) -> pl.LazyFrame:
     lf = frame.lazy()
     schema = lf.collect_schema()
     check_columns(spec, set(schema.names()))
     if spec.filters:
         lf = lf.filter(pl.all_horizontal([filter_expr(f, schema[f.col]) for f in spec.filters]))
+    if spec.line_reduce is not None:
+        time, value = spec.line_reduce.time, spec.line_reduce.value
+        if not (schema[time] == pl.Date or isinstance(schema[time], pl.Datetime)):
+            raise QueryError(
+                "line_reduce time must be Date or Datetime", dataset=spec.dataset, column=time
+            )
+        if not schema[value].is_numeric():
+            raise QueryError(
+                "line_reduce value must be numeric", dataset=spec.dataset, column=value
+            )
+        # As with pivot, only the columns this eager transform needs are materialized.
+        axes = lf.select(time, value).collect()
+        integer_type = LINE_INTEGER_TYPES.get(schema[value])
+        transport = axes.with_columns(
+            pl.col(time).cast(pl.Int64),
+            pl.col(value).cast(pl.String) if integer_type else pl.col(value),
+        )
+        with duckdb.connect(config=LINE_CONNECTION_CONFIG) as conn:
+            conn.register("points", transport)
+            values = quote_ident(value)
+            if integer_type:
+                values = f"CAST({values} AS {integer_type})"
+            return (
+                conn.sql(
+                    line_sql(
+                        spec,
+                        'SELECT * FROM "points"',
+                        reduction_stats=reduction_stats,
+                        time_ticks=quote_ident(time),
+                        value_expression=values,
+                        output_value="CAST(v AS VARCHAR)" if integer_type else "v",
+                    )
+                )
+                .pl()
+                .with_columns(pl.col(time).cast(schema[time]), pl.col(value).cast(schema[value]))
+                .lazy()
+            )
     if spec.group_by is not None:
         lf = lf.group_by(spec.group_by).agg([agg_expr(a, schema[a.col]) for a in spec.aggs])
     elif spec.pivot is not None:

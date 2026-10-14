@@ -35,6 +35,7 @@ import polars as pl
 
 from quarry.query.columns import check_columns
 from quarry.query.polars_target import (
+    LINE_INTEGER_TYPES,
     CoercedLiteral,
     CompareOp,
     coerce_literal,
@@ -51,7 +52,14 @@ from quarry.query.spec import (
     QueryError,
     QuerySpec,
 )
-from quarry.query.sql_target import quote_ident, relation_view, split_for_relation, to_sql
+from quarry.query.sql_target import (
+    LINE_CONNECTION_CONFIG,
+    line_sql,
+    quote_ident,
+    relation_view,
+    split_for_relation,
+    to_sql,
+)
 
 DATE_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATETIME_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
@@ -88,7 +96,8 @@ def to_source(
     `relation_projection`, for a DuckDB relation, is the DuckDB select list the kernel reads
     the relation through (`importable_projection`): it renames repeated columns and casts
     INTERVAL and UNION columns to VARCHAR so `.pl()` can import them. Every failure caused by
-    the spec is a QueryError.
+    the spec is a QueryError. Polars line reduction requires `schema` to restore the original
+    axis dtypes after its lossless DuckDB transport; the kernel always supplies it.
     """
     require_identifier(spec.dataset, "dataset", spec)
     require_identifier(result_name, "result_name", spec)
@@ -109,13 +118,60 @@ def _render(
     relation_projection: str | None,
 ) -> str:
     if backing != "duckdb":
-        chain = _chain_source(
-            spec,
-            result_name=result_name,
-            schema=schema,
-            head=f"{spec.dataset}.lazy()",
-            head_is_lazy=True,
-        )
+        if spec.line_reduce is not None:
+            if schema is None:
+                raise QueryError(
+                    "line_reduce Polars source requires the axis schema", dataset=spec.dataset
+                )
+            axes = [spec.line_reduce.time, spec.line_reduce.value]
+            time, value = axes
+            integer_type = LINE_INTEGER_TYPES.get(schema[value])
+            values = quote_ident(value)
+            if integer_type:
+                values = f"CAST({values} AS {integer_type})"
+            sql = py_literal(
+                line_sql(
+                    spec,
+                    'SELECT * FROM "points"',
+                    time_ticks=quote_ident(time),
+                    value_expression=values,
+                    output_value="CAST(v AS VARCHAR)" if integer_type else "v",
+                )
+            )
+            time_col, value_col = f"pl.col({py_literal(time)})", f"pl.col({py_literal(value)})"
+            source = "\n".join(
+                [
+                    f"{spec.dataset}.lazy()",
+                    *_filter_steps(spec, schema),
+                    f".select({py_literal(axes)})",
+                    ".collect()",
+                ]
+            )
+            transport = f"(\n{_indent(source)}\n).with_columns({time_col}.cast(pl.Int64)"
+            if integer_type:
+                transport += f", {value_col}.cast(pl.String)"
+            transport += ")"
+            connection = f"_quarry_{result_name}_connection"
+            while connection in {spec.dataset, result_name}:
+                connection += "_"
+            register = f'{connection}.register("points", {transport})'
+            chain = (
+                f"with duckdb.connect(config={LINE_CONNECTION_CONFIG!r}) as {connection}:\n"
+                f"{_indent(register)}\n"
+                f"    {result_name} = {connection}.sql({sql}).pl().with_columns(\n"
+                f"        {time_col}.cast(pl.{schema[time]!r}),\n"
+                f"        {value_col}.cast(pl.{schema[value]!r}),\n"
+                "    )"
+                f"\ndel {connection}"
+            )
+        else:
+            chain = _chain_source(
+                spec,
+                result_name=result_name,
+                schema=schema,
+                head=f"{spec.dataset}.lazy()",
+                head_is_lazy=True,
+            )
         imported = _imported_names(spec, schema)
         if spec.dataset in imported:
             raise QueryError(
@@ -360,14 +416,20 @@ def _imported_names(spec: QuerySpec, schema: Schema | None) -> list[str]:
         for f in spec.filters
         if f.op not in TEXT_OPS | NULL_OPS
     ]
-    return sorted({name for value in literals for name in _temporal_names(value)})
+    return sorted(
+        {name for value in literals for name in _temporal_names(value)}
+        | ({"duckdb"} if spec.line_reduce else set())
+    )
 
 
 def _import_lines(names: list[str]) -> str:
+    temporal = [n for n in names if n != "duckdb"]
     lines = [
-        f"from {module} import {', '.join(n for n in names if IMPORTED_FROM[n] == module)}\n"
-        for module in sorted({IMPORTED_FROM[n] for n in names})
+        f"from {module} import {', '.join(n for n in temporal if IMPORTED_FROM[n] == module)}\n"
+        for module in sorted({IMPORTED_FROM[n] for n in temporal})
     ]
+    if "duckdb" in names:
+        lines.append("import duckdb\n")
     return "".join(lines) + "\n" if lines else ""
 
 
