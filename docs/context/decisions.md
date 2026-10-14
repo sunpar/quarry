@@ -807,9 +807,9 @@ them.
   `ready`, which sends the queued mount. A late libraries answer connects the
   already loaded frame; content changes mount through the existing bridge.
   Reconnecting clears the previous runtime's readiness, keeping changed content
-  and linked state queued until the new acknowledgment.
-  Removing the runtime's unprompted `ready` leaves one mount trigger, so a late
-  acknowledgment cannot reset state or repeat the first query.
+  and linked state queued until the new acknowledgment. Removing the runtime's
+  unprompted `ready` leaves one mount trigger, so a late acknowledgment cannot
+  reset state or repeat the first query.
 - **A repair step keeps the researcher's prompt**: the view source and browser
   error go only to the agent; the persisted step shows "Fix the view so it
   mounts." The plan stored the composed text as the step prompt, which put a
@@ -1105,6 +1105,12 @@ them.
   not freeze configuration, input data or the later execution environment. A
   view's TSX sits in a fence one backtick longer than any run in its source.
   Cost if wrong: a format change goes unnoticed until a test validates it.
+- **Frozen HTML reports read saved artifacts**: the report includes metadata,
+  recipe and view source, state, query specs and the existing 20-row preview
+  bound for pinned data. It never replays code or loads external assets; live
+  and view results are unavailable because they are not persisted. Escaped UTF-8
+  output has a 5 MiB limit, and artifact failures stop the export. Cost: the
+  report cannot reproduce arbitrary charts or establish upstream freshness.
 - **Exports rebuild the kernel namespace**: a recipe is step code, so it calls
   the kernel's preloads (`pl`, `duckdb`, `pq`, `sql`, `sql_local`, `loaders`)
   without importing them, and an export without them failed on its first cell.
@@ -1271,8 +1277,9 @@ them.
   refuses `enableSorting` without that feature. The numeric flag is typed
   through the `columnMeta: metaHelper<…>()` slot instead of a cast. As the AG
   Grid table does, it keeps a saved sort visible with a Clear sort action when
-  the live schema loses its column, and shows "Showing the first N rows." when a page is full; the plan's "N of M
-  rows" would repeat the page size, since `row_count` counts the rows returned.
+  the live schema loses its column, and shows "Showing the first N rows." when a
+  page is full; the plan's "N of M rows" would repeat the page size, since
+  `row_count` counts the rows returned.
 - **OHLC reads times and prices as the time series does**: naive ISO datetimes
   are UTC, Decimal strings become numbers, a candle whose time or any price is
   not finite is dropped, and rows on the same second keep the last, because

@@ -30,7 +30,7 @@ _NAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 M = TypeVar("M", bound=BaseModel)
 
 
-# Named as `write_atomic` names its temps: a pinned snapshot before it is saved.
+# A pinned snapshot before it is saved.
 _STAGED_ROWS = ".data.parquet.tmp"
 
 

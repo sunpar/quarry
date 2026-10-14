@@ -650,6 +650,15 @@ Quarry, Python, Polars and DuckDB versions from the export environment, without
 pinning input data or installing dependencies. A saved dataset also exports
 alone as a `.py` script.
 
+`--format html` and "Export HTML report" produce a self-contained, script-free
+report from saved metadata, recipes, views, state, query specs and the first
+20 pinned dataset rows. They execute no recipe, query or view. Live dataset
+results and rendered view results are marked unavailable because they are not
+persisted. Saved timestamps describe Quarry saves, not upstream freshness.
+The escaped UTF-8 document is capped at 5 MiB; missing or corrupt saved
+artifacts fail the export. CLI notebook and HTML outputs are private atomic
+writes.
+
 ## 11. Persistence layout
 
 ```
