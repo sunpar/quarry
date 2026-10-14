@@ -8,12 +8,13 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Implement Claude Code and Codex subscription access on
-`codex/subscription-providers` using the
-[accepted plan](superpowers/plans/2026-10-14-quarry-subscription-providers.md).
-The user requested parallel implementation and the open-pr-and-babysit loop.
-Implementation and task reviews are complete. The branch is pushed. Native PR
-reviews are in progress before the PR is opened.
+Finish [subscription providers PR #16](https://github.com/sunpar/quarry/pull/16)
+on `codex/subscription-providers` through open-pr-and-babysit. Implementation,
+task reviews, simplify and native local reviews are complete. Astra's finding is
+fixed; Opus and Muse could not review because of subscription quota limits. The
+first GitHub Claude review is requested. The
+[accepted plan](superpowers/plans/2026-10-14-quarry-subscription-providers.md)
+records the implementation scope.
 
 ## Status by stage
 
@@ -124,12 +125,11 @@ files. Its documentation follow-up is
 
 ## Latest verification
 
-The initial implementation on macOS, Python 3.11 passed `make check` with 1,067
-Python tests (including all 10 browser tests), 235 frontend tests and 25
-gate/transport regressions. The Python suite took 65.01 seconds. Three tests
-skipped: the Linux memory cap and two opt-in live API providers. Lint,
-formatting, types, web build, offline wheel/sdist build and wheel asset checks
-passed.
+Exact-head verification on macOS, Python 3.11 passed with 1,069 Python tests
+(including all 10 browser tests), 235 frontend tests and 25 gate/transport
+regressions. The Python suite took 60.17 seconds. Three tests skipped: the Linux
+memory cap and two opt-in live API providers. Lint, formatting, types, web
+build, offline wheel/sdist build and wheel asset checks passed.
 
 Codex 0.162.1 completed a real Quarry Python execution and table render, and
 cancellation joined the process and reader. Claude Code 2.1.299 passed login and
@@ -140,8 +140,8 @@ reviews and the whole-branch simplify pass are complete.
 
 ## Next actions
 
-1. Finish the Muse native review and exact-head verification.
-2. Open and babysit one PR through the capped bot rotation and current-head CI.
+1. Complete the capped GitHub bot rotation and full CI for the current head.
+2. Merge after all findings are addressed and the exact-head checks pass.
 
 ## Resuming
 
