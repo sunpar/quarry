@@ -8,18 +8,17 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Implement the bounded whole-series query contract in
-[PR #22](https://github.com/sunpar/quarry/pull/22), one of five follow-ups from
-the related-project survey. Keep this PR open after local checks, GitHub review
-and current-head Linux verification. The controller maintains the consolidated
-checkpoint in its coordination branch.
+Prepare five related-project survey follow-ups as separate PRs. Keep them open
+after local checks, bounded GitHub review and current-head Linux verification.
+The controller maintains the consolidated checkpoint in its coordination branch.
 
 ### Whole-series review
 
-The whole-domain line query preserves endpoints, bin extrema and every null-run
-endpoint within the row cap. It refuses insufficient budgets and reproduces the
-same representatives in generated Python. Its private Polars reducer uses one
-thread, 256 MiB and no spill. The
+The whole-domain line query in
+[PR #22](https://github.com/sunpar/quarry/pull/22) preserves endpoints, bin
+extrema and every null-run endpoint within the row cap. It refuses insufficient
+budgets and reproduces the same representatives in generated Python. Its private
+Polars reducer uses one thread, 256 MiB and no spill. The
 [query spec](superpowers/specs/2026-10-08-quarry-design.md#query-spec) defines
 ordering, ties and transport precision.
 
@@ -38,6 +37,29 @@ filesystem case folding and the two live providers. Its timed staged smoke took
 5.60 seconds. A bounded synthetic 1,000,001-row probe returned identical
 48,037-row results on both backings, preserving endpoints, global extrema and
 all 60 gap markers within the private memory allowance.
+
+### Frozen-report review
+
+The export in [PR #20](https://github.com/sunpar/quarry/pull/20) reads saved
+metadata, recipes, view source/state/specs and at most 20 rows from each pinned
+dataset. It runs no recipes, queries or view code, loads no external assets,
+escapes saved text and caps the HTML at 5 MiB. CLI exports use exclusive private
+temporary files with failure cleanup.
+
+The first Codex review's four P2 findings are fixed: temporary-file cleanup,
+project lookup error scope, the obsolete CLI permission backlog and bounds
+before HTML/JSON expansion. The final review found a missing referenced dataset
+and a stale checkpoint. The report now rejects a view whose dataset directory or
+metadata is missing; regression tests retain a valid sibling. This checkpoint
+records the report work while preserving the Docker history.
+
+The prior head `2aebcb5` passed full Mac and Linux checks: 1,097 Python tests,
+236 frontend tests and 25 gate/transport tests on each platform, with three
+expected Python skips. The final fix passed 66 focused tests in 3.25 seconds,
+lint and strict types. Full outgoing-head and Linux verification are pending at
+this commit; the controller records their final evidence. Both GitHub bot
+request budgets are exhausted without a clean review, so readiness requires the
+workflow's silence fallback after all findings and final checks pass.
 
 ### Docker integration
 

@@ -6,7 +6,7 @@ import polars as pl
 import pytest
 
 from quarry.projects.report import ReportError, report_html
-from tests.projects.test_export import project_with_saved_items
+from tests.projects.test_export import project_with_saved_items, save_another_dataset
 
 
 class ReportMarkup(HTMLParser):
@@ -159,3 +159,21 @@ def test_report_bounds_json_fields_before_the_encoder_expands_them(
     finally:
         tracemalloc.stop()
     assert peak < 10 * 1024 * 1024
+
+
+@pytest.mark.parametrize("missing", ["directory", "metadata"])
+def test_report_rejects_missing_view_dependencies_with_a_valid_sibling(
+    tmp_path: Path, missing: str
+) -> None:
+    store = project_with_saved_items(tmp_path)
+    save_another_dataset(store, "valid", "valid = 1\n")
+    directory = tmp_path / "projects/momentum/datasets/prices"
+    if missing == "directory":
+        directory.rename(tmp_path / "moved-prices")
+    else:
+        (directory / "meta.json").unlink()
+    project = store.get("momentum")
+    assert [dataset.name for dataset in project.datasets] == ["valid"]
+    with pytest.raises(ReportError, match=r"saved artifact.*prices.*table"):
+        report_html(project, store)
+    assert store.read_recipe("momentum", "valid") == "valid = 1\n"

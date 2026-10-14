@@ -113,3 +113,11 @@ def test_html_report_artifact_failure_is_an_explicit_error(tmp_path: Path) -> No
     report = make_client(tmp_path, []).get("/projects/momentum/export.html")
     assert report.status_code == 400
     assert "saved artifact" in report.json()["detail"]
+
+
+def test_html_report_rejects_a_missing_view_dependency(tmp_path: Path) -> None:
+    project_with_saved_items(tmp_path)
+    (tmp_path / "projects/momentum/datasets/prices/meta.json").unlink()
+    report = make_client(tmp_path, []).get("/projects/momentum/export.html")
+    assert report.status_code == 400
+    assert "prices" in report.json()["detail"] and "table" in report.json()["detail"]
