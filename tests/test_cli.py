@@ -156,3 +156,39 @@ def test_html_export_failure_leaves_output_untouched(
     )
     assert target.read_text() == "previous report"
     assert "saved artifact" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("format_name, extension", [("notebook", "ipynb"), ("html", "html")])
+@pytest.mark.parametrize("symlink", [False, True])
+def test_exports_do_not_reuse_preexisting_temporary_files(
+    tmp_path: Path, format_name: str, extension: str, symlink: bool
+) -> None:
+    project_with_saved_items(tmp_path)
+    target = tmp_path / f"report.{extension}"
+    previous_temp = tmp_path / f".report.{extension}.tmp"
+    victim = tmp_path / "unrelated.txt"
+    victim.write_text("leave this alone")
+    if symlink:
+        previous_temp.symlink_to(victim)
+    else:
+        previous_temp.write_text("old temporary file")
+        previous_temp.chmod(0o644)
+    assert (
+        main(
+            [
+                "projects",
+                "export",
+                "momentum",
+                "--root",
+                str(tmp_path),
+                "--format",
+                format_name,
+                "--out",
+                str(target),
+            ]
+        )
+        == 0
+    )
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    assert victim.read_text() == "leave this alone"
+    assert previous_temp.read_text() == ("leave this alone" if symlink else "old temporary file")
