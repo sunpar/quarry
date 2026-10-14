@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
+from urllib.parse import parse_qs, urlsplit
 
+import pytest
 from playwright.sync_api import Page, expect
 
 from quarry.agent.types import AssistantTurn, ToolCall
@@ -58,6 +61,80 @@ def test_table_view_round_trip(serve: Serve, page: Page) -> None:
     frame = page.frame_locator("iframe[title='View for step 1']")
     expect(frame.get_by_text("102.25")).to_be_visible(timeout=30_000)
     expect(page.get_by_role("textbox")).to_be_enabled()
+
+
+@pytest.mark.parametrize("component", ["data-table", "data-table-tanstack"])
+def test_table_filters_sort_history_and_executed_to_code(
+    serve: Serve, page: Page, component: str
+) -> None:
+    code = (
+        "from datetime import date\n"
+        "df = pl.DataFrame({'symbol': ['[A', 'B', '[C', 'D', '[E'], "
+        "'price': [1.5, 3.0, 2.5, None, 4.0], "
+        "'day': [date(2026, 10, d) for d in (12, 13, 14, 14, 14)]})"
+    )
+    server = serve([py("c1", code), render("c2", component), end("filtered table")])
+    open_session(page, server, component)
+    frame = page.frame_locator("iframe[title='View for step 1']")
+    expect(frame.get_by_text("1.5", exact=True)).to_be_visible(timeout=30_000)
+    # First save a numeric predicate, then a second snapshot with server-side sort.
+    frame.get_by_label("Filter column").select_option("price")
+    frame.get_by_label("Filter operator").select_option("ge")
+    frame.get_by_label("Filter value").fill("2")
+    with page.expect_response(
+        lambda r: r.url.endswith("/snapshots") and r.request.method == "POST"
+    ) as response:
+        frame.get_by_role("button", name="Apply filter").click()
+    assert response.value.ok
+    expect(frame.get_by_text("1.5", exact=True)).to_have_count(0)
+    header = frame.get_by_role("columnheader", name=re.compile(r"^price"))
+    with page.expect_response(
+        lambda r: r.url.endswith("/snapshots") and r.request.method == "POST"
+    ):
+        header.click()
+        header.click()
+    session_id = parse_qs(urlsplit(page.url).fragment)["session"][0]
+    session_url = f"{server.base_url}/sessions/{session_id}"
+    headers = {"Authorization": f"Bearer {server.token}"}
+    session = page.request.get(session_url, headers=headers).json()
+    snapshots = session["steps"][0]["view"]["snapshots"]
+    sorted_index = len(snapshots) - 1
+    query = snapshots[-1]["queries"][0]
+    assert query["filters"] == [{"col": "price", "op": "ge", "value": 2}]
+    assert query["sort"] == [{"col": "price", "desc": True}]
+
+    # Literal text and Date filters compose with the numeric predicate.
+    for column, operator, value in (("symbol", "contains", "["), ("day", "eq", "2026-10-14")):
+        frame.get_by_label("Filter column").select_option(column)
+        frame.get_by_label("Filter operator").select_option(operator)
+        frame.get_by_label("Filter value").fill(value)
+        with page.expect_response(
+            lambda r: r.url.endswith("/snapshots") and r.request.method == "POST"
+        ):
+            frame.get_by_role("button", name="Apply filter").click()
+    expect(frame.get_by_text("[C", exact=True)).to_be_visible()
+    expect(frame.get_by_text("B", exact=True)).to_have_count(0)
+
+    # Restore an actual earlier snapshot, including its filter and descending sort.
+    slider = page.get_by_role("slider")
+    slider.fill(str(sorted_index))
+    expect(frame.get_by_text("B", exact=True)).to_be_visible()
+    expect(frame.get_by_role("button", name="Remove symbol filter 2")).to_have_count(0)
+    slider.fill(slider.get_attribute("max") or "0")
+    expect(frame.get_by_text("B", exact=True)).to_have_count(0)
+    page.get_by_role("button", name="To code").click()
+    python = page.get_by_role("textbox", name="Python")
+    expect(python).to_have_value(re.compile(r"str\.contains.*literal=True"))
+    assert ".sort(" in python.input_value()
+    page.get_by_role("button", name="Run as step").click()
+    expect(page.get_by_label("Step 2").get_by_text("Done")).to_be_visible(timeout=30_000)
+    result = page.request.post(
+        f"{session_url}/query", headers=headers, data={"dataset": "df_1"}
+    ).json()
+    assert result["rows"] == [
+        {"symbol": "[E", "price": 4.0, "day": "2026-10-14"},
+        {"symbol": "[C", "price": 2.5, "day": "2026-10-14"},
+    ]
 
 
 def test_refused_import_offers_fix(serve: Serve, page: Page) -> None:

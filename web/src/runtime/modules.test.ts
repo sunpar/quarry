@@ -7,6 +7,7 @@ describe("runtime module table", () => {
     for (const name of [
       "react",
       "@quarry/hooks",
+      "@/components/ui/table-filters",
       "@/components/ui/textarea",
       "@/components/ui/scroll-area",
       "@quarry/perspective",

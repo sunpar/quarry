@@ -38,6 +38,7 @@ export is the component. It may import only these paths, and nothing else:
   react, @quarry/hooks, @/components/ui/button, @/components/ui/badge, @/components/ui/input,
   @/components/ui/select, @/components/ui/separator, @/components/ui/tabs,
   @/components/ui/tooltip, @/components/ui/textarea, @/components/ui/scroll-area,
+  @/components/ui/table-filters,
   and the chart library packages listed below.
 The hooks are exactly these, from "@quarry/hooks":
 
