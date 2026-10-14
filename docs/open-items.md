@@ -137,10 +137,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   a peer connection's ICE traffic or a DNS prefetch, so a generated view can put
   rows in a STUN host name or a prefetched name despite the runtime CSP and the
   host's `frame-src 'self'`. Silent.
-- **A view can mount twice**: the host sends the queued `mount` on the frame's
-  `load` when `ready` was missed, and again when a late `ready` arrives. The
-  second mount rebuilds the view with a fresh store and cache, so it transpiles
-  and queries twice and drops any state set in between. Silent.
 - **Perspective dates outside years 1 to 9999**: a Date or Datetime filter term
   beyond them maps to a `+010000-...` ISO string, which the kernel cannot parse,
   so the pivot's probe query and "To code" fail. Loud.
