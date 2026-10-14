@@ -8,6 +8,36 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
+Implement frozen saved-artifact HTML export in
+[PR #20](https://github.com/sunpar/quarry/pull/20), one of five follow-ups from
+the related-project survey. Keep this PR open after local checks, bounded
+GitHub review and current-head Linux verification. The controller maintains
+the consolidated checkpoint in its coordination branch.
+
+### Frozen-report review
+
+The export reads saved metadata, recipes, view source/state/specs and at most
+20 rows from each pinned dataset. It runs no recipes, queries or view code,
+loads no external assets, escapes saved text and caps the HTML at 5 MiB.
+CLI exports use exclusive private temporary files with failure cleanup.
+
+The first Codex review's four P2 findings are fixed: temporary-file cleanup,
+project lookup error scope, the obsolete CLI permission backlog and bounds
+before HTML/JSON expansion. The final review found a missing referenced
+dataset and a stale checkpoint. The report now rejects a view whose dataset
+directory or metadata is missing; regression tests retain a valid sibling.
+This checkpoint records the report work while preserving the Docker history.
+
+The prior head `2aebcb5` passed full Mac and Linux checks: 1,097 Python tests,
+236 frontend tests and 25 gate/transport tests on each platform, with three
+expected Python skips. The final fix passed 66 focused tests in 3.25 seconds,
+lint and strict types. Full outgoing-head and Linux verification are pending
+at this commit; the controller records their final evidence. Both GitHub bot
+request budgets are exhausted without a clean review, so readiness requires
+the workflow's silence fallback after all findings and final checks pass.
+
+### Docker integration
+
 The [Docker plan](superpowers/plans/2026-10-14-quarry-linux-docker.md) is
 implemented. All four task threads passed spec and quality review. The final
 whole-branch review of `492fa17..52974bb` found no Critical or Important defect

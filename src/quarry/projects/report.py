@@ -42,6 +42,14 @@ class ReportError(Exception):
 
 def report_html(project: Project, store: ProjectStore) -> str:
     """Render saved records and bounded pinned rows without running recipes or views."""
+    datasets = {dataset.name for dataset in project.datasets}
+    for view in project.views:
+        for name in view.datasets:
+            if name not in datasets:
+                raise ReportError(
+                    f"cannot read saved artifact: dataset {name!r} referenced by view "
+                    f"{view.name!r} is missing"
+                )
     chunks: list[str] = []
     size = 0
     try:
