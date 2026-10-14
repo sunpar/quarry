@@ -8,6 +8,39 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
+Implement the bounded whole-series query contract in
+[PR #22](https://github.com/sunpar/quarry/pull/22), one of five follow-ups from
+the related-project survey. Keep this PR open after local checks, GitHub review
+and current-head Linux verification. The controller maintains the consolidated
+checkpoint in its coordination branch.
+
+### Whole-series review
+
+The whole-domain line query preserves endpoints, bin extrema and every null-run
+endpoint within the row cap. It refuses insufficient budgets and reproduces the
+same representatives in generated Python. Its private Polars reducer uses one
+thread, 256 MiB and no spill. The
+[query spec](superpowers/specs/2026-10-08-quarry-design.md#query-spec) defines
+ordering, ties and transport precision.
+
+All six native Astra findings were fixed before `81738ea`; Opus and Muse were
+unavailable because of quota limits. Automatic Codex then found the stale
+checkpoint, missing agent hook contract and public `pl`/`duckdb` result names
+rebinding helper modules. This fix updates the checkpoint and hook contract and
+assigns the result after its helper calls complete. Focused query, kernel and
+agent tests pass. Final-head local and Linux verification and GitHub review
+remain pending at this commit.
+
+The prior `81738ea` passed full Mac and Linux x86-64 gates: 1,136 Python tests,
+237 frontend tests and 25 gate/transport tests on each. Mac skipped memory-cap
+coverage and the two live providers; Linux ran the memory-cap test and skipped
+filesystem case folding and the two live providers. Its timed staged smoke took
+5.60 seconds. A bounded synthetic 1,000,001-row probe returned identical
+48,037-row results on both backings, preserving endpoints, global extrema and
+all 60 gap markers within the private memory allowance.
+
+### Docker integration
+
 The [Docker plan](superpowers/plans/2026-10-14-quarry-linux-docker.md) is
 implemented. All four task threads passed spec and quality review. The final
 whole-branch review of `492fa17..52974bb` found no Critical or Important defect

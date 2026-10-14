@@ -139,25 +139,30 @@ def _render(
                 )
             )
             time_col, value_col = f"pl.col({py_literal(time)})", f"pl.col({py_literal(value)})"
-            transport = f"{result_name}.with_columns({time_col}.cast(pl.Int64)"
+            source = "\n".join(
+                [
+                    f"{spec.dataset}.lazy()",
+                    *_filter_steps(spec, schema),
+                    f".select({py_literal(axes)})",
+                    ".collect()",
+                ]
+            )
+            transport = f"(\n{_indent(source)}\n).with_columns({time_col}.cast(pl.Int64)"
             if integer_type:
                 transport += f", {value_col}.cast(pl.String)"
             transport += ")"
-            frame = _chain_source(
-                spec.model_copy(update={"line_reduce": None, "select": axes}),
-                result_name=result_name,
-                schema=schema,
-                head=f"{spec.dataset}.lazy()",
-                head_is_lazy=True,
-            )
+            connection = f"_quarry_{result_name}_connection"
+            while connection in {spec.dataset, result_name}:
+                connection += "_"
+            register = f'{connection}.register("points", {transport})'
             chain = (
-                f"{frame}\n"
-                f"with duckdb.connect(config={LINE_CONNECTION_CONFIG!r})"
-                f'.register("points", {transport}) as {result_name}:\n'
-                f"    {result_name} = {result_name}.sql({sql}).pl().with_columns(\n"
+                f"with duckdb.connect(config={LINE_CONNECTION_CONFIG!r}) as {connection}:\n"
+                f"{_indent(register)}\n"
+                f"    {result_name} = {connection}.sql({sql}).pl().with_columns(\n"
                 f"        {time_col}.cast(pl.{schema[time]!r}),\n"
                 f"        {value_col}.cast(pl.{schema[value]!r}),\n"
                 "    )"
+                f"\ndel {connection}"
             )
         else:
             chain = _chain_source(

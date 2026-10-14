@@ -235,6 +235,17 @@ def test_source_can_assign_back_to_its_input(backing: Backing) -> None:
     assert_frame_equal(namespace["ticks"], frame[[0, 1, 4, 5]])
 
 
+@pytest.mark.parametrize("backing", ["polars", "polars_lazy"])
+@pytest.mark.parametrize("result_name", ["pl", "duckdb"])
+def test_source_assigns_helper_names_after_reduction(backing: Backing, result_name: str) -> None:
+    frame = ticks([3, 1, 5, 4, 9, 2])
+    namespace: dict[str, object] = {"pl": pl, "ticks": bind(frame, backing)}
+    exec(to_source(line_spec(4), backing, result_name=result_name, schema=frame.schema), namespace)
+    result = namespace[result_name]
+    assert isinstance(result, pl.DataFrame)
+    assert_frame_equal(result, frame[[0, 1, 4, 5]])
+
+
 def test_extrema_and_duplicate_time_ties_are_deterministic() -> None:
     frame = ticks([3, 9, -4, -4, 7, 2, 1], [0, 0, 1, 1, 2, 9, 10])
     spec = line_spec(4)
