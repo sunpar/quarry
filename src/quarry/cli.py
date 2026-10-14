@@ -81,15 +81,16 @@ def run_projects_export(
     extension = "html" if format_name == "html" else "ipynb"
     target = out if out is not None else Path(f"{slug}.{extension}")
     try:
-        project = store.get(slug)
+        try:
+            project = store.get(slug)
+        except KeyError:
+            print(f"no such project: {slug}", file=sys.stderr)
+            return 1
         text = (
             report_html(project, store) if format_name == "html" else notebook_json(project, store)
         )
         write_atomic(target, text)
-    except KeyError:
-        print(f"no such project: {slug}", file=sys.stderr)
-        return 1
-    except (ReportError, OSError, ValueError) as exc:
+    except (ReportError, OSError, ValueError, KeyError) as exc:
         print(f"export failed: {exc}", file=sys.stderr)
         return 1
     print(f"wrote {target}")

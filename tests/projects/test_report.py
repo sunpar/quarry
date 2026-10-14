@@ -1,3 +1,4 @@
+import tracemalloc
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -125,3 +126,36 @@ def test_report_limit_covers_the_whole_document(tmp_path: Path) -> None:
     )
     with pytest.raises(ReportError, match="5 MiB"):
         report_html(store.get("momentum"), store)
+
+
+def test_report_escapes_large_fields_with_bounded_intermediate_memory(tmp_path: Path) -> None:
+    store = project_with_saved_items(tmp_path)
+    project = store.get("momentum")
+    project.meta.description = "&" * 2_000_000
+    tracemalloc.start()
+    try:
+        with pytest.raises(ReportError, match="5 MiB"):
+            report_html(project, store)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 10 * 1024 * 1024
+
+
+def test_report_bounds_json_fields_before_the_encoder_expands_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = project_with_saved_items(tmp_path)
+    project = store.get("momentum")
+    saved = store.read_view("momentum", "table")
+    saved.state = {"large": {"items": ["\0" * 2_000_000]}}
+    # Isolate rendering from loading the already-created saved record.
+    monkeypatch.setattr(store, "read_view", lambda slug, name: saved)
+    tracemalloc.start()
+    try:
+        with pytest.raises(ReportError, match="5 MiB"):
+            report_html(project, store)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 10 * 1024 * 1024

@@ -192,3 +192,32 @@ def test_exports_do_not_reuse_preexisting_temporary_files(
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
     assert victim.read_text() == "leave this alone"
     assert previous_temp.read_text() == ("leave this alone" if symlink else "old temporary file")
+
+
+@pytest.mark.parametrize("format_name", ["notebook", "html"])
+def test_missing_recipe_is_an_export_failure_for_an_existing_project(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], format_name: str
+) -> None:
+    project_with_saved_items(tmp_path)
+    (tmp_path / "projects/momentum/datasets/prices/recipe.py").unlink()
+    target = tmp_path / "report"
+    target.write_text("previous export")
+    assert (
+        main(
+            [
+                "projects",
+                "export",
+                "momentum",
+                "--root",
+                str(tmp_path),
+                "--format",
+                format_name,
+                "--out",
+                str(target),
+            ]
+        )
+        == 1
+    )
+    error = capsys.readouterr().err
+    assert "export failed" in error and "no such project" not in error
+    assert target.read_text() == "previous export"

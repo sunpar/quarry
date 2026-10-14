@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from quarry.kernel.datasets import Column
+from quarry.projects.files import write_atomic
 from quarry.projects.models import CanvasCard, SavedDatasetMeta, SavedViewMeta
 from quarry.projects.store import ProjectStore, slugify
 
@@ -33,6 +34,28 @@ def view_meta(name: str = "closes") -> SavedViewMeta:
         source_session="s1",
         source_step="st2",
     )
+
+
+@pytest.mark.parametrize("failure", ["write", "fsync", "replace"])
+def test_atomic_write_cleans_temporary_files_on_io_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    target = tmp_path / "output"
+    if failure == "replace":
+        target.mkdir()
+    else:
+        target.write_text("previous output")
+    if failure == "fsync":
+
+        def fail_sync(fd: int) -> None:
+            raise OSError("filesystem full")
+
+        monkeypatch.setattr("quarry.projects.files.os.fsync", fail_sync)
+    for _ in range(3):
+        with pytest.raises((OSError, UnicodeError)):
+            write_atomic(target, "\ud800" if failure == "write" else "new output")
+        assert list(tmp_path.glob(".output.*.tmp")) == []
+    assert target.is_dir() if failure == "replace" else target.read_text() == "previous output"
 
 
 def test_slugify() -> None:
