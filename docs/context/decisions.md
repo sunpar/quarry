@@ -223,11 +223,11 @@ them.
   `{"ok": delivered or cancelled}`, so a client knows when to retry. The plan's
   `{"ok": true}` hid an interrupt that hit nothing. The cancel comes first, so
   it holds even when a dead kernel makes the route answer 503.
-- **Steps take a cancel**: `run_agent_step` checks a cancel event before each
-  provider call, when the model answers, and before each tool call, and ends the
-  step `interrupted`, even on the last turn the 12-call cap allows. A step
-  waiting on the model takes no kernel interrupt. Cost: the provider call in
-  flight still runs to completion.
+- **Steps take a cancel**: API mode checks cancellation around provider calls;
+  native mode interrupts its transport. Shared tool dispatch refuses new work
+  after cancellation, and a running kernel callback settles before the step
+  saves. A step waiting on the model takes no kernel interrupt. Cost: an API
+  provider call in flight still runs to completion.
 
 ## Lineage
 
@@ -456,6 +456,37 @@ them.
 
 ## Server and agent
 
+- **Runtime selection owns both model consumers**: `runtime_from_config` selects
+  API, Codex or Claude Code for prompt steps and recipe tidying. Native modes
+  keep authentication in the installed CLI under the server's OS user, require
+  an explicit model and reject API key files. No error switches the operation to
+  API billing. Spec §8, §10 and §12 are amended.
+- **Native conversations start fresh**: each prompt receives Quarry's system
+  prompt and rebuilt summary, and each tidy receives only its text request.
+  Quarry's persisted executions remain authoritative after a runtime crash.
+  Cost: provider conversation state is discarded between operations.
+- **Budgets measure different work**: API mode keeps its 12-completion-call
+  budget. Native mode caps Quarry tool calls at 12 through `StepExecution`;
+  internal native model calls are not observable as API iterations. Both modes
+  share the two-consecutive-Python-failure rule. Spec §8 is amended.
+- **Native tool exclusion is an adapter requirement**: native modes must exclude
+  shell, file writes, subagents, hooks and inherited MCP tools through runtime
+  controls, with Quarry callbacks executing serially. Unsupported controls must
+  fail the operation. Codex uses a private direct-tool model catalog and no
+  native environments; Claude exposes a low-level in-process MCP server whose
+  arguments Quarry validates, so rejected calls still count toward its budget.
+  Cost: CLI and SDK upgrades need boundary verification.
+
+- **Native cleanup follows the runtime contract**: Codex owns its subprocess
+  group and pipe readers/writers. Claude uses the public SDK close sequence;
+  native login checks can take 20 seconds, and model-wait interrupt plus SDK
+  cleanup can take about 12 seconds. Shutdown waits up to 30 seconds for
+  operations to release. Python execution still has no timeout.
+- **Tidy cancellation precedes request drain**: `QuarryServer` cancels project
+  model requests after listeners close and before Uvicorn drains HTTP requests.
+  Session shutdown remains in lifespan so a save can finish its kernel hold.
+  Cost: the drain hook depends on the locked Uvicorn implementation.
+
 - **Anthropic request shape**: the adapter calls `client.beta.messages.create`
   with model `claude-opus-5-5`, `max_tokens=16000`,
   `output_config={"effort": "high"}`, the `server-side-fallback-2026-07-01` beta
@@ -562,8 +593,9 @@ them.
   replays. The step ends `interrupted` with the error "stopped by a restart" and
   keeps the runs that finished. Some code takes no interrupt, such as a long
   polars `collect()`, and the researcher chose restart as the way to always get
-  control back. Cost: a step waiting on the model holds `/restart` until the
-  provider answers, and under uvicorn that also delays a graceful Ctrl-C.
+  control back. Cost: in API mode, a step waiting on the model holds `/restart`
+  until the provider answers, and under uvicorn that also delays graceful
+  Ctrl-C.
 - **Transpile checks time out**: `CommandTranspiler` gives up after 30 s and
   reports a transpile error to the model, and the step goes on. A hung check
   would otherwise hold the step, and a restart waiting on it.
@@ -878,10 +910,11 @@ them.
   plan's test expected a rejected tidy to leave the save unvalidated, and spec
   §10 and §13 are amended. Cost if wrong: a researcher never learns a tidy was
   rejected when the raw recipe validated, since no `validation_error` is kept.
-- **A save never needs a provider**: building the provider is part of the tidy
-  attempt, so a `ConfigError` such as a missing API key means no tidy, and the
-  raw recipe is validated. In the plan that error failed the whole save, after a
-  pinned parquet was already written.
+- **A save never needs a runtime**: building the selected runtime is part of the
+  tidy attempt, so missing API keys, native login failures or an unavailable CLI
+  mean no tidy, and the raw recipe is validated. Tidy cancellation owns its
+  runtime, separate from a later session step after the kernel hold ends.
+  Project shutdown cancels and waits for active tidy operations.
 - **Validation compares two describes**: the scratch kernel's `describe(name)`
   must match the session kernel's, taken at save time, in column names and
   dtypes, in order, and in row count. `step.datasets` is never used, since its

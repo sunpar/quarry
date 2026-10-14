@@ -13,7 +13,7 @@ import uvicorn
 from quarry.config import load_config
 from quarry.projects.export import notebook_json
 from quarry.projects.store import ProjectStore
-from quarry.server.app import create_app
+from quarry.server.app import QuarryServer, create_app
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -54,7 +54,7 @@ def run_serve(*, port: int, root: Path, host_hint: str) -> int:
     token = new_token()
     app = create_app(config=load_config(root), token=token)
     print(banner(port=port, token=token, host_hint=host_hint), flush=True)
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    QuarryServer(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")).run()
     return 0
 
 

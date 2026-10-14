@@ -8,21 +8,12 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Routine verification now checks staged and committed snapshots locally. The
-rollout merged in [sunpar/quarry#15](https://github.com/sunpar/quarry/pull/15)
-as `c03ebe2` on 2026-10-14, following the CI-speed changes in
-[sunpar/quarry#14](https://github.com/sunpar/quarry/pull/14). Full local and
-Linux verification passed on the final PR head, `a05d78d`. All ten review
-threads are resolved.
-
-Astra completed its local review without findings on `ecc1c65`; Opus and Muse
-were unavailable due to provider quotas. Both Claude bot requests failed before
-substantive review. Codex returned findings from the initial automatic review
-and both requested reviews; the fixes passed verification.
-
-The capped rotation ended without a clean bot review, and the permitted silence
-deadline expired before merging. The worktree ledger records the review budgets
-and merge checks. Monitoring is disabled.
+Implement Claude Code and Codex subscription access on
+`codex/subscription-providers` using the
+[accepted plan](superpowers/plans/2026-10-14-quarry-subscription-providers.md).
+The user requested parallel implementation and the open-pr-and-babysit loop.
+Native adapters, shared execution, configuration and docs have separate owners;
+server prompt/save/shutdown wiring is integrated by the controller.
 
 ## Status by stage
 
@@ -133,36 +124,23 @@ files. Its documentation follow-up is
 
 ## Latest verification
 
-Local-first rollout, macOS and Python 3.11 on 2026-10-14: all 962 Python tests
-passed, with the same three skips (two live providers and the Linux memory cap).
-All 10 browser tests ran against a fresh build and all 235 frontend tests
-passed. Python lint/format/types, frontend checks and the offline wheel/sdist
-build passed; the wheel includes UI, runtime manifest, checker and assets. Full
-verification also passed with a conflicting `UV_PYTHON` in the process
-environment. A real setup probe replaced an existing Python 3.14 environment
-with the version file's Python 3.11 despite the inherited override.
+Subscription work on macOS, Python 3.11: `make check` passed with 1,067 Python
+tests (including all 10 browser tests), 235 frontend tests and 25 gate/transport
+regressions. The Python suite took 65.01 seconds. Three tests skipped: the Linux
+memory cap and two opt-in live API providers. Lint, formatting, types, web
+build, offline wheel/sdist build and wheel asset checks passed.
 
-Branch coverage passed the same suite in 61.92 seconds; the full coverage
-command took 90.34 seconds including setup/build checks. It covered 3,904 of
-4,012 statements and 882 of 946 branches. These figures cover pytest processes,
-not all kernel subprocess execution. The initial staged smoke gate took 4.27
-seconds; the expanded regression suite took 8.78 seconds after review fixes. The
-final commit's staged gate took 3.29 seconds. All 25 gate/transport regressions
-passed, including snapshot imports in xdist and a real kernel. A real pre-commit
-rejected staged invalid Python despite an unstaged fix and preserved the index
-and HEAD. Workflow actionlint passed.
-
-Full checks install the snapshot wheel in a separate environment so the existing
-isolated Python export test still runs. Shared dependencies contain no editable
-Quarry install. Linux manual full verification passed on `a05d78d`, including
-the kernel memory cap and the final interpreter and nested-fork fixes. Its
-Python suite passed all 962 tests in 66.13 seconds, with three skips: two live
-providers and the macOS filesystem case-folding check. Licensed
-Highcharts/SciChart browser coverage has not been exercised in this session.
+Codex 0.162.1 completed a real Quarry Python execution and table render, and
+cancellation joined the process and reader. Claude Code 2.1.299 passed login and
+tool-isolation probes; its monthly quota prevented successful live inference.
+All five allowed live probes per provider are used. Replay tests cover malformed
+tool arguments, budgets, interruption, late callbacks and protocol cleanup. Task
+reviews and the whole-branch simplify pass are complete.
 
 ## Next actions
 
-Continue with the product tasks in [open-items.md](open-items.md).
+1. Commit through the staged smoke gate and push the branch.
+2. Run the required native local reviews, then open and babysit one PR.
 
 ## Resuming
 

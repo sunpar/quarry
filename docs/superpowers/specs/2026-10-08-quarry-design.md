@@ -387,16 +387,34 @@ DuckDB `PIVOT`.
 
 ## 8. Agent loop
 
-### Provider interface
+### Runtime interface
+
+The server selects an `AgentRuntime` for both prompt steps and recipe tidying:
+
+```python
+class AgentRuntime(Protocol):
+    def run_step(self, *, prompt: str, system: str, summary: str, tools: ToolExecutor, cancel: threading.Event) -> StepOutcome: ...
+    def complete_text(self, *, system: str, prompt: str, cancel: threading.Event) -> AssistantTurn: ...
+```
+
+`ApiRuntime` owns Quarry's loop for Anthropic and OpenAI. Codex app-server and
+the Claude Agent SDK own their native loops, with a fresh conversation for each
+operation. All modes dispatch Quarry tools through the same execution policy.
+The runtime releases its transport when an operation succeeds, fails or is
+cancelled. A callback already executing in the kernel settles before the step
+saves its runs.
+
+### API provider interface
 
 ```python
 class Provider(Protocol):
     def complete(self, *, system: str, messages: list[Message], tools: list[ToolDef]) -> AssistantTurn: ...
 ```
 
-Two implementations, Anthropic and OpenAI, each a thin adapter over the
-vendor SDK. No streaming. Rate-limit and network errors retry twice with
-backoff, then fail the step with the provider's message.
+Anthropic and OpenAI implement this interface as thin adapters over their vendor
+SDKs. No streaming. Rate-limit and network errors retry twice with backoff, then
+fail the step with the provider's message. Native modes use the runtime
+interface directly and never fall back to an API provider.
 
 ### Loop
 
@@ -405,8 +423,19 @@ backoff, then fail the step with the provider's message.
 3. Call the provider. If the turn has no tool calls, the step is done and the
    assistant text becomes the step's note.
 4. Dispatch each tool call, append results, go to 3.
-5. Hard cap of 12 iterations per step, after which the step fails with the
-   partial transcript saved.
+5. API mode permits 12 `Provider.complete` calls per step, then fails with the
+   partial transcript saved. Native mode permits 12 Quarry tool calls, then
+   fails before another tool executes. Native internal model calls are not
+   counted as API iterations.
+
+Native adapters restrict tools to Quarry's five tools. Native shell, file
+writes, subagents, hooks and inherited MCP tools cannot perform step work. The
+supported CLI and SDK controls must enforce that boundary; an unsupported
+runtime fails rather than relying on prompt instructions. Codex selects direct
+tool dispatch through a private per-operation model catalog, preserving the
+requested model ID without changing your normal Codex configuration. Claude's
+in-process MCP server advertises the same schemas but sends argument validation
+to Quarry, so malformed requests still count toward repair and call budgets.
 
 ### Tools
 
@@ -560,18 +589,21 @@ its outputs join the lineage graph.
 1. The server walks the session's dependency graph backward from the dataset:
    every step whose writes or defines are reachable through reads, in step
    order. Their code is concatenated into `recipe.raw.py`.
-2. One provider call tidies it into a self-contained script: remove unused
-   loads and dead assignments, keep behavior identical, end with the dataset
-   bound to its name. The instruction forbids changing any loader call,
-   filter, join, or aggregation.
+2. The selected runtime's `complete_text` tidies it without tools into a
+   self-contained script: remove unused loads and dead assignments, keep
+   behavior identical, end with the dataset bound to its name. The instruction
+   forbids changing any loader call, filter, join, or aggregation. API mode
+   makes one provider call; native mode starts a fresh conversation. Missing
+   login or an unavailable runtime leaves the raw recipe for local validation.
+   No provider mode is required to save.
 3. Validation: a scratch kernel runs the tidied script. The output schema must
    equal the live dataset's schema exactly and the row count must match. On
-   success it is written as `recipe.py` and `validated` is true. When the
-   tidied script fails or no tidy is available, the raw concatenation is
-   validated in its place, and on success it is `recipe.py` with `validated`
-   true. Only when neither reproduces the dataset is the save unvalidated:
-   `recipe.py` is the raw concatenation, `validated` is false,
-   `validation_error` gives the reason, and the UI says so.
+   success it is written as `recipe.py` and `validated` is true. When the tidied
+   script fails or no tidy is available, the raw concatenation is validated in
+   its place, and on success it is `recipe.py` with `validated` true. Only when
+   neither reproduces the dataset is the save unvalidated: `recipe.py` is the
+   raw concatenation, `validated` is false, `validation_error` gives the reason,
+   and the UI says so.
 4. If the researcher chose pinned, the kernel snapshots the dataset to
    `data.parquet`.
 
@@ -630,10 +662,12 @@ step. Everything is plain text except pinned parquet.
 
 ```toml
 [provider]
-name = "anthropic"            # or "openai"
+name = "anthropic"            # or "openai", "codex", "claude-code"
 model = "claude-opus-5-5"
 # api key from QUARRY_ANTHROPIC_API_KEY / QUARRY_OPENAI_API_KEY, or:
 api_key_file = "~/.quarry/anthropic.key"   # owner-only permissions enforced
+# Native modes use CLI login, require an explicit model, and reject api_key_file.
+# cli_path = "/path/to/provider-cli"       # optional, otherwise use PATH
 
 [data]
 parquet_root = "/data/cache"
@@ -650,42 +684,46 @@ scichart_license = ""         # enables SciChart.js when set, with:
 scichart_path = ""            # path to a locally installed scichart npm package
 ```
 
-Each `*_path` is served whole to any origin, so it must be the package folder
-itself, never a broad folder such as `~` or `~/Downloads`.
+Each library `*_path` is served whole to any origin, so it must be the package
+folder itself, never a broad folder such as `~` or `~/Downloads`. `cli_path`
+names an executable and is never served. All paths expand `~` and resolve
+relative to the Quarry root.
 
 ## 12. Security
 
 - Server binds `127.0.0.1` only.
 - A random 32-byte token is generated per `quarry serve`, printed once, and
   required as a bearer header on every API request. The health check and the
-  host app's static files are open, since a browser loading the page cannot
-  send the header. The printed URL carries the token in the fragment; the host
-  app reads it on load and keeps it in memory only.
-- The kernel runs as the researcher's own user. It executes their code on
-  their behalf, exactly as a notebook kernel does.
+  host app's static files are open, since a browser loading the page cannot send
+  the header. The printed URL carries the token in the fragment; the host app
+  reads it on load and keeps it in memory only.
+- The kernel runs as the researcher's own user. It executes their code on their
+  behalf, exactly as a notebook kernel does.
 - Generated TSX runs only in the iframe, whose CSP reaches nothing but the
   server's own static files; API routes need the bearer token the frame never
   holds. The bridge is the only path to data and has three request types.
 - `quarry serve` creates a missing quarry root owner-only, and the server
-  creates session directories and writes session files owner-only, since
-  several researchers share each machine.
+  creates session directories and writes session files owner-only, since several
+  researchers share each machine.
 - API keys come from environment variables or an owner-only file. The server
-  refuses a key file with group or world permissions and never logs key
-  values.
+  refuses a key file with group or world permissions and never logs key values.
+- Codex and Claude Code own native login and credential storage under the
+  server's OS user. Quarry invokes their installed CLIs without extracting
+  tokens. Authentication or quota failures never trigger API billing.
 - Generated code and query specs are never evaluated in the host page.
 
 ## 13. Error handling
 
-| Failure                          | Behavior                                                                                                                                      |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Python error in a step           | Returned as a structured tool result. The agent gets one repair attempt. A second failure ends the step with the traceback shown in the step. |
-| Kernel crash                     | Broken socket marks the kernel dead and fails the step. The UI offers restart and replay.                                                     |
-| Provider error                   | Two retries on rate limit and network faults, then the step fails with the provider's message.                                                |
-| Transpile error in generated TSX | Caught server-side, returned to the agent as the tool result.                                                                                 |
-| Mount error in the browser       | Error boundary shows the message in place of the view. "Fix this" starts a repair step with the error as context.                             |
-| Query spec rejected              | 400 with the validation message; the view shows the error state.                                                                              |
-| Save validation failure          | Raw concatenation validated if the tidy fails or is absent; if neither reproduces the data, raw saved, `validated: false`, UI badge explains. |
-| Loader import failure            | Reported once at session start, loader omitted from context.                                                                                  |
+| Failure                          | Behavior                                                                                                                                                |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Python error in a step           | Returned as a structured tool result. The agent gets one repair attempt. A second failure ends the step with the traceback shown in the step.           |
+| Kernel crash                     | Broken socket marks the kernel dead and fails the step. The UI offers restart and replay.                                                               |
+| Provider error                   | API modes retry rate limit and network faults twice. Native authentication, quota and protocol failures fail the step and retain completed Python runs. |
+| Transpile error in generated TSX | Caught server-side, returned to the agent as the tool result.                                                                                           |
+| Mount error in the browser       | Error boundary shows the message in place of the view. "Fix this" starts a repair step with the error as context.                                       |
+| Query spec rejected              | 400 with the validation message; the view shows the error state.                                                                                        |
+| Save validation failure          | Raw concatenation validated if the tidy fails or is absent; if neither reproduces the data, raw saved, `validated: false`, UI badge explains.           |
+| Loader import failure            | Reported once at session start, loader omitted from context.                                                                                            |
 
 ## 14. Testing
 
@@ -694,20 +732,20 @@ Pure modules get the most coverage because they must not drift.
 - **Query compiler.** One fixture set of specs and frames. Every spec runs
   through `to_polars` and `to_sql` and the results must be equal. `to_source`
   output is executed and compared too.
-- **Lineage.** Code snippets with expected reads, writes, and defines,
-  including attribute chains, rebinding, and helper functions used across
-  steps.
+- **Lineage.** Code snippets with expected reads, writes, and defines, including
+  attribute chains, rebinding, and helper functions used across steps.
 - **Agent loop.** A fake provider that replays scripted turns. Covers tool
   dispatch, the iteration cap, repair-once, and summary collapse.
 - **Kernel.** Run as a real subprocess over the socket: execute, interrupt a
   busy loop, describe, query, snapshot, crash detection.
-- **Projects.** Save dataset with a scripted tidy response, validation pass
-  and fail paths, pinned snapshot, recall as a step, export structure.
+- **Projects.** Save dataset with a scripted tidy response, validation pass and
+  fail paths, pinned snapshot, recall as a step, export structure.
 - **Frontend.** Vitest for the bridge, the hooks, and the built-in table and
   Lightweight Charts components. One Playwright test boots the server with a
   fake provider, mounts a built-in view, and exercises a query round trip.
-- **Providers.** A live smoke test per provider, skipped unless an API key
-  environment variable is set.
+- **Providers.** API live smoke tests require an API key. Native contract tests
+  use fake transports and real local kernels; live native probes require an
+  explicit opt-in and the provider's login on the server.
 
 Python: pytest, ruff format and check, type checking treated as a gate.
 TypeScript: vitest, prettier, `tsc --noEmit` in strict mode.

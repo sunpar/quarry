@@ -13,9 +13,10 @@ import uvicorn
 from playwright.sync_api import BrowserContext, Route
 
 from quarry.agent.fake import FakeProvider
+from quarry.agent.runtime import ApiRuntime
 from quarry.agent.types import AssistantTurn
 from quarry.config import QuarryConfig
-from quarry.server.app import create_app
+from quarry.server.app import QuarryServer, create_app
 
 STATIC = Path(__file__).resolve().parents[2] / "src" / "quarry" / "static"
 TOKEN = "e2e-token"
@@ -51,10 +52,10 @@ def serve(tmp_path: Path) -> Iterator[Callable[[list[AssistantTurn]], RunningSer
         app = create_app(
             config=config,
             token=TOKEN,
-            provider_factory=lambda _cfg: provider,
+            runtime_factory=lambda _cfg: ApiRuntime(provider),
             static_dir=STATIC,
         )
-        server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning"))
+        server = QuarryServer(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning"))
         listener = server.config.bind_socket()
         port = int(listener.getsockname()[1])
         thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)

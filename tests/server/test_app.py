@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from starlette.routing import BaseRoute
 
 from quarry.agent.fake import FakeProvider
+from quarry.agent.runtime import ApiRuntime
 from quarry.agent.types import AssistantTurn, Message, Provider, ToolCall, ToolDef
 from quarry.config import ConfigError, DataConfig, QuarryConfig
 from quarry.kernel.client import KernelClient
@@ -24,8 +25,10 @@ from quarry.server import service as service_module
 from quarry.server.app import create_app
 from quarry.server.kernels import ReplayReport
 from quarry.server.models import Step, to_code_input
-from quarry.server.service import ProviderFactory, SessionService
+from quarry.server.service import SessionService
 from quarry.server.store import SessionStore
+
+ProviderFactory = Callable[[QuarryConfig], Provider]
 
 TOKEN = "t0k3n"
 RESTARTED = "stopped by a restart"
@@ -54,7 +57,9 @@ def make_client(
 ) -> TestClient:
     config = config or QuarryConfig(root=tmp_path)
     factory = provider_factory or (lambda _cfg: FakeProvider(turns))
-    app = create_app(config=config, token=TOKEN, provider_factory=factory)
+    app = create_app(
+        config=config, token=TOKEN, runtime_factory=lambda cfg: ApiRuntime(factory(cfg))
+    )
     client = TestClient(app)
     client.headers.update({"Authorization": f"Bearer {TOKEN}"})
     return client
@@ -822,7 +827,7 @@ def test_static_assets_allow_opaque_origin_but_api_does_not(tmp_path: Path) -> N
     app = create_app(
         config=config,
         token=TOKEN,
-        provider_factory=lambda _cfg: FakeProvider([]),
+        runtime_factory=lambda _cfg: ApiRuntime(FakeProvider([])),
         static_dir=static,
     )
     client = TestClient(app)

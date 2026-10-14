@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import re
+import threading
 from typing import Final
 
-from quarry.agent.types import Message, Provider, ProviderError
+from quarry.agent.runtime import AgentRuntime
+from quarry.agent.types import ProviderError
 from quarry.kernel.lineage import analyze
 
 TIDY_SYSTEM: Final = """\
@@ -28,12 +30,12 @@ def strip_fences(text: str) -> str:
     return body.rstrip("\n") + "\n"
 
 
-def tidy_recipe(provider: Provider, raw: str, dataset: str) -> str | None:
+def tidy_recipe(
+    runtime: AgentRuntime, raw: str, dataset: str, *, cancel: threading.Event
+) -> str | None:
     prompt = f"Dataset name: {dataset}\n\nScript:\n{raw}"
     try:
-        turn = provider.complete(
-            system=TIDY_SYSTEM, messages=[Message(role="user", text=prompt)], tools=[]
-        )
+        turn = runtime.complete_text(system=TIDY_SYSTEM, prompt=prompt, cancel=cancel)
     except ProviderError:
         return None
     if turn.stop != "end":  # a reply cut at max_tokens can still parse and bind the name
