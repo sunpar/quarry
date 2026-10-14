@@ -5,8 +5,7 @@ deps:
 	node scripts/local-checks.mjs deps
 
 hooks:
-	git config extensions.worktreeConfig true
-	git config --worktree core.hooksPath .githooks
+	node scripts/git-gate.mjs install
 
 smoke:
 	node scripts/git-gate.mjs commit
@@ -20,6 +19,6 @@ coverage:
 check-commit:
 	node scripts/git-gate.mjs check $(REF)
 
-# Supported gh pr create options; for example ARGS='--draft --title "..." --body-file ...'
+# Core PR options; for example ARGS='--draft --title "..." --body-file ...'
 pr:
 	node scripts/git-gate.mjs pr $(ARGS)

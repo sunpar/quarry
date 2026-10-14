@@ -17,11 +17,20 @@ make coverage   # the same checks with Python branch coverage
 make pr ARGS='--title "Change behavior" --body-file /path/to/body.txt'
 ```
 
-The PR wrapper verifies and pushes the committed snapshot. Push hooks verify the
-actual outgoing commits for branches with open PRs, including upstream fork PRs,
-and for `main`. Missing tools, mismatched dependency locks and failed PR lookups
-stop the operation. Use `make check-commit REF=<sha>` to check a specific
-commit.
+`make hooks` stores a stable bootstrap in this worktree's Git directory. Rerun
+it after gate updates. Branches missing the verifier fail and require an update
+from `origin/main`; switching branches no longer removes installed hooks.
+
+The PR wrapper supports `--title` (required), `--body`, `--body-file`, `--base`,
+`--draft` and `--no-maintainer-edit`; `make pr ARGS=--help` lists short aliases.
+It resolves the base before pushing and rejects a head/base match within the
+same repository. It verifies and pushes the committed snapshot, then creates the
+PR through the GitHub API, with the fork repository identified explicitly.
+Required self-assignment runs after creation, so a metadata permission failure
+leaves the created PR URL visible. Push hooks verify the actual outgoing commits
+for branches with open PRs, including upstream fork PRs, and for `main`. Missing
+tools, mismatched dependency locks and failed PR lookups stop the operation. Use
+`make check-commit REF=<sha>` to check a specific commit.
 
 Git has no PR-creation hook. Website/API PR creation, direct `gh pr create`,
 `--no-verify`, and uninstalled hooks can bypass these local gates.

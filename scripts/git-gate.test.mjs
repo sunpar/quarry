@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { withSnapshot, gatePush, createPr } from "./git-gate.mjs";
+import { withSnapshot, gatePush, createPr, installHooks } from "./git-gate.mjs";
 
 function repository(t) {
   const root = mkdtempSync(join(tmpdir(), "quarry-gate-test-"));
@@ -94,20 +94,17 @@ test("push checks each distinct qualifying tip once, ignores deletions, and does
         parent: { owner: { login: "upstream" }, name: "repo" },
       });
     assert.ok(
-      ["owner/repo", "upstream/repo"].includes(
-        args[args.indexOf("--repo") + 1],
-      ),
+      ["repos/owner/repo/pulls", "repos/upstream/repo/pulls"].includes(args[1]),
     );
-    return JSON.stringify(
-      args.includes("feature")
+    return JSON.stringify([
+      args.includes("head=owner:feature")
         ? [
             {
-              headRepository: { name: "repo" },
-              headRepositoryOwner: { login: "owner" },
+              head: { repo: { full_name: "owner/repo" } },
             },
           ]
         : [],
-    );
+    ]);
   };
   const zero = "0".repeat(40);
   const input = `refs/heads/feature ${sha} refs/heads/feature ${zero}\nrefs/heads/main ${sha} refs/heads/main ${zero}\nrefs/heads/private ${sha} refs/heads/private ${zero}\n(delete) ${zero} refs/heads/old ${sha}\n`;
@@ -134,12 +131,7 @@ test("PR lookup and test failures abort pushes instead of being treated as no PR
     JSON.stringify(
       args[0] === "repo"
         ? { nameWithOwner: "owner/repo", isFork: false }
-        : [
-            {
-              headRepository: { name: "repo" },
-              headRepositoryOwner: { login: "owner" },
-            },
-          ],
+        : [[{ head: { repo: { full_name: "owner/repo" } } }]],
     );
   await assert.rejects(
     gatePush(root, "origin", input, run, async () => {
@@ -151,19 +143,24 @@ test("PR lookup and test failures abort pushes instead of being treated as no PR
 
 test("failed PR checks never push or create a PR", async (t) => {
   const { root, git } = repository(t);
+  git("remote", "add", "origin", "git@github.com:owner/repo.git");
   const effects = [];
   const run = (command, args) => {
     if (command === "git") return git(...args);
     effects.push([command, ...args]);
-    return JSON.stringify({ nameWithOwner: "owner/repo", isFork: false });
+    return JSON.stringify({
+      nameWithOwner: "owner/repo",
+      isFork: false,
+      defaultBranchRef: { name: "main" },
+    });
   };
   await assert.rejects(
-    createPr(root, [], run, async () => {
+    createPr(root, ["--title", "Test"], run, async () => {
       throw new Error("suite failed");
     }),
     /suite failed/,
   );
-  assert.deepEqual(effects, []);
+  assert.ok(effects.every(([, operation]) => operation === "repo"));
 });
 
 test("PR wrapper rejects destination overrides and a changing HEAD", async (t) => {
@@ -178,10 +175,22 @@ test("PR wrapper rejects destination overrides and a changing HEAD", async (t) =
   );
   git("remote", "add", "origin", "git@github.com:owner/repo.git");
   await assert.rejects(
-    createPr(root, [], undefined, async () => {
-      writeFileSync(join(root, "value.txt"), "changed during checks");
-      git("commit", "-qam", "Changed");
-    }),
+    createPr(
+      root,
+      ["--title", "Test", "--base", "main"],
+      (command, args) =>
+        command === "git"
+          ? git(...args)
+          : JSON.stringify({
+              nameWithOwner: "owner/repo",
+              isFork: false,
+              defaultBranchRef: { name: "main" },
+            }),
+      async () => {
+        writeFileSync(join(root, "value.txt"), "changed during checks");
+        git("commit", "-qam", "Changed");
+      },
+    ),
     /changed.*checks/i,
   );
 });
@@ -200,22 +209,40 @@ test("PR creation pushes the checked SHA and configures subsequent default pushe
         nameWithOwner: "organization/repo",
         isFork: true,
         parent: { owner: { login: "upstream" }, name: "repo" },
+        defaultBranchRef: { name: "main" },
       });
     assert.equal(
       git("--git-dir", remote, "rev-parse", "refs/heads/feature"),
       sha,
     );
-    assert.equal(args[args.indexOf("--repo") + 1], "upstream/repo");
-    assert.equal(args[args.indexOf("--head") + 1], "organization:feature");
+    if (args[0] === "api") {
+      assert.equal(args[1], "repos/upstream/repo/pulls");
+      assert.equal(JSON.parse(options.input).head, "organization:feature");
+      return JSON.stringify({
+        html_url: "https://github.com/upstream/repo/pull/1",
+      });
+    }
+    assert.deepEqual(args, [
+      "pr",
+      "edit",
+      "https://github.com/upstream/repo/pull/1",
+      "--add-assignee",
+      "@me",
+    ]);
   };
-  await createPr(root, ["--title", "Test"], run, async (ref) => {
-    await withSnapshot(root, { ref }, async (directory) => {
-      assert.equal(
-        readFileSync(join(directory, "value.txt"), "utf8"),
-        "committed",
-      );
-    });
-  });
+  await createPr(
+    root,
+    ["--title", "Test", "--base", "main"],
+    run,
+    async (ref) => {
+      await withSnapshot(root, { ref }, async (directory) => {
+        assert.equal(
+          readFileSync(join(directory, "value.txt"), "utf8"),
+          "committed",
+        );
+      });
+    },
+  );
   assert.equal(git("config", "branch.feature.remote"), "origin");
   assert.equal(git("config", "branch.feature.merge"), "refs/heads/feature");
   assert.equal(
@@ -231,27 +258,22 @@ test("real pre-push hook stops an open-PR push when local dependencies are missi
   git("remote", "add", "origin", remote);
   git("push", "-q", "origin", "feature");
   const before = git("rev-parse", "HEAD");
-  mkdirSync(join(root, ".githooks"));
   mkdirSync(join(root, "scripts"));
   mkdirSync(join(root, "bin"));
   for (const file of ["git-gate.mjs", "local-checks.mjs"])
     copyFileSync(new URL(file, import.meta.url), join(root, "scripts", file));
-  copyFileSync(
-    new URL("../.githooks/pre-push", import.meta.url),
-    join(root, ".githooks/pre-push"),
-  );
-  chmodSync(join(root, ".githooks/pre-push"), 0o755);
   const gh = join(root, "bin/gh");
   writeFileSync(
     gh,
     `#!/usr/bin/env node\nconsole.log(JSON.stringify(process.argv[2] === 'repo'
     ? { nameWithOwner: 'owner/repo', isFork: false }
-    : [{ headRepository: { name: 'repo' }, headRepositoryOwner: { login: 'owner' } }]))`,
+    : [[{ head: { repo: { full_name: 'owner/repo' } } }]]))`,
   );
   chmodSync(gh, 0o755);
   writeFileSync(join(root, "value.txt"), "next commit");
-  git("commit", "-qam", "Next");
-  git("config", "core.hooksPath", ".githooks");
+  git("add", "value.txt", "scripts");
+  git("commit", "-qm", "Next");
+  installHooks(root);
   assert.throws(
     () =>
       execFileSync("git", ["push", "origin", "feature"], {
@@ -297,7 +319,7 @@ test("CLI entrypoints invoked through a path alias execute and fail on missing d
   }
 });
 
-test("PR CLI dispatch reaches gh help without validation or mutation", (t) => {
+test("PR CLI dispatch shows supported options without validation or mutation", (t) => {
   const { root } = repository(t);
   const output = execFileSync(
     process.execPath,
@@ -327,13 +349,12 @@ test("renamed push destinations use outgoing SHA and upstream fork PRs", async (
         parent: { owner: { login: "upstream" }, name: "repo" },
       });
     }
-    assert.equal(args[args.indexOf("--head") + 1], "destination");
+    assert.ok(args.includes("head=owner:destination"));
     return JSON.stringify(
-      args.includes("upstream/repo")
+      args[1] === "repos/upstream/repo/pulls"
         ? [
             {
-              headRepository: { name: "fork" },
-              headRepositoryOwner: { login: "owner" },
+              head: { repo: { full_name: "owner/fork" } },
             },
           ]
         : [],
@@ -347,5 +368,235 @@ test("renamed push destinations use outgoing SHA and upstream fork PRs", async (
     async (ref) => checked.push(ref),
   );
   assert.deepEqual(checked, [sha]);
-  assert.equal(calls.filter(([, operation]) => operation === "pr").length, 2);
+  assert.equal(calls.filter(([, operation]) => operation === "api").length, 2);
+});
+
+test("open PR beyond the first page still verifies the outgoing commit", async (t) => {
+  const { root, git } = repository(t);
+  const sha = git("rev-parse", "HEAD");
+  const checked = [];
+  const run = (_command, args) => {
+    if (args[0] === "repo")
+      return JSON.stringify({ nameWithOwner: "owner/repo", isFork: false });
+    assert.equal(args[0], "api");
+    assert.ok(
+      args.includes("--paginate") &&
+        args.includes("--slurp") &&
+        args.includes("head=owner:feature"),
+    );
+    return JSON.stringify([
+      Array.from({ length: 30 }, (_, i) => ({
+        head: { repo: { full_name: `owner/other-${i}` } },
+      })),
+      [{ head: { repo: { full_name: "owner/repo" } } }],
+    ]);
+  };
+  await gatePush(
+    root,
+    "origin",
+    `refs/heads/feature ${sha} refs/heads/feature ${"0".repeat(40)}`,
+    run,
+    async (ref) => checked.push(ref),
+  );
+  assert.deepEqual(checked, [sha]);
+});
+
+test("same-repository base and head are rejected before checking or pushing", async (t) => {
+  for (const args of [[], ["--base=main"], ["-B", "main"]]) {
+    const { root, git } = repository(t);
+    git("branch", "-m", "main");
+    git("remote", "add", "origin", "git@github.com:owner/repo.git");
+    const effects = [];
+    const run = (command, values) => {
+      if (command === "git") {
+        if (values[0] === "push") effects.push("push");
+        return git(...values);
+      }
+      if (values[0] === "repo")
+        return JSON.stringify({
+          nameWithOwner: "owner/repo",
+          isFork: false,
+          defaultBranchRef: { name: "main" },
+        });
+      effects.push("create");
+      return JSON.stringify({
+        html_url: "https://github.com/owner/repo/pull/1",
+      });
+    };
+    await assert.rejects(
+      createPr(root, ["--title", "Change", ...args], run, async () =>
+        effects.push("check"),
+      ),
+      /same.*branch|base.*head|head.*base/i,
+    );
+    assert.deepEqual(effects, []);
+  }
+});
+
+test("organization fork PR uses the explicit head repository through the API", async (t) => {
+  const { root, git } = repository(t);
+  git("branch", "-m", "main");
+  const remote = join(root, "remote.git");
+  git("init", "--bare", "-q", remote);
+  git("remote", "add", "origin", remote);
+  const sha = git("rev-parse", "HEAD");
+  const bodyFile = join(root, "body.txt");
+  writeFileSync(bodyFile, "Multiline\nbody\n");
+  const run = (command, args, options = {}) => {
+    if (command === "git") return git(...args);
+    if (args[0] === "repo")
+      return JSON.stringify({
+        nameWithOwner: "organization/fork",
+        isFork: true,
+        parent: { owner: { login: "organization" }, name: "base" },
+        defaultBranchRef: { name: "main" },
+      });
+    if (args[0] === "api") {
+      assert.equal(args[1], "repos/organization/base/pulls");
+      assert.equal(
+        git("--git-dir", remote, "rev-parse", "refs/heads/main"),
+        sha,
+      );
+      assert.deepEqual(JSON.parse(options.input), {
+        title: "Change",
+        body: "Multiline\nbody\n",
+        base: "main",
+        head: "organization:main",
+        head_repo: "fork",
+        draft: true,
+        maintainer_can_modify: true,
+      });
+      return JSON.stringify({
+        html_url: "https://github.com/organization/base/pull/1",
+      });
+    }
+    assert.deepEqual(args, [
+      "pr",
+      "edit",
+      "https://github.com/organization/base/pull/1",
+      "--add-assignee",
+      "@me",
+    ]);
+  };
+  await createPr(
+    root,
+    ["--title", "Change", "--body-file", bodyFile, "--base", "main", "--draft"],
+    run,
+    async (ref) => assert.equal(ref, sha),
+  );
+});
+
+test("configured merge base is rejected before publishing the same branch", async (t) => {
+  const { root, git } = repository(t);
+  git("branch", "-m", "release");
+  git("remote", "add", "origin", "git@github.com:owner/repo.git");
+  git("config", "branch.release.gh-merge-base", "release");
+  const run = (command, args) =>
+    command === "git"
+      ? git(...args)
+      : JSON.stringify({
+          nameWithOwner: "owner/repo",
+          isFork: false,
+          defaultBranchRef: { name: "main" },
+        });
+  await assert.rejects(
+    createPr(root, ["--title", "Change"], run, async () =>
+      assert.fail("must reject before verification"),
+    ),
+    /base and head are the same branch/,
+  );
+});
+
+test("a narrow fetch refspec does not prevent verified PR creation", async (t) => {
+  const { root, git } = repository(t);
+  const remote = join(root, "remote.git");
+  git("init", "--bare", "-q", remote);
+  git("remote", "add", "origin", remote);
+  git(
+    "config",
+    "remote.origin.fetch",
+    "+refs/heads/main:refs/remotes/origin/main",
+  );
+  const sha = git("rev-parse", "HEAD");
+  let created = false;
+  const run = (command, args) => {
+    if (command === "git") return git(...args);
+    if (args[0] === "repo")
+      return JSON.stringify({
+        nameWithOwner: "owner/repo",
+        isFork: false,
+        defaultBranchRef: { name: "main" },
+      });
+    if (args[0] === "api") {
+      created = true;
+      return JSON.stringify({
+        html_url: "https://github.com/owner/repo/pull/1",
+      });
+    }
+  };
+  await createPr(root, ["--title", "Change"], run, async (ref) =>
+    assert.equal(ref, sha),
+  );
+  assert.ok(created);
+  assert.throws(() =>
+    git("rev-parse", "--verify", "refs/remotes/origin/feature"),
+  );
+  assert.equal(git("config", "branch.feature.remote"), "origin");
+  assert.equal(git("config", "branch.feature.merge"), "refs/heads/feature");
+});
+
+test("installed bootstrap remains active on branches without tracked gate files", (t) => {
+  const { root, git } = repository(t);
+  const directory = installHooks(root);
+  assert.equal(git("config", "--worktree", "core.hooksPath"), directory);
+  assert.equal(
+    readFileSync(join(directory, "pre-commit"), "utf8").includes(
+      "git-gate.mjs",
+    ),
+    true,
+  );
+  // No tracked scripts or hook templates exist in this old commit.
+  assert.throws(
+    () =>
+      execFileSync(
+        "git",
+        ["commit", "--allow-empty", "-m", "Old branch commit"],
+        { cwd: root, encoding: "utf8", stdio: "pipe" },
+      ),
+    /Local checks failed/,
+  );
+  assert.equal(git("log", "--format=%s", "-1"), "Initial");
+});
+
+test("required assignment happens after a verified PR is created", async (t) => {
+  const { root, git } = repository(t);
+  const remote = join(root, "remote.git");
+  git("init", "--bare", "-q", remote);
+  git("remote", "add", "origin", remote);
+  let created = false,
+    checked = false;
+  const run = (command, args) => {
+    if (command === "git") return git(...args);
+    if (args[0] === "repo")
+      return JSON.stringify({
+        nameWithOwner: "owner/repo",
+        isFork: false,
+        defaultBranchRef: { name: "main" },
+      });
+    if (args[0] === "api") {
+      assert.ok(checked);
+      created = true;
+      return JSON.stringify({
+        html_url: "https://github.com/owner/repo/pull/1",
+      });
+    }
+    throw new Error("HTTP 403 assignment permission denied");
+  };
+  await assert.rejects(
+    createPr(root, ["--title", "Change"], run, async () => {
+      checked = true;
+    }),
+    /403 assignment/,
+  );
+  assert.ok(created);
 });

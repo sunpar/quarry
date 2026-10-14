@@ -136,9 +136,10 @@ build passed; the wheel includes UI, runtime manifest, checker and assets.
 Branch coverage passed the same suite in 61.92 seconds; the full coverage
 command took 90.34 seconds including setup/build checks. It covered 3,904 of
 4,012 statements and 882 of 946 branches. These figures cover pytest processes,
-not all kernel subprocess execution. The staged smoke gate took 4.27 seconds.
-All 17 gate/transport regressions passed, including snapshot imports in xdist
-and a real kernel. A real pre-commit rejected staged invalid Python despite an
+not all kernel subprocess execution. The initial staged smoke gate took 4.27
+seconds; the expanded regression suite took 8.78 seconds after review fixes. All
+24 gate/transport regressions passed, including snapshot imports in xdist and a
+real kernel. A real pre-commit rejected staged invalid Python despite an
 unstaged fix and preserved the index and HEAD. Workflow actionlint passed.
 
 Full checks install the snapshot wheel in a separate environment so the existing
@@ -148,8 +149,14 @@ coverage have not been exercised in this session.
 
 ## Next actions
 
-1. Finish the local and GitHub reviews for the local-first rollout, then merge
-   only when the workflow conditions hold.
+1. Seven Codex findings are fixed: complete the code map, paginate exact-head PR
+   lookup, use explicit fork repository identity, reject equal base/head before
+   pushing, avoid fetched-ref tracking, persist the hook bootstrap in Git
+   metadata and force setup into the repository environment. Required
+   self-assignment remains after verified PR creation, with the URL printed
+   before metadata changes. Full local validation passed again.
+2. Push and validate the fixes, reply to the eight review threads, then continue
+   the remaining capped bot rotation and merge only when its conditions hold.
 
 ## Resuming
 

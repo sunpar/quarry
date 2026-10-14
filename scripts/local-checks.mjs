@@ -100,6 +100,8 @@ export function runChecks(root, suite, paths = []) {
       if (existsSync(stamp)) writeFileSync(stamp, "");
     }
     const env = { ...process.env };
+    env.UV_PROJECT_ENVIRONMENT = join(root, ".venv");
+    env.VIRTUAL_ENV = env.UV_PROJECT_ENVIRONMENT;
     delete env.UV_OFFLINE;
     delete env.UV_PYTHON_DOWNLOADS;
     run(
@@ -154,7 +156,6 @@ export function runChecks(root, suite, paths = []) {
         });
       if (/\.(mjs|cjs|js)$/.test(path))
         run(process.execPath, ["--check", path]);
-      if (path.startsWith(".githooks/")) run("sh", ["-n", path]);
     }
     run(python, [
       "-m",

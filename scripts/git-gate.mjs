@@ -1,7 +1,15 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { attachDependencies } from "./local-checks.mjs";
 
@@ -16,6 +24,36 @@ function commandRunner(root) {
       maxBuffer: 256 * 1024 * 1024,
       ...options,
     })?.trim();
+}
+
+export function installHooks(root, run = commandRunner(root)) {
+  const directory = resolve(
+    root,
+    run("git", ["rev-parse", "--git-path", "local-gates"]),
+  );
+  mkdirSync(directory, { recursive: true });
+  for (const file of ["git-gate.mjs", "local-checks.mjs"])
+    writeFileSync(
+      join(directory, file),
+      readFileSync(new URL(file, import.meta.url)),
+    );
+  for (const [hook, operation] of [
+    ["pre-commit", "commit"],
+    ["pre-push", "push"],
+  ]) {
+    const path = join(directory, hook);
+    writeFileSync(
+      path,
+      `#!/bin/sh\nset -eu\nexec node "$(dirname "$0")/git-gate.mjs" ${operation} "$@"\n`,
+    );
+    chmodSync(path, 0o755);
+  }
+  run("git", ["config", "extensions.worktreeConfig", "true"]);
+  run("git", ["config", "--worktree", "core.hooksPath", directory]);
+  console.log(
+    `Installed local gates in ${directory}; rerun make hooks after gate updates.`,
+  );
+  return directory;
 }
 
 export async function withSnapshot(root, { staged = false, ref }, action) {
@@ -92,22 +130,24 @@ export async function gatePush(
     const prs = repositories.flatMap((repository) =>
       JSON.parse(
         run("gh", [
-          "pr",
-          "list",
-          "--repo",
-          repository,
-          "--state",
-          "open",
-          "--head",
-          branch,
-          "--json",
-          "headRepository,headRepositoryOwner",
+          "api",
+          `repos/${repository}/pulls`,
+          "--method",
+          "GET",
+          "--paginate",
+          "--slurp",
+          "-f",
+          "state=open",
+          "-f",
+          `head=${destination.nameWithOwner.split("/")[0]}:${branch}`,
+          "-f",
+          "per_page=100",
         ]),
-      ),
+      ).flat(),
     );
     const open = prs.some(
       (pr) =>
-        `${pr.headRepositoryOwner.login}/${pr.headRepository.name}`.toLowerCase() ===
+        pr.head.repo.full_name.toLowerCase() ===
         destination.nameWithOwner.toLowerCase(),
     );
     // Direct main pushes receive the same checks as PR updates.
@@ -125,63 +165,44 @@ export async function createPr(
   run = commandRunner(root),
   check = (ref) => checkSnapshot(root, { ref }, "full"),
 ) {
-  const values = new Set([
-    "--title",
-    "-t",
-    "--body",
-    "-b",
-    "--body-file",
-    "-F",
-    "--base",
-    "-B",
-    "--reviewer",
-    "-r",
-    "--label",
-    "-l",
-    "--milestone",
-    "-m",
-    "--project",
-    "-p",
-    "--template",
-    "-T",
-    "--attach",
-    "--recover",
-  ]);
-  const switches = new Set([
-    "--draft",
-    "-d",
-    "--fill",
-    "-f",
-    "--fill-first",
-    "--fill-verbose",
-    "--no-maintainer-edit",
-    "--editor",
-    "-e",
-    "--web",
-    "-w",
-  ]);
-  if (args.length === 1 && args[0] === "--help")
-    return run("gh", ["pr", "create", "--help"], { stdio: "inherit" });
-  for (let i = 0; i < args.length; i++) {
-    const flag = args[i].split("=")[0];
-    if (values.has(flag)) {
-      if (!args[i].includes("=") && args[++i] === undefined)
-        throw new Error(`Missing value for PR flag ${flag}`);
-    } else if (!switches.has(args[i])) {
-      throw new Error(
-        `Unsupported PR flag ${args[i]}; head/repo overrides and grouped short flags are not supported.`,
-      );
-    }
+  if (args.length === 1 && args[0] === "--help") {
+    console.log(
+      "Create a pull request after verifying committed HEAD.\nSupported options: --title/-t (required), --body/-b, --body-file/-F, --base/-B, --draft/-d, --no-maintainer-edit",
+    );
+    return;
   }
+  const aliases = new Map([
+    ["--title", "title"],
+    ["-t", "title"],
+    ["--body", "body"],
+    ["-b", "body"],
+    ["--body-file", "bodyFile"],
+    ["-F", "bodyFile"],
+    ["--base", "base"],
+    ["-B", "base"],
+  ]);
+  const options = { draft: false, maintainer_can_modify: true };
+  for (let i = 0; i < args.length; i++) {
+    const [flag] = args[i].split("=");
+    if (aliases.has(flag)) {
+      const value = args[i].includes("=")
+        ? args[i].slice(args[i].indexOf("=") + 1)
+        : args[++i];
+      if (value === undefined)
+        throw new Error(`Missing value for PR flag ${flag}`);
+      options[aliases.get(flag)] = value;
+    } else if (args[i] === "--draft" || args[i] === "-d") options.draft = true;
+    else if (args[i] === "--no-maintainer-edit")
+      options.maintainer_can_modify = false;
+    else
+      throw new Error(
+        `Unsupported PR flag ${args[i]}; run make pr ARGS=--help for supported options.`,
+      );
+  }
+  if (!options.title?.trim())
+    throw new Error("PR title required; pass --title with a capitalized verb.");
   const branch = run("git", ["symbolic-ref", "--short", "HEAD"]);
   const sha = run("git", ["rev-parse", "HEAD"]);
-  await check(sha);
-  if (
-    sha !== run("git", ["rev-parse", "HEAD"]) ||
-    branch !== run("git", ["symbolic-ref", "--short", "HEAD"])
-  ) {
-    throw new Error("HEAD changed during checks; run make pr again.");
-  }
   const remote = run("git", ["remote", "get-url", "--push", "origin"]);
   const repo = JSON.parse(
     run("gh", [
@@ -189,33 +210,91 @@ export async function createPr(
       "view",
       remote,
       "--json",
-      "nameWithOwner,isFork,parent",
+      "nameWithOwner,isFork,parent,defaultBranchRef",
     ]),
   );
+  const baseRepository = repo.isFork
+    ? `${repo.parent.owner.login}/${repo.parent.name}`
+    : repo.nameWithOwner;
+  let base =
+    options.base ??
+    run("git", [
+      "config",
+      "--default",
+      "",
+      "--get",
+      `branch.${branch}.gh-merge-base`,
+    ]);
+  if (!base) {
+    const baseRepo = repo.isFork
+      ? JSON.parse(
+          run("gh", [
+            "repo",
+            "view",
+            baseRepository,
+            "--json",
+            "defaultBranchRef",
+          ]),
+        )
+      : repo;
+    base = baseRepo.defaultBranchRef.name;
+  }
+  if (
+    baseRepository.toLowerCase() === repo.nameWithOwner.toLowerCase() &&
+    branch === base
+  )
+    throw new Error(
+      "PR base and head are the same branch; switch to a feature branch before creating a PR.",
+    );
+  const body =
+    options.bodyFile === undefined
+      ? (options.body ?? "")
+      : readFileSync(
+          options.bodyFile === "-" ? 0 : resolve(root, options.bodyFile),
+          "utf8",
+        );
+  await check(sha);
+  if (
+    sha !== run("git", ["rev-parse", "HEAD"]) ||
+    branch !== run("git", ["symbolic-ref", "--short", "HEAD"])
+  )
+    throw new Error("HEAD changed during checks; run make pr again.");
   run("git", ["push", "origin", `${sha}:refs/heads/${branch}`], {
     stdio: "inherit",
   });
-  // A SHA push preserves verification fidelity; branch tracking is a separate operation.
-  run("git", ["branch", `--set-upstream-to=origin/${branch}`, branch], {
+  run("git", ["config", `branch.${branch}.remote`, "origin"]);
+  run("git", ["config", `branch.${branch}.merge`, `refs/heads/${branch}`]);
+  const created = JSON.parse(
+    run(
+      "gh",
+      [
+        "api",
+        `repos/${baseRepository}/pulls`,
+        "--method",
+        "POST",
+        "--input",
+        "-",
+      ],
+      {
+        input: JSON.stringify({
+          title: options.title,
+          body,
+          base,
+          head: repo.isFork
+            ? `${repo.nameWithOwner.split("/")[0]}:${branch}`
+            : branch,
+          head_repo: repo.nameWithOwner.split("/")[1],
+          draft: options.draft,
+          maintainer_can_modify: options.maintainer_can_modify,
+        }),
+      },
+    ),
+  );
+  console.log(created.html_url);
+  run("gh", ["pr", "edit", created.html_url, "--add-assignee", "@me"], {
     stdio: "inherit",
   });
-  run(
-    "gh",
-    [
-      "pr",
-      "create",
-      "--repo",
-      repo.isFork
-        ? `${repo.parent.owner.login}/${repo.parent.name}`
-        : repo.nameWithOwner,
-      "--head",
-      repo.isFork ? `${repo.nameWithOwner.split("/")[0]}:${branch}` : branch,
-      "--assignee",
-      "@me",
-      ...args,
-    ],
-    { stdio: "inherit" },
-  );
+  return created.html_url;
 }
 
 if (
@@ -227,7 +306,9 @@ if (
       encoding: "utf8",
     }).trim();
     const [operation, ...args] = process.argv.slice(2);
-    if (operation === "commit") {
+    if (operation === "install") {
+      installHooks(root);
+    } else if (operation === "commit") {
       const paths = execFileSync(
         "git",
         ["diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR"],
@@ -244,12 +325,12 @@ if (
       await checkSnapshot(root, { ref: args[0] ?? "HEAD" }, "full");
     } else {
       throw new Error(
-        "Usage: git-gate.mjs commit | push <remote> <url> | pr [gh options] | check [commit]",
+        "Usage: git-gate.mjs install | commit | push <remote> <url> | pr [options] | check [commit]",
       );
     }
   } catch (error) {
     console.error(
-      `Local checks failed; operation stopped. Run make deps for missing tools; run gh auth status for PR lookup failures. ${error.message}`,
+      `Local checks failed; operation stopped. Run make deps for missing tools; run gh auth status for PR lookup failures. For missing gate scripts, update your branch from origin/main. ${error.message}`,
     );
     process.exitCode = 1;
   }
