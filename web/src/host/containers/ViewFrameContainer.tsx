@@ -53,6 +53,7 @@ export function ViewFrameContainer({
   return (
     <div className="flex flex-col gap-2">
       <ViewHost
+        key={JSON.stringify([sessionId, step.id])}
         viewId={step.id}
         sessionId={sessionId}
         contentKey={view.content_hash}
