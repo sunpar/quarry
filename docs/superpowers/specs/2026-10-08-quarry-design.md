@@ -268,6 +268,7 @@ QuerySpec {
   group_by?: string[],
   aggs?: Agg[],
   pivot?: { index: string[], columns: string, values: string, agg: AggFn },
+  line_reduce?: { time: string, value: string, max_rows?: number },
   sort?: [{ col, desc: boolean }],
   limit?: number,          // default and max: config row_cap (default 50000)
   offset?: number,
@@ -285,6 +286,29 @@ both), then sort, then offset and limit, then select. A spec with both
 `group_by` and `pivot` is rejected. `first` and `last` need a row order, which
 a DuckDB relation does not have, so specs on relation-backed datasets reject
 them.
+
+`line_reduce` replaces grouping, pivot, sort, select, offset and limit. Filters
+define the full requested domain; the output contains the two axis columns.
+`time` is Date or Datetime and `value` is numeric. Missing times are omitted;
+non-finite values become null. Rows sort by time, then value with nulls first.
+Exact duplicate pairs are interchangeable. When rows exceed `max_rows` (default
+50,000, capped by `row_cap`), reduction first reserves both endpoints of every
+null run, then divides the full time range into equal-width bins, retaining each
+bin's first, last, minimum and maximum rows. Extrema ties choose the earliest
+ordered row. Constant times use one bin. Budgets that cannot fit all gap markers
+and one four-row bin fail; all-null inputs need only their run endpoints. Inputs
+within budget keep every ordered row. Results report `source_row_count` after
+missing-time removal and `reduced` when representatives omit rows, independently
+of prefix `truncated`.
+
+This is a lossy line overview, not raw-data reconstruction or a promise of
+pixel-identical rendering at every zoom level. "To code" uses the same effective
+budget as the query. The large-series view preserves null breaks and does no
+additional browser sampling. Polars materializes only the filtered axis columns
+on the server, then uses the shared DuckDB reducer on a private connection with
+one thread, a 256 MiB memory limit and no disk spill. Relation-backed reduction
+uses its existing connection. Oversized in-memory reductions fail rather than
+increase resource limits.
 
 ## 6. Kernel
 

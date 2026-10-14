@@ -51,7 +51,14 @@ from quarry.query.spec import (
     QueryError,
     QuerySpec,
 )
-from quarry.query.sql_target import quote_ident, relation_view, split_for_relation, to_sql
+from quarry.query.sql_target import (
+    LINE_CONNECTION_CONFIG,
+    line_sql,
+    quote_ident,
+    relation_view,
+    split_for_relation,
+    to_sql,
+)
 
 DATE_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATETIME_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
@@ -109,13 +116,26 @@ def _render(
     relation_projection: str | None,
 ) -> str:
     if backing != "duckdb":
-        chain = _chain_source(
-            spec,
-            result_name=result_name,
-            schema=schema,
-            head=f"{spec.dataset}.lazy()",
-            head_is_lazy=True,
-        )
+        if spec.line_reduce is not None:
+            # The result name also holds the private connection, avoiding extra bindings.
+            axes = [spec.line_reduce.time, spec.line_reduce.value]
+            head = f"{spec.dataset}.lazy()" + "".join(_filter_steps(spec, schema))
+            sql = py_literal(line_sql(spec, 'SELECT * FROM "points"'))
+            chain = (
+                f"with duckdb.connect(config={LINE_CONNECTION_CONFIG!r}) as {result_name}:\n"
+                f"    {result_name}.execute(\"SET TimeZone = 'UTC'\")\n"
+                f'    {result_name}.register("points", '
+                f"{head}.select({py_literal(axes)}).collect())\n"
+                f"    {result_name} = {result_name}.sql({sql}).pl()"
+            )
+        else:
+            chain = _chain_source(
+                spec,
+                result_name=result_name,
+                schema=schema,
+                head=f"{spec.dataset}.lazy()",
+                head_is_lazy=True,
+            )
         imported = _imported_names(spec, schema)
         if spec.dataset in imported:
             raise QueryError(
@@ -360,14 +380,19 @@ def _imported_names(spec: QuerySpec, schema: Schema | None) -> list[str]:
         for f in spec.filters
         if f.op not in TEXT_OPS | NULL_OPS
     ]
-    return sorted({name for value in literals for name in _temporal_names(value)})
+    return sorted(
+        {name for value in literals for name in _temporal_names(value)}
+        | ({"duckdb"} if spec.line_reduce else set())
+    )
 
 
 def _import_lines(names: list[str]) -> str:
     lines = [
         f"from {module} import {', '.join(n for n in names if IMPORTED_FROM[n] == module)}\n"
-        for module in sorted({IMPORTED_FROM[n] for n in names})
+        for module in sorted({IMPORTED_FROM[n] for n in names if n != "duckdb"})
     ]
+    if "duckdb" in names:
+        lines.append("import duckdb\n")
     return "".join(lines) + "\n" if lines else ""
 
 

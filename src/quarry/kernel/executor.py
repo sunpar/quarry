@@ -40,7 +40,13 @@ from quarry.kernel.lineage import CodeNames, analyze, dataset_reads, dataset_wri
 from quarry.query.polars_target import to_polars
 from quarry.query.source_target import imported_names, result_names, to_source
 from quarry.query.spec import Json, QueryError, QuerySpec
-from quarry.query.sql_target import quote_ident, relation_view, split_for_relation, to_sql
+from quarry.query.sql_target import (
+    quote_ident,
+    reduction_count_name,
+    relation_view,
+    split_for_relation,
+    to_sql,
+)
 
 TAIL_BYTES: Final = 4096
 _NOTHING_STORED: Final = CodeNames(frozenset(), frozenset(), frozenset())
@@ -82,6 +88,8 @@ class QueryResult(BaseModel):
     arrow_base64: str | None
     row_count: int
     truncated: bool
+    reduced: bool = False
+    source_row_count: int | None = None
 
 
 class ToCodeResult(BaseModel):
@@ -238,8 +246,17 @@ class Executor:
     def query(self, spec: QuerySpec) -> QueryResult:
         """Run `spec`, returning at most `row_cap` rows; `truncated` when more rows exist."""
         obj = self._dataset(spec.dataset)
-        capped = spec.model_copy(update={"limit": self._capped(spec.limit)})
-        frame = _run_query(capped, obj, self._conn)
+        capped = (
+            self._line_budget(spec)
+            if spec.line_reduce
+            else spec.model_copy(update={"limit": self._capped(spec.limit)})
+        )
+        frame = _run_query(capped, obj, self._conn, reduction_stats=spec.line_reduce is not None)
+        source_rows = None
+        if spec.line_reduce is not None:
+            count_name = reduction_count_name(spec)
+            source_rows = int(frame[0, count_name]) if frame.height else 0
+            frame = frame.drop(count_name)
         truncated = frame.height > self._row_cap
         frame = frame.head(self._row_cap)
         arrow = spec.format == "arrow"
@@ -250,6 +267,8 @@ class Executor:
             arrow_base64=_arrow_base64(frame) if arrow else None,
             row_count=frame.height,
             truncated=truncated,
+            reduced=source_rows is not None and source_rows > frame.height,
+            source_row_count=source_rows,
         )
 
     def to_code(self, specs: list[QuerySpec]) -> ToCodeResult:
@@ -259,6 +278,7 @@ class Executor:
         imported: set[str] = set()
         positions = [(n, spec.dataset) for n, spec in enumerate(specs, start=1)]
         for spec, result_name in zip(specs, result_names(positions, self._ns), strict=True):
+            spec = self._line_budget(spec)
             obj = self._dataset(spec.dataset)
             projection = None
             if isinstance(obj, duckdb.DuckDBPyRelation):
@@ -402,6 +422,17 @@ class Executor:
         """`limit` when it is within the cap, else one row past it to detect truncation."""
         return limit if limit is not None and limit <= self._row_cap else self._row_cap + 1
 
+    def _line_budget(self, spec: QuerySpec) -> QuerySpec:
+        if spec.line_reduce is None:
+            return spec
+        return spec.model_copy(
+            update={
+                "line_reduce": spec.line_reduce.model_copy(
+                    update={"max_rows": min(spec.line_reduce.max_rows, self._row_cap)}
+                )
+            }
+        )
+
     def _dataset(self, name: str) -> Dataset:
         obj = self._ns.get(name)
         if not is_dataset(obj):
@@ -488,9 +519,11 @@ def _identity_check(obj: object) -> _IsSame:
     return lambda current: ref() is current
 
 
-def _run_query(spec: QuerySpec, obj: Dataset, conn: duckdb.DuckDBPyConnection) -> pl.DataFrame:
+def _run_query(
+    spec: QuerySpec, obj: Dataset, conn: duckdb.DuckDBPyConnection, *, reduction_stats: bool = False
+) -> pl.DataFrame:
     if not isinstance(obj, duckdb.DuckDBPyRelation):
-        return to_polars(spec, obj).collect()
+        return to_polars(spec, obj, reduction_stats=reduction_stats).collect()
     # As describe reports it, so the spec's filters, sorts and aggs see the types it advertises
     # (an INTERVAL is text), and a repeated `a` is `a` and `a_1`, which SQL can tell apart.
     rel = importable_relation(obj)
@@ -498,7 +531,7 @@ def _run_query(spec: QuerySpec, obj: Dataset, conn: duckdb.DuckDBPyConnection) -
     # Unique per query: `query` replaces a temp view of its name, and the drop below removes
     # it, so a fixed name could destroy a view the researcher made under it.
     view = f"{relation_view(spec.dataset)}_{uuid.uuid4().hex[:8]}"
-    sql = to_sql(sql_part, view, columns=rel.columns)
+    sql = to_sql(sql_part, view, columns=rel.columns, reduction_stats=reduction_stats)
     try:
         frame = relation_frame(rel.query(view, sql))
     finally:

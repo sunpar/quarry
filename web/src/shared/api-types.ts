@@ -58,6 +58,7 @@ export interface QuerySpec {
   group_by?: string[];
   aggs?: Agg[];
   pivot?: Pivot;
+  line_reduce?: { time: string; value: string; max_rows?: number };
   sort?: Sort[];
   limit?: number;
   offset?: number;
@@ -72,6 +73,8 @@ export interface QueryResult {
   arrow_base64: string | null;
   row_count: number;
   truncated: boolean;
+  reduced?: boolean;
+  source_row_count?: number | null;
 }
 
 export interface DatasetMeta {

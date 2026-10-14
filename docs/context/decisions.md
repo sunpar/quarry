@@ -1260,15 +1260,29 @@ them.
   built-ins read values with the time series' `parseValue`, never `Number()`,
   which turns `null` into 0. A null aggregate stays `null`, so Recharts leaves a
   gap; a scatter point whose x or y is not finite is dropped; a null or
-  non-numeric heatmap cell is NaN, which Plotly leaves blank; a large series row
-  whose time or value is not finite is dropped.
+  non-numeric heatmap cell is NaN, which Plotly leaves blank; large series omit
+  missing times and preserve non-finite values as null line breaks.
 - **The large series plots UTC epoch milliseconds**: points are
   `[epochMs, value]` pairs read with the time series' `parseTime`, so a naive
   datetime is UTC, and the option sets `useUTC: true`. Given strings, ECharts
   reads a naive datetime as browser-local time, which shifts it around DST
   changes. The plan's `large: true` and `largeThreshold` are gone: ECharts line
-  series have no large mode (`LineSeriesOption` has no `large`), so
-  `sampling: "lttb"` and `showSymbol: false` are what keep 50,000 points fast.
+  series have no large mode (`LineSeriesOption` has no `large`). The server
+  reduces the whole domain and the chart uses `showSymbol: false` without
+  browser sampling, which could discard the selected extrema.
+- **Whole-domain line reduction**: the compiler shares one gap-aware M4 SQL
+  reducer across all backings and exported Python. The
+  [query spec](../superpowers/specs/2026-10-08-quarry-design.md#query-spec)
+  defines ordering, ties, gap costs and insufficient budgets. The previous
+  500,000-row request reached only the first 50,000 rows. Reduction requires a
+  query operation because moving the prefix limit cannot select extrema across
+  the full domain. Polars eagerly materializes two filtered columns, as pivot
+  materializes its inputs; a private one-thread DuckDB connection limits memory
+  to 256 MiB and forbids spill. This trades server memory for a bounded browser
+  result and can refuse inputs that exceed that memory allowance. Mosaic's
+  [M4 implementation](https://github.com/uwdata/mosaic/blob/main/packages/mosaic/sql/src/transforms/m4.ts)
+  informed first/last/min/max selection; Quarry adds deterministic ties and
+  reserves null-run endpoints instead of hiding gaps.
 - **No two roles share a column, and no pick hides the pickers**: a saved column
   counts only while the live schema offers it, so a stale choice falls back to
   the default instead of failing the query. Roles resolve in an order that
