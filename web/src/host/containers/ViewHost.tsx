@@ -109,7 +109,6 @@ export function ViewHost(props: ViewHostProps) {
     return () => {
       stop();
       bridgeRef.current = null;
-      loaded.current = false;
     };
   }, [sessionId, viewId, isFetched]);
 
@@ -148,7 +147,6 @@ export function ViewHost(props: ViewHostProps) {
 
   return (
     <ViewFrame
-      key={JSON.stringify([sessionId, viewId])}
       ref={frameRef}
       title={title}
       error={error}

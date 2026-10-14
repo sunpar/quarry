@@ -1,11 +1,15 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { useLayoutEffect } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Session, Step } from "@/shared/api-types";
 import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
 import { keys } from "../api/keys";
+import { HostBridge } from "../bridge/HostBridge";
 import { ViewFrameContainer } from "./ViewFrameContainer";
+
+afterEach(() => vi.restoreAllMocks());
 
 const step: Step = {
   id: "s1",
@@ -79,6 +83,60 @@ function mount(onRepair = vi.fn()) {
 }
 
 describe("ViewFrameContainer", () => {
+  it("connects the replacement host when its frame loads before passive cleanup", async () => {
+    const connect = vi.spyOn(HostBridge.prototype, "connect");
+    const qc = new QueryClient();
+    qc.setQueryData(keys.libraries(), []);
+    const api = new ApiClient("t", async () => new Response("[]"));
+    function Caller({ sessionId }: { sessionId: string }) {
+      useLayoutEffect(() => {
+        screen.getByTitle("View for step 1").dispatchEvent(new Event("load"));
+      }, [sessionId]);
+      return (
+        <ViewFrameContainer
+          sessionId={sessionId}
+          step={step}
+          running={false}
+          dataVersion="1"
+          onRepair={() => undefined}
+        />
+      );
+    }
+    const tree = (sessionId: string) => (
+      <QueryClientProvider client={qc}>
+        <ApiProvider client={api}>
+          <Caller sessionId={sessionId} />
+        </ApiProvider>
+      </QueryClientProvider>
+    );
+    const view = render(tree("first"));
+    const first = connect.mock.instances[0];
+    const oldFrame = screen.getByTitle("View for step 1");
+    expect(first).toBeDefined();
+    view.rerender(tree("next"));
+    const newFrame = screen.getByTitle("View for step 1") as HTMLIFrameElement;
+    expect(newFrame).not.toBe(oldFrame);
+    expect(connect).toHaveBeenCalledTimes(2);
+    expect(connect.mock.instances[1]).not.toBe(first);
+    const posted: unknown[] = [];
+    vi.spyOn(
+      newFrame.contentWindow as Window,
+      "postMessage",
+    ).mockImplementation((m: unknown) => posted.push(m));
+    await act(async () =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "ready" },
+          source: newFrame.contentWindow,
+        }),
+      ),
+    );
+    expect(posted).toEqual([
+      expect.objectContaining({ type: "mount", viewId: "s1" }),
+    ]);
+    connect.mockRestore();
+  });
+
   it("tells the view to refetch when kernel data may have changed", async () => {
     const { iframe, setVersion } = mount();
     const posted: unknown[] = [];

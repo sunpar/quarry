@@ -804,8 +804,9 @@ them.
   the planned one.
 - **The runtime acknowledges the host's connection**: the host installs its
   listener before sending `connect` after the iframe loads. The runtime answers
-  `ready`, which sends the queued mount. A late libraries answer connects the
-  already loaded frame; content changes mount through the existing bridge.
+  `ready`, which sends the queued mount. Callers key the host by session and
+  view, keeping refs and subscriptions with their iframe. A late libraries
+  answer connects an already loaded frame; content changes reuse its bridge.
   Reconnecting clears the previous runtime's readiness, keeping changed content
   and linked state queued until the new acknowledgment. Removing the runtime's
   unprompted `ready` leaves one mount trigger, so a late acknowledgment cannot
