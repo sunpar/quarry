@@ -194,6 +194,28 @@ for (const [name, Component, limit] of [
       expect(m.store.current().filters).toEqual([filters[1]]);
     });
 
+    it.each(["AAPL", "2026-02-30", "0000-01-01"])(
+      "flags a restored value %s after its column becomes Date",
+      async (value) => {
+        const filters = [{ col: "symbol", op: "eq", value }];
+        const m = mount(Component, { filters });
+        await screen.findByLabelText("Filter column");
+        act(() => {
+          m.setSchema(
+            columns.map((c) =>
+              c.name === "symbol" ? { ...c, dtype: "Date" } : c,
+            ),
+          );
+          m.cache.refresh();
+        });
+        expect(
+          await screen.findByText(/symbol: filter does not match Date/),
+        ).toBeTruthy();
+        expect(m.store.current().filters).toEqual(filters);
+        expect(m.queries().at(-1)?.filters).toEqual(filters);
+      },
+    );
+
     it("offers date and null filters while limiting unsupported value types", async () => {
       const m = mount(Component);
       const column = await screen.findByLabelText("Filter column");

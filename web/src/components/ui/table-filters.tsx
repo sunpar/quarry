@@ -27,6 +27,16 @@ function operators(dtype: string): Filter["op"][] {
   return NULL_OPS;
 }
 
+function validDate(value: string): boolean {
+  const date = new Date(`${value}T00:00:00Z`);
+  return (
+    /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    !value.startsWith("0000") &&
+    !Number.isNaN(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value
+  );
+}
+
 function matches(filter: TableFilter, dtype: string): boolean {
   if (!operators(dtype).includes(filter.op)) return false;
   if (NULL_OPS.includes(filter.op))
@@ -37,7 +47,10 @@ function matches(filter: TableFilter, dtype: string): boolean {
       Number.isFinite(filter.value) &&
       (!/^(Int|UInt)/.test(dtype) || Number.isSafeInteger(filter.value))
     );
-  return typeof filter.value === "string";
+  return (
+    typeof filter.value === "string" &&
+    (dtype !== "Date" || validDate(filter.value))
+  );
 }
 
 interface Props {
@@ -83,16 +96,9 @@ export function TableFilters({
         return;
       }
     }
-    if (valued && column.dtype === "Date") {
-      const date = new Date(`${value}T00:00:00Z`);
-      if (
-        !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
-        Number.isNaN(date.getTime()) ||
-        date.toISOString().slice(0, 10) !== value
-      ) {
-        setError("Enter a date as YYYY-MM-DD.");
-        return;
-      }
+    if (valued && column.dtype === "Date" && !validDate(value)) {
+      setError("Enter a date as YYYY-MM-DD.");
+      return;
     }
     setError(null);
     onChange([
