@@ -12,8 +12,11 @@ Migrate routine verification to local staged and committed snapshots on
 `codex/local-first-ci`, based on the merged CI-speed work in
 [sunpar/quarry#14](https://github.com/sunpar/quarry/pull/14). The full local
 replacement passed before automatic hosted triggers were removed. GitHub has no
-branch protections or rulesets to migrate. Run the authorized
-open-pr-and-babysit workflow after implementation validation.
+branch protections or rulesets to migrate. The rollout is open in
+[sunpar/quarry#15](https://github.com/sunpar/quarry/pull/15). Astra completed
+its local review without findings on `ecc1c65`; Opus and Muse were unavailable
+due to provider quotas. Their one-attempt budgets are recorded in the worktree
+ledger. Continue the authorized open-pr-and-babysit workflow.
 
 ## Status by stage
 
