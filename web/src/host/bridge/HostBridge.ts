@@ -29,13 +29,20 @@ export class HostBridge {
   private mountSpec: MountSpec | null = null;
   // Linked keys that arrived before the view mounted; the runtime would drop them.
   private pendingMerge: JsonObject | null = null;
+  private readonly replies = new Map<
+    string,
+    (message: HostToRuntime) => void
+  >();
 
   constructor(private readonly options: HostBridgeOptions) {}
 
   listen(target: Window): () => void {
     const handler = (event: MessageEvent<unknown>) => this.handleEvent(event);
     target.addEventListener("message", handler);
-    return () => target.removeEventListener("message", handler);
+    return () => {
+      target.removeEventListener("message", handler);
+      this.replies.clear();
+    };
   }
 
   handleEvent(event: { data: unknown; source: unknown }): void {
@@ -49,11 +56,9 @@ export class HostBridge {
     if (this.ready) this.flushMount();
   }
 
-  /** The frame's `load` fired, so its runtime is listening even if `ready` was missed. */
-  frameLoaded(): void {
-    if (this.ready) return;
-    this.ready = true;
-    this.flushMount();
+  /** Ask the listening runtime to acknowledge readiness after our listener is installed. */
+  connect(): void {
+    this.send({ type: "connect", viewId: this.options.viewId });
   }
 
   refresh(): void {
@@ -80,9 +85,10 @@ export class HostBridge {
     const { viewId } = this.options;
     switch (message.type) {
       case "query":
+        this.replies.set(message.id, (reply) => this.send(reply));
         void this.options.onQuery(message.spec).then(
           (result) =>
-            this.send({
+            this.reply({
               type: "queryResult",
               viewId,
               id: message.id,
@@ -90,7 +96,7 @@ export class HostBridge {
               result,
             }),
           (error: unknown) =>
-            this.send({
+            this.reply({
               type: "queryResult",
               viewId,
               id: message.id,
@@ -100,9 +106,10 @@ export class HostBridge {
         );
         return;
       case "schema":
+        this.replies.set(message.id, (reply) => this.send(reply));
         void this.options.onSchema(message.dataset).then(
           (schema) =>
-            this.send({
+            this.reply({
               type: "schemaResult",
               viewId,
               id: message.id,
@@ -110,7 +117,7 @@ export class HostBridge {
               schema,
             }),
           (error: unknown) =>
-            this.send({
+            this.reply({
               type: "schemaResult",
               viewId,
               id: message.id,
@@ -142,6 +149,14 @@ export class HostBridge {
       state: this.pendingMerge,
     });
     this.pendingMerge = null;
+  }
+
+  private reply(
+    message: Extract<HostToRuntime, { type: "queryResult" | "schemaResult" }>,
+  ): void {
+    const receiver = this.replies.get(message.id);
+    this.replies.delete(message.id);
+    receiver?.(message);
   }
 
   private send(message: HostToRuntime): void {

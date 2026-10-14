@@ -527,18 +527,21 @@ hooks module, and renders the default export inside an error boundary.
 
 ### Bridge
 
-postMessage with correlation ids. Every message carries `viewId`.
+postMessage with correlation ids. Every view-specific message carries `viewId`.
 
-Host to runtime: `mount { source, initialState, datasets }`,
+Host to runtime: `connect`, `mount { source, initialState, datasets }`,
 `restore { state }`, `queryResult { id, ok, schema, rows | arrow | error }`,
 `schemaResult { id, ok, schema | error }`.
 
 Runtime to host: `ready`, `query { id, spec }`, `schema { id, dataset }`,
 `stateChanged { state, queries }`, `error { message, stack }`.
 
-That is the entire surface. The host serves `query` by calling
-`POST /sessions/{id}/query`, which forwards to the kernel. The host is the
-only party holding the token.
+The host installs its listener before `connect`; the runtime acknowledges with
+`ready`, and the host sends its queued mount. Content changes reuse the bridge.
+The host serves concurrent identical `query` specs in the same session and data
+generation through one in-flight `POST /sessions/{id}/query`, which forwards to
+the kernel. Settled host results are discarded; runtime caches and state remain
+per view. The host is the only party holding the token.
 
 ### Hooks exposed to generated code
 

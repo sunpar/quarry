@@ -22,8 +22,10 @@ function setup() {
 }
 
 describe("runtime mount", () => {
-  it("posts ready, mounts a component with datasets, and restores state", async () => {
+  it("acknowledges connect, mounts a component with datasets, and restores state", async () => {
     const { runtime, sent } = setup();
+    expect(sent).toHaveLength(0);
+    runtime.handle({ type: "connect", viewId: "v1" });
     expect(sent[0]).toEqual({ type: "ready" });
     const source = `
       import { useViewState } from "@quarry/hooks";
