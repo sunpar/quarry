@@ -65,7 +65,15 @@ def to_sql(
     return outer
 
 
-def line_sql(spec: QuerySpec, source: str, *, reduction_stats: bool = False) -> str:
+def line_sql(
+    spec: QuerySpec,
+    source: str,
+    *,
+    reduction_stats: bool = False,
+    time_ticks: str | None = None,
+    value_expression: str | None = None,
+    output_value: str = "v",
+) -> str:
     """Select M4 representatives and every null-run endpoint within one row budget.
 
     Ordering is time, then value (null first). Exact duplicates are interchangeable.
@@ -76,9 +84,15 @@ def line_sql(spec: QuerySpec, source: str, *, reduction_stats: bool = False) -> 
     assert reduction is not None
     time, value = quote_ident(reduction.time), quote_ident(reduction.value)
     budget = reduction.max_rows
+    ticks = time_ticks or (
+        f"CASE WHEN typeof({time}) = 'TIMESTAMP_NS' THEN epoch_ns({time})::HUGEINT "
+        f"ELSE epoch_us({time})::HUGEINT * 1000 END"
+    )
+    values = value_expression or value
     stats = ", n AS " + quote_ident(reduction_count_name(spec)) if reduction_stats else ""
     return f"""WITH points AS (
-    SELECT {time} AS t, CASE WHEN isfinite({value}) THEN {value} END AS v
+    SELECT {time} AS t, {ticks} AS ticks,
+        CASE WHEN isfinite({values}) THEN {values} END AS v
     FROM ({source}) WHERE {time} IS NOT NULL
 ), ordered AS (
     SELECT *, row_number() OVER w AS i,
@@ -87,7 +101,7 @@ def line_sql(spec: QuerySpec, source: str, *, reduction_stats: bool = False) -> 
     FROM points WINDOW w AS (ORDER BY t, v NULLS FIRST)
 ), counts AS (
     SELECT count(*) AS n, count(*) FILTER (WHERE gap) AS gaps,
-        min(epoch_ns(t)::HUGEINT) AS lo, max(epoch_ns(t)::HUGEINT) AS hi,
+        min(ticks::HUGEINT) AS lo, max(ticks::HUGEINT) AS hi,
         count(v) AS finite FROM ordered
 ), budget AS (
     SELECT *, CASE WHEN n <= {budget} OR (finite = 0 AND gaps <= {budget}) THEN 1
@@ -97,16 +111,16 @@ def line_sql(spec: QuerySpec, source: str, *, reduction_stats: bool = False) -> 
         END AS bins FROM counts
 ), binned AS (
     SELECT *, CASE WHEN hi = lo THEN 0
-        ELSE least(bins - 1, (epoch_ns(t)::HUGEINT - lo) * bins // (hi - lo)) END AS bucket
+        ELSE least(bins - 1, (ticks::HUGEINT - lo) * bins // (hi - lo)) END AS bucket
     FROM ordered CROSS JOIN budget
 ), representatives AS (
     SELECT unnest([min(i), max(i), arg_min(i, struct_pack(val := v, idx := i)),
         arg_max(i, struct_pack(val := v, idx := -i))]) AS i
     FROM binned WHERE v IS NOT NULL GROUP BY bucket
 )
-SELECT t AS {time}, v AS {value}{stats} FROM binned
+SELECT t AS {time}, {output_value} AS {value}{stats} FROM binned
 WHERE n <= {budget} OR gap OR i IN (SELECT i FROM representatives)
-ORDER BY i"""
+ORDER BY binned.i"""
 
 
 def reduction_count_name(spec: QuerySpec) -> str:

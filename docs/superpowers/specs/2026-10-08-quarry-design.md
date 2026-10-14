@@ -310,6 +310,13 @@ one thread, a 256 MiB memory limit and no disk spill. Relation-backed reduction
 uses its existing connection. Oversized in-memory reductions fail rather than
 increase resource limits.
 
+Polars sends time as integer ticks in its original unit, and 128-bit values as
+decimal strings, restoring both axis dtypes after reduction. This preserves
+zoned nanosecond timestamps and the full integer range. Polars `to_source`
+requires the axis schema for this operation; the kernel supplies its live
+schema. DuckDB relation output uses the relation's existing temporal precision
+and UTC timezone schema.
+
 ## 6. Kernel
 
 A plain Python process, started by the server with its socket path, the

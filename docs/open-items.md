@@ -159,10 +159,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **Pivot width is unbounded**: a pivot makes one column per distinct value of
   its `columns` key, which neither `row_cap` nor `limit` bounds, so a heatmap of
   dates by ticker over 5,000 tickers is 5,000 columns wide. A silent cost.
-- **Large series draws only the start of a long series**: the large-series
-  built-in asks for 500,000 rows sorted by time, but the default `row_cap` of
-  50,000 cuts the answer to its first 50,000, so a longer series ends early. The
-  view says "Showing the first 50,000 rows"; raising `data.row_cap` draws more.
 - **Other local users can read the licensed libraries**: `/libs/` serves the
   configured Highcharts and SciChart files without the token, since the
   opaque-origin frame loads them, so on a shared machine any account that can

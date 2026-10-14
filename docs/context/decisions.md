@@ -1282,7 +1282,10 @@ them.
   result and can refuse inputs that exceed that memory allowance. Mosaic's
   [M4 implementation](https://github.com/uwdata/mosaic/blob/main/packages/mosaic/sql/src/transforms/m4.ts)
   informed first/last/min/max selection; Quarry adds deterministic ties and
-  reserves null-run endpoints instead of hiding gaps.
+  reserves null-run endpoints instead of hiding gaps. Polars transports integer
+  time ticks and 128-bit decimal strings to preserve precision, then restores
+  axis dtypes; its generated source needs the live schema, which the kernel
+  supplies.
 - **No two roles share a column, and no pick hides the pickers**: a saved column
   counts only while the live schema offers it, so a stale choice falls back to
   the default instead of failing the query. Roles resolve in an order that

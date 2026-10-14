@@ -105,7 +105,11 @@ def test_axis_types_and_order_agree(dtype: pl.DataType, value_dtype: pl.DataType
         actual = execute(
             to_source(line_spec(4), backing, schema=frame.schema), {"ticks": bind(frame, backing)}
         )
-        assert_frame_equal(expected, actual)
+        compared = expected
+        if backing == "duckdb" and isinstance(dtype, pl.Datetime) and dtype.time_zone:
+            # A DuckDB relation advertises the UTC schema it already acquired at binding.
+            compared = compared.with_columns(pl.col("ts").dt.convert_time_zone("UTC"))
+        assert_frame_equal(compared, actual)
     assert expected["px"].dtype == frame["px"].dtype
 
 
@@ -134,6 +138,101 @@ def test_arrow_metadata_does_not_become_an_axis_column() -> None:
     assert out.arrow_base64
     assert out.source_row_count == 8
     assert out.reduced is True
+
+
+def test_temporal_filter_source_imports_agree() -> None:
+    spec = line_spec(4).model_copy(
+        update={"filters": [Filter(col="ts", op="ge", value="2026-01-01T00:00:02")]}
+    )
+    frame = ticks([2, 8, 4, 9, 1, 7, 3, 6])
+    expected = to_polars(spec, frame).collect()
+    for backing in BACKINGS:
+        assert_frame_equal(
+            expected,
+            execute(to_source(spec, backing, schema=frame.schema), {"ticks": bind(frame, backing)}),
+        )
+
+
+@pytest.mark.parametrize("name", ["i", "I"])
+def test_axis_alias_does_not_override_time_order(name: str) -> None:
+    frame = ticks([3, 1, 4, 2]).rename({"px": name})
+    spec = QuerySpec.model_validate(
+        {"dataset": "ticks", "line_reduce": {"time": "ts", "value": name, "max_rows": 4}}
+    )
+    for backing in BACKINGS:
+        assert_frame_equal(
+            frame,
+            execute(to_source(spec, backing, schema=frame.schema), {"ticks": bind(frame, backing)}),
+        )
+
+
+@pytest.mark.parametrize("dtype", [pl.Date, pl.Datetime("us")])
+def test_wide_dates_do_not_narrow_to_nanoseconds(dtype: pl.DataType) -> None:
+    frame = pl.DataFrame(
+        {
+            "ts": pl.Series(
+                [datetime(year, 1, 1) for year in [1600, 1750, 2000, 2500, 3000, 4000]]
+            ).cast(dtype),
+            "px": [3, 1, 5, 4, 9, 2],
+        }
+    )
+    expected = frame[[0, 1, 4, 5]]
+    assert_frame_equal(to_polars(line_spec(4), frame).collect(), expected)
+    for backing in BACKINGS:
+        assert_frame_equal(
+            expected,
+            execute(
+                to_source(line_spec(4), backing, schema=frame.schema),
+                {"ticks": bind(frame, backing)},
+            ),
+        )
+
+
+@pytest.mark.parametrize("dtype", [pl.Int128, pl.UInt128])
+def test_full_precision_128_bit_values_survive_reduction(dtype: pl.DataType) -> None:
+    high = 2**127 - 1 if dtype == pl.Int128 else 2**128 - 1
+    frame = ticks([3, 1, 5, 4, 9, 2]).with_columns(
+        pl.Series("px", [3, 1, 5, 4, high, 2], dtype=dtype)
+    )
+    expected = frame[[0, 1, 4, 5]]
+    assert_frame_equal(to_polars(line_spec(4), frame).collect(), expected)
+    for backing in ("polars", "polars_lazy"):
+        assert_frame_equal(
+            expected,
+            execute(
+                to_source(line_spec(4), backing, schema=frame.schema),
+                {"ticks": bind(frame, backing)},
+            ),
+        )
+
+
+@pytest.mark.parametrize("zone", [None, "UTC", "America/New_York"])
+def test_submicrosecond_time_bins_and_dtypes_survive(zone: str | None) -> None:
+    frame = pl.DataFrame(
+        {
+            "ts": pl.Series(range(12), dtype=pl.Int64).cast(pl.Datetime("ns", zone)),
+            "px": [1, 3, 9, 4, 8, 6, 7, -9, 2, 5, 0, 3],
+        }
+    )
+    expected = frame[[0, 2, 5, 6, 7, 11]]
+    assert_frame_equal(to_polars(line_spec(8), frame).collect(), expected)
+    for backing in ("polars", "polars_lazy"):
+        assert_frame_equal(
+            expected,
+            execute(
+                to_source(line_spec(8), backing, schema=frame.schema),
+                {"ticks": bind(frame, backing)},
+            ),
+        )
+
+
+@pytest.mark.parametrize("backing", ["polars", "polars_lazy"])
+def test_source_can_assign_back_to_its_input(backing: Backing) -> None:
+    frame = ticks([3, 1, 5, 4, 9, 2])
+    namespace: dict[str, object] = {"pl": pl, "ticks": bind(frame, backing)}
+    exec(to_source(line_spec(4), backing, result_name="ticks", schema=frame.schema), namespace)
+    assert isinstance(namespace["ticks"], pl.DataFrame)
+    assert_frame_equal(namespace["ticks"], frame[[0, 1, 4, 5]])
 
 
 def test_extrema_and_duplicate_time_ties_are_deterministic() -> None:

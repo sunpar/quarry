@@ -12,12 +12,16 @@ import polars as pl
 
 from quarry.query.columns import check_columns, check_output_columns
 from quarry.query.spec import Agg, AggFn, Filter, Json, Pivot, QueryError, QuerySpec
-from quarry.query.sql_target import LINE_CONNECTION_CONFIG, line_sql
+from quarry.query.sql_target import LINE_CONNECTION_CONFIG, line_sql, quote_ident
 
 CompareOp = Literal["eq", "ne", "lt", "le", "gt", "ge", "in", "not_in", "between"]
 _UP_TO_64_BIT_INTEGERS: Final = frozenset(
     {pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64}
 )
+LINE_INTEGER_TYPES: Final[dict[pl.DataType, str]] = {
+    pl.Int128(): "HUGEINT",
+    pl.UInt128(): "UHUGEINT",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,12 +54,30 @@ def to_polars(
                 "line_reduce value must be numeric", dataset=spec.dataset, column=value
             )
         # As with pivot, only the columns this eager transform needs are materialized.
+        axes = lf.select(time, value).collect()
+        integer_type = LINE_INTEGER_TYPES.get(schema[value])
+        transport = axes.with_columns(
+            pl.col(time).cast(pl.Int64),
+            pl.col(value).cast(pl.String) if integer_type else pl.col(value),
+        )
         with duckdb.connect(config=LINE_CONNECTION_CONFIG) as conn:
-            conn.execute("SET TimeZone = 'UTC'")
-            conn.register("points", lf.select(time, value).collect())
+            conn.register("points", transport)
+            values = quote_ident(value)
+            if integer_type:
+                values = f"CAST({values} AS {integer_type})"
             return (
-                conn.sql(line_sql(spec, 'SELECT * FROM "points"', reduction_stats=reduction_stats))
+                conn.sql(
+                    line_sql(
+                        spec,
+                        'SELECT * FROM "points"',
+                        reduction_stats=reduction_stats,
+                        time_ticks=quote_ident(time),
+                        value_expression=values,
+                        output_value="CAST(v AS VARCHAR)" if integer_type else "v",
+                    )
+                )
                 .pl()
+                .with_columns(pl.col(time).cast(schema[time]), pl.col(value).cast(schema[value]))
                 .lazy()
             )
     if spec.group_by is not None:

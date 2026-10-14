@@ -35,6 +35,7 @@ import polars as pl
 
 from quarry.query.columns import check_columns
 from quarry.query.polars_target import (
+    LINE_INTEGER_TYPES,
     CoercedLiteral,
     CompareOp,
     coerce_literal,
@@ -95,7 +96,8 @@ def to_source(
     `relation_projection`, for a DuckDB relation, is the DuckDB select list the kernel reads
     the relation through (`importable_projection`): it renames repeated columns and casts
     INTERVAL and UNION columns to VARCHAR so `.pl()` can import them. Every failure caused by
-    the spec is a QueryError.
+    the spec is a QueryError. Polars line reduction requires `schema` to restore the original
+    axis dtypes after its lossless DuckDB transport; the kernel always supplies it.
     """
     _require_identifier(spec.dataset, "dataset", spec)
     _require_identifier(result_name, "result_name", spec)
@@ -117,16 +119,45 @@ def _render(
 ) -> str:
     if backing != "duckdb":
         if spec.line_reduce is not None:
-            # The result name also holds the private connection, avoiding extra bindings.
+            if schema is None:
+                raise QueryError(
+                    "line_reduce Polars source requires the axis schema", dataset=spec.dataset
+                )
             axes = [spec.line_reduce.time, spec.line_reduce.value]
-            head = f"{spec.dataset}.lazy()" + "".join(_filter_steps(spec, schema))
-            sql = py_literal(line_sql(spec, 'SELECT * FROM "points"'))
+            time, value = axes
+            integer_type = LINE_INTEGER_TYPES.get(schema[value])
+            values = quote_ident(value)
+            if integer_type:
+                values = f"CAST({values} AS {integer_type})"
+            sql = py_literal(
+                line_sql(
+                    spec,
+                    'SELECT * FROM "points"',
+                    time_ticks=quote_ident(time),
+                    value_expression=values,
+                    output_value="CAST(v AS VARCHAR)" if integer_type else "v",
+                )
+            )
+            time_col, value_col = f"pl.col({py_literal(time)})", f"pl.col({py_literal(value)})"
+            transport = f"{result_name}.with_columns({time_col}.cast(pl.Int64)"
+            if integer_type:
+                transport += f", {value_col}.cast(pl.String)"
+            transport += ")"
+            frame = _chain_source(
+                spec.model_copy(update={"line_reduce": None, "select": axes}),
+                result_name=result_name,
+                schema=schema,
+                head=f"{spec.dataset}.lazy()",
+                head_is_lazy=True,
+            )
             chain = (
-                f"with duckdb.connect(config={LINE_CONNECTION_CONFIG!r}) as {result_name}:\n"
-                f"    {result_name}.execute(\"SET TimeZone = 'UTC'\")\n"
-                f'    {result_name}.register("points", '
-                f"{head}.select({py_literal(axes)}).collect())\n"
-                f"    {result_name} = {result_name}.sql({sql}).pl()"
+                f"{frame}\n"
+                f"with duckdb.connect(config={LINE_CONNECTION_CONFIG!r})"
+                f'.register("points", {transport}) as {result_name}:\n'
+                f"    {result_name} = {result_name}.sql({sql}).pl().with_columns(\n"
+                f"        {time_col}.cast(pl.{schema[time]!r}),\n"
+                f"        {value_col}.cast(pl.{schema[value]!r}),\n"
+                "    )"
             )
         else:
             chain = _chain_source(
@@ -387,9 +418,10 @@ def _imported_names(spec: QuerySpec, schema: Schema | None) -> list[str]:
 
 
 def _import_lines(names: list[str]) -> str:
+    temporal = [n for n in names if n != "duckdb"]
     lines = [
-        f"from {module} import {', '.join(n for n in names if IMPORTED_FROM[n] == module)}\n"
-        for module in sorted({IMPORTED_FROM[n] for n in names if n != "duckdb"})
+        f"from {module} import {', '.join(n for n in temporal if IMPORTED_FROM[n] == module)}\n"
+        for module in sorted({IMPORTED_FROM[n] for n in temporal})
     ]
     if "duckdb" in names:
         lines.append("import duckdb\n")
