@@ -64,9 +64,10 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **Scalar and dictionary recipe inputs**: earlier ordinary bindings can be
   omitted from a saved recipe. A result that reads `params["scale"]` can save
   without the step that defined `params`, then fail fresh replay with
-  `NameError`. Extend the existing
-  [lineage analyzer](../src/quarry/kernel/lineage.py) to retain those producer
-  steps.
+  `NameError`. The static analyzer already collects these names; track their
+  producers in the [executor](../src/quarry/kernel/executor.py) and
+  [step lineage](../src/quarry/server/models.py), then follow them during
+  [recipe traversal](../src/quarry/projects/recipe.py).
 - **Lineage approximations**: a failed step's in-place mutation is not a write,
   while a successful step's store that never ran is one. Class bodies report
   every name they load as a read, and a SQL literal's CTE named like a dataset
@@ -303,9 +304,11 @@ one up when a researcher needs it.
 - Inventory repeated recipes before adding workflow parameters or shared metric
   definitions. Keep formulas in plain Python until examples establish common
   input, output, calendar, weighting and missing-data rules.
-- Evaluate reusable time comparisons, dimension drilldown and filter bookmarks
-  against those repeated workflows. Assess financial-data adapters and
-  discoverable parameter schemas only after their source and input contracts are
+- Evaluate reusable time comparisons against repeated research workflows.
+- Evaluate dimension drilldown against repeated research workflows.
+- Evaluate filter bookmarks against repeated research workflows.
+- Assess financial-data adapters after their source contracts are specified.
+- Define discoverable parameter schemas after their input contracts are
   specified.
 - Load Highcharts modules such as indicators and annotations: only
   `highstock.js` loads. A list of entry files per library could add them.
