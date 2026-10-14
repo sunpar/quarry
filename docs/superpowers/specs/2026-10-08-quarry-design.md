@@ -642,6 +642,15 @@ its description, its dataset recipes if not already emitted, a code cell with
 the `to_source` rendering of its saved queries, and the TSX in a fenced block
 for reference. A saved dataset also exports alone as a `.py` script.
 
+`--format html` and "Export HTML report" produce a self-contained, script-free
+report from saved metadata, recipes, views, state, query specs and the first
+20 pinned dataset rows. They execute no recipe, query or view. Live dataset
+results and rendered view results are marked unavailable because they are not
+persisted. Saved timestamps describe Quarry saves, not upstream freshness.
+The escaped UTF-8 document is capped at 5 MiB; missing or corrupt saved
+artifacts fail the export. CLI notebook and HTML outputs are private atomic
+writes.
+
 ## 11. Persistence layout
 
 ```

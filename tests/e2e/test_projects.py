@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from playwright.sync_api import Page, expect
 
 from tests.e2e.test_ui import Serve, end, open_session, pl_df, py, render
@@ -31,3 +33,17 @@ def test_save_recall_and_canvas(serve: Serve, page: Page) -> None:
     page.get_by_role("tab", name="Canvas").click()
     frame = page.frame_locator("iframe[title='Canvas card closes']")
     expect(frame.get_by_text("102.25")).to_be_visible(timeout=30_000)
+
+    with page.expect_download() as download:
+        page.get_by_role("button", name="Export HTML report").click()
+    report = download.value
+    assert report.suggested_filename == "momentum.html"
+    saved_path = report.path()
+    assert saved_path is not None
+    requests: list[str] = []
+    page.on("request", lambda request: requests.append(request.url))
+    page.set_content(Path(saved_path).read_text())
+    expect(page.get_by_role("heading", name="Momentum", exact=True)).to_be_visible()
+    expect(page.get_by_text("View results unavailable", exact=False)).to_be_visible()
+    assert page.locator("script").count() == 0
+    assert requests == []

@@ -29,7 +29,7 @@ export function ProjectPage({ slug, sessionId, onBack }: ProjectPageProps) {
       defaultValue="canvas"
       className="min-w-0 flex-1 gap-0"
     >
-      <div className="flex items-center gap-4 border-b border-border px-8 py-3">
+      <div className="flex flex-wrap items-center gap-4 border-b border-border px-8 py-3">
         <Button variant="ghost" size="sm" onClick={onBack}>
           Back to session
         </Button>
@@ -40,6 +40,13 @@ export function ProjectPage({ slug, sessionId, onBack }: ProjectPageProps) {
           }
         >
           Export notebook
+        </DownloadButton>
+        <DownloadButton
+          onDownload={() =>
+            downloadFile(api, `/projects/${slug}/export.html`, `${slug}.html`)
+          }
+        >
+          Export HTML report
         </DownloadButton>
         <TabsList className="ml-auto">
           <TabsTrigger value="saved">Saved</TabsTrigger>

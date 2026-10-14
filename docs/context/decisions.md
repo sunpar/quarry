@@ -1083,6 +1083,12 @@ them.
   first comment says so, and a view's TSX sits in a fence one backtick longer
   than any run in its source. Cost if wrong: a format change goes unnoticed
   until a test validates it.
+- **Frozen HTML reports read saved artifacts**: the report includes metadata,
+  recipe and view source, state, query specs and the existing 20-row preview
+  bound for pinned data. It never replays code or loads external assets; live
+  and view results are unavailable because they are not persisted. Escaped UTF-8
+  output has a 5 MiB limit, and artifact failures stop the export. Cost: the
+  report cannot reproduce arbitrary charts or establish upstream freshness.
 - **Exports rebuild the kernel namespace**: a recipe is step code, so it calls
   the kernel's preloads (`pl`, `duckdb`, `pq`, `sql`, `sql_local`, `loaders`)
   without importing them, and an export without them failed on its first cell.
