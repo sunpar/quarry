@@ -1,0 +1,10 @@
+services:
+  check:
+    image: quarry-linux-check-${LINUX_PLATFORM_TAG:?Set LINUX_PLATFORM_TAG}:local
+    platform: ${LINUX_PLATFORM:?Set LINUX_PLATFORM}
+    build:
+      context: .
+      target: check
+    network_mode: none
+    init: true
+    shm_size: 1gb
