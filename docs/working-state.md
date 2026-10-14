@@ -8,18 +8,21 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Migrate routine verification to local staged and committed snapshots on
-`codex/local-first-ci`, based on the merged CI-speed work in
-[sunpar/quarry#14](https://github.com/sunpar/quarry/pull/14). The full local
-replacement passed before automatic hosted triggers were removed. GitHub has no
-branch protections or rulesets to migrate. The rollout is open in
-[sunpar/quarry#15](https://github.com/sunpar/quarry/pull/15). Astra completed
-its local review without findings on `ecc1c65`; Opus and Muse were unavailable
-due to provider quotas. Their one-attempt budgets are recorded in the worktree
-ledger. Both Claude bot requests failed before substantive review. Codex
-returned findings from the initial automatic review and its two requested
-reviews. The capped bot rotation is exhausted. The final two findings have
-reproducing regressions and local fixes; continue CI and merge monitoring.
+Routine verification now checks staged and committed snapshots locally. The
+rollout merged in [sunpar/quarry#15](https://github.com/sunpar/quarry/pull/15)
+as `c03ebe2` on 2026-10-14, following the CI-speed changes in
+[sunpar/quarry#14](https://github.com/sunpar/quarry/pull/14). Full local and
+Linux verification passed on the final PR head, `a05d78d`. All ten review
+threads are resolved.
+
+Astra completed its local review without findings on `ecc1c65`; Opus and Muse
+were unavailable due to provider quotas. Both Claude bot requests failed before
+substantive review. Codex returned findings from the initial automatic review
+and both requested reviews; the fixes passed verification.
+
+The capped rotation ended without a clean bot review, and the permitted silence
+deadline expired before merging. The worktree ledger records the review budgets
+and merge checks. Monitoring is disabled.
 
 ## Status by stage
 
@@ -143,28 +146,23 @@ Branch coverage passed the same suite in 61.92 seconds; the full coverage
 command took 90.34 seconds including setup/build checks. It covered 3,904 of
 4,012 statements and 882 of 946 branches. These figures cover pytest processes,
 not all kernel subprocess execution. The initial staged smoke gate took 4.27
-seconds; the expanded regression suite took 8.78 seconds after review fixes. All
-25 gate/transport regressions passed, including snapshot imports in xdist and a
-real kernel. A real pre-commit rejected staged invalid Python despite an
-unstaged fix and preserved the index and HEAD. Workflow actionlint passed.
+seconds; the expanded regression suite took 8.78 seconds after review fixes. The
+final commit's staged gate took 3.29 seconds. All 25 gate/transport regressions
+passed, including snapshot imports in xdist and a real kernel. A real pre-commit
+rejected staged invalid Python despite an unstaged fix and preserved the index
+and HEAD. Workflow actionlint passed.
 
 Full checks install the snapshot wheel in a separate environment so the existing
 isolated Python export test still runs. Shared dependencies contain no editable
-Quarry install. Linux manual full verification passed on `0a56038`, including
-the kernel memory cap. The final interpreter and nested-fork fixes still need
-Linux validation on their pushed commit. Licensed Highcharts/SciChart browser
-coverage has not been exercised in this session.
+Quarry install. Linux manual full verification passed on `a05d78d`, including
+the kernel memory cap and the final interpreter and nested-fork fixes. Its
+Python suite passed all 962 tests in 66.13 seconds, with three skips: two live
+providers and the macOS filesystem case-folding check. Licensed
+Highcharts/SciChart browser coverage has not been exercised in this session.
 
 ## Next actions
 
-1. Push the final fixes: let the version file select Python during setup and
-   offline checks, and include the fork network source in open-PR lookups.
-   Earlier findings are fixed and their eight threads are resolved. Required
-   self-assignment remains after verified PR creation.
-2. Reply to and resolve the final two threads, then run manual Linux full CI on
-   the exact pushed commit. Issue no more review requests. Merge only after all
-   findings are resolved, CI passes, the worktree is clean and the workflow
-   silence deadline expires.
+Continue with the product tasks in [open-items.md](open-items.md).
 
 ## Resuming
 
