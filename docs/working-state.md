@@ -18,6 +18,10 @@ limits recorded below. The branch and evidence are kept for review in
 temporary localhost port 18765 because an unrelated Mac service owns port 8765.
 The shipped default mapping remains 8765.
 
+The plan and this checkpoint are published separately in
+[PR #17](https://github.com/sunpar/quarry/pull/17). The Docker tooling remains
+ready for its own integration pull request.
+
 | Task                            | Thread                                                                         | Status   |
 | ------------------------------- | ------------------------------------------------------------------------------ | -------- |
 | 1. Test image                   | Build Quarry Linux test image (01a13b8f-08de-7171-a4c1-94b46787fc62)           | Complete |
