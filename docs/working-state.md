@@ -8,6 +8,61 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
+Implement the bounded improvements selected from the related-project survey,
+then bring each implementation PR through `open-pr-and-babysit` and leave it
+open when ready to merge. The researcher delegated routine design choices.
+Separate assessments cover parameterized workflows, session branching and the
+complete remaining-work inventory.
+
+| Work                  | Task thread                                                                        | Status                                                                                                                  |
+| --------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Reproducible exports  | Improve Quarry export reproducibility (`01a13c15-0c0d-7f13-84ca-d31c5bbbc160`)     | [PR #18](https://github.com/sunpar/quarry/pull/18) open at `06c3ea3`; fixing bot feedback                               |
+| Whole-series charts   | Show complete long series in Quarry (`01a13c15-15d9-78e3-a548-708275107f4f`)       | `4632a91`; fixing six local-review findings before PR creation                                                          |
+| Table filters         | Add reproducible Quarry table filters (`01a13c15-1c05-7273-afba-e9ae6f1e8df0`)     | [PR #19](https://github.com/sunpar/quarry/pull/19) open at `9328069`; local and Linux checks passed, bot review pending |
+| Mount and query reuse | Improve Quarry canvas query execution (`01a13c15-2207-7c50-a47a-5941b9f5dcc2`)     | `a1dd06c`; PR verification in progress                                                                                  |
+| Frozen HTML reports   | Export frozen Quarry research reports (`01a13c15-295e-7a70-a0bf-6ba0ba8e65b5`)     | [PR #20](https://github.com/sunpar/quarry/pull/20) open at `0d6ffb9`; Linux and bot checks pending                      |
+| Reusable workflows    | Assess reusable Quarry research workflows (`01a13c16-26b4-7ba0-b634-bf6107bcdbc0`) | Assessment complete; no implementation                                                                                  |
+| Session branching     | Assess Quarry session branching (`01a13c16-2d48-71c0-99cc-5cebb5b319a1`)           | Assessment complete; no implementation                                                                                  |
+| Remaining work        | Reconcile Quarry remaining work (`01a13c16-330f-7d80-b840-bd2ceb9a2f6b`)           | Complete inventory; final status reconciliation in progress                                                             |
+
+All five implementation branches remain unmerged. PR #18's bot found a recipe
+binding collision with `__builtins__`; its fix and regressions are still in
+progress. Table filters do not close `TABLE-SORT-RETAIN-ROWS`: same-spec
+refreshes retain rows, but changed sort or filter specs still show "Loading".
+
+The app threads reached sandbox approval prompts for their external commands.
+Execution continues through delegated workers using the controller's authorized
+workspace tools; the app threads retain their briefs. Each implementation has
+its own worktree and branch from `38b07ac`. Full gates share one resource lock.
+The controller owns this page and the consolidated backlog; workers retain their
+reports and review budgets in their worktree Git directories.
+
+A read-only merge preview of the committed export, table-filter, query-reuse and
+report heads found only documentation conflicts between exports and reports, in
+`docs/context/code-map.md` and `docs/context/decisions.md`. Whole-series fixes
+are still in progress. A clean individual PR against `main` does not establish
+combined runtime compatibility: no combined full gate has run, and later
+integration must reconcile documentation after the first branch merges.
+
+Local assessment evidence is under `/Users/sunpar/Documents/Codex/2026-10-14/`:
+the workflow assessment is
+`quarry-workflow-assessment/outputs/workflow_assessment.json`, the branching
+assessment is `quarry-branching-assessment/outputs/branching-assessment.json`,
+and the remaining-work inventory is
+`quarry-backlog-inventory/outputs/quarry_remaining_work.json`. These are local
+reports, not files distributed with the repository.
+
+The workflow probe confirmed that earlier scalar and dictionary bindings can be
+omitted from a saved recipe. Existing validation compares schema and row count,
+not values. The branching assessment ran 23 passing replay/recall tests and a
+synthetic prefix replay, while reproducing pinned-file drift and lost
+interrupted partial state. The workflow assessment prioritizes dependency
+capture before parameterization. The branching assessment keeps prefix copying
+deferred pending its replay and input contract. The backlog retains both
+follow-ups.
+
+### Docker integration
+
 The [Docker plan](superpowers/plans/2026-10-14-quarry-linux-docker.md) is
 implemented. All four task threads passed spec and quality review. The final
 whole-branch review of `492fa17..52974bb` found no Critical or Important defect
@@ -145,6 +200,15 @@ files. Its documentation follow-up is
 
 ## Latest verification
 
+### Improvement branches
+
+Checks and reviews belong to each branch's exact head. The table above records
+completed evidence and pending work. Live providers, firm loaders and licensed
+integrations were not exercised in these assessments. The coordination change
+updates documentation only.
+
+### Docker branch
+
 The implementation at `5392889` plus Task 4's documentation passed the unchanged
 full gates on Mac and native Linux ARM64. Each passed 1,069 Python tests
 (including browser tests), 235 frontend tests, and 25 gate/transport tests.
@@ -198,9 +262,14 @@ external or licensed integrations, and hosted CI were not run in this work.
 
 ## Next actions
 
-1. Review the completed branch and choose its integration path.
-2. Use the existing full verification and PR gates if publishing it; retain the
-   native-x86 and live-integration limits until their own checks run.
+1. Complete and verify the five bounded implementation branches, then finish
+   their local and GitHub review workflows without merging.
+2. Reconcile implemented work, open PRs, research ideas and the existing backlog
+   in one remaining-work inventory.
+3. Keep parameter contracts, metric definitions and session branching as
+   explicit follow-up decisions where the assessments find missing semantics.
+4. Integrate the completed Docker branch separately; retain its native-x86 and
+   live-integration limits until those checks run.
 
 ## Docker preflight
 

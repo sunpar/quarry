@@ -56,11 +56,13 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **Lineage blind spots**: lineage reads table names only from a string literal
   passed first to `sql_local(...)` or any `.sql(...)` call, so SQL built at run
   time (an f-string, a variable) and literals passed to `.execute(...)` or
-  `.query(...)` add no reads. Helpers bound without `def` or `class` (lambdas,
-  `partial`, imports) are invisible, and so is in-place mutation inside a
-  function, such as a helper that sets `df.columns`. A literal reading
-  `FROM RECENT` is not matched to dataset `recent`, though DuckDB's catalog
-  ignores case. Silent: a saved recipe can miss a source step.
+  `.query(...)` add no reads. Earlier ordinary scalar and dictionary bindings
+  are omitted too: a result that reads `params` can save without the step that
+  defined it, then fail fresh replay with `NameError`. Helpers bound without
+  `def` or `class` (lambdas, `partial`, imports) and in-place mutation inside a
+  function remain invisible. A literal reading `FROM RECENT` is not matched to
+  dataset `recent`, though DuckDB's catalog ignores case. Silent: a saved recipe
+  can miss a source step.
 - **Lineage approximations**: a failed step's in-place mutation is not a write,
   while a successful step's store that never ran is one. Class bodies report
   every name they load as a read, and a SQL literal's CTE named like a dataset
@@ -275,11 +277,11 @@ one up when a researcher needs it.
   view is missing has no Remove, and recall and layout errors never clear.
 - The rail's project list does not scroll, and `SaveDialog` picks its project
   only when it opens, so a project list that arrives later leaves none chosen.
-- Count in-place mutation inside a function as a write of the frame it changes:
-  a helper that sets `df.columns` or deletes `df["k"]` is invisible to lineage,
-  as are helpers bound without `def` or `class`. Module-level attribute and
-  subscript assignment and `del` are covered. Rare in step code; revisit if a
-  recipe misses a step for that reason.
+- Retain earlier scalar and dictionary bindings a saved recipe reads, using the
+  existing lineage analyzer. Also count in-place mutation inside a function as a
+  write of the frame it changes: a helper that sets `df.columns` or deletes
+  `df["k"]` is invisible, as are helpers bound without `def` or `class`.
+  Module-level attribute and subscript assignment and `del` are covered.
 - Read SQL built at run time (f-strings, concatenation) and literals passed to
   `.execute(...)` or `.query(...)`: only literals given to `sql_local(...)` or
   `.sql(...)` reach DuckDB's parser (`json_serialize_sql`). The recipe then
@@ -294,6 +296,13 @@ one up when a researcher needs it.
   code" gives; the viewer stays a client-side explorer.
 - Perspective server mode and Arrow for every view stay deferred, as spec §16
   records.
+- Inventory repeated recipes before adding workflow parameters or shared metric
+  definitions. Keep formulas in plain Python until examples establish common
+  input, output, calendar, weighting and missing-data rules.
+- Evaluate reusable time comparisons, dimension drilldown and filter bookmarks
+  against those repeated workflows. Assess financial-data adapters and
+  discoverable parameter schemas only after their source and input contracts are
+  specified.
 - Load Highcharts modules such as indicators and annotations: only
   `highstock.js` loads. A list of entry files per library could add them.
 - Configure SciChart 3D and a wasm fallback: the loader points `wasmUrl` at
@@ -393,3 +402,15 @@ one up when a researcher needs it.
 - **Result streams on the shared connection**: should the kernel protect result
   streams left open across steps from later queries, or only document the limit?
   Neither option has been evaluated.
+- **Reusable workflow inputs**: which recurring research question should accept
+  a replacement universe, date range and benchmark first? Choose its calendar,
+  alignment, output names and live versus pinned refresh behavior before
+  extending save and recall.
+- **Recipe validation**: validation currently proves matching schema and row
+  count. Whether it should compare values, a sample or source identity needs a
+  product decision, especially when live recall refreshes data.
+- **Session-prefix copying**: branching remains deferred and sessions stay
+  linear. Is a new session rebuilt through a completed step with current inputs
+  sufficient, or are immutable historical inputs required? Replay skips
+  interrupted runs, can repeat external writes and reads mutable pinned paths;
+  copying a namespace cannot restore arbitrary process state.
