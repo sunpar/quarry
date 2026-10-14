@@ -31,10 +31,17 @@ assigns the result after its helper calls complete. Explicit Codex review then
 found a private connection binding collision, omitted schema-less notebook
 queries and missing source axis-type validation. The export now isolates its
 execution scope, restores runtime axis types and validates supplied schemas
-with the live compiler. Focused query, kernel, agent and notebook tests pass.
-Final-head local and Linux verification and GitHub review remain pending at
-this commit. The prior `933f52b` passed 1,141 Python tests locally; its Linux
-run failed the unchanged save-and-recall browser test during a new-session
+with the live compiler. The final Codex request found unchecked DuckDB axis
+types and uncapped notebook budgets. Shared schema validation now rejects
+invalid axes even for empty domains, and all exports share the live effective
+budget. A captured server cap takes precedence over disk config. Focused query,
+kernel, agent, notebook and route tests pass.
+Final-head local and Linux verification remain pending at this commit. Both
+GitHub bot budgets are exhausted; all known findings are fixed, and the required
+silence window will run from the final push. The prior `c855625` passed full
+Mac and Linux gates with 1,176 Python tests, 237 frontend tests and 25
+gate/transport tests. The prior `933f52b` passed 1,141 Python tests locally; its
+Linux run failed the unchanged save-and-recall browser test during a new-session
 transition. One isolated run and five traced repetitions passed on that head;
 the failed run is retained in the review ledger.
 

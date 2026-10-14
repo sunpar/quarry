@@ -89,8 +89,27 @@ def line_sql(
         f"ELSE epoch_us({time})::HUGEINT * 1000 END"
     )
     values = value_expression or value
+    time_type = f"typeof((SELECT {time} FROM ({source}) LIMIT 0))"
+    value_type = f"typeof((SELECT {values} FROM ({source}) LIMIT 0))"
+    temporal = (
+        f"WHEN {time_type} NOT IN ('DATE', 'TIMESTAMP', 'TIMESTAMP_S', "
+        "'TIMESTAMP_MS', 'TIMESTAMP_NS', 'TIMESTAMP WITH TIME ZONE') "
+        "THEN error('line_reduce time must be Date or Datetime') "
+        if time_ticks is None
+        else ""
+    )
+    numeric = (
+        f"{value_type} IN ('TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT', "
+        "'UTINYINT', 'USMALLINT', 'UINTEGER', 'UBIGINT', 'UHUGEINT', 'FLOAT', 'DOUBLE') "
+        f"OR starts_with({value_type}, 'DECIMAL(')"
+    )
     stats = ", n AS " + quote_ident(reduction_count_name(spec)) if reduction_stats else ""
-    return f"""WITH points AS (
+    # The metadata branch is evaluated even with no surviving points. Its scalar typeof
+    # expressions inspect schema without materializing the source a second time.
+    return f"""WITH axis_contract AS MATERIALIZED (
+    SELECT CASE {temporal}WHEN NOT ({numeric}) THEN
+        error('line_reduce value must be numeric') ELSE 0 END AS checked
+), points AS (
     SELECT {time} AS t, {ticks} AS ticks,
         CASE WHEN isfinite({values}) THEN {values} END AS v
     FROM ({source}) WHERE {time} IS NOT NULL
@@ -117,10 +136,13 @@ def line_sql(
     SELECT unnest([min(i), max(i), arg_min(i, struct_pack(val := v, idx := i)),
         arg_max(i, struct_pack(val := v, idx := -i))]) AS i
     FROM binned WHERE v IS NOT NULL GROUP BY bucket
+), reduced AS (
+    SELECT t, v, n, i FROM binned
+    WHERE n <= {budget} OR gap OR i IN (SELECT i FROM representatives)
+    UNION ALL SELECT NULL, NULL, NULL, NULL FROM axis_contract WHERE checked <> 0
 )
-SELECT t AS {time}, {output_value} AS {value}{stats} FROM binned
-WHERE n <= {budget} OR gap OR i IN (SELECT i FROM representatives)
-ORDER BY binned.i"""
+SELECT t AS {time}, {output_value} AS {value}{stats} FROM reduced
+ORDER BY reduced.i"""
 
 
 def reduction_count_name(spec: QuerySpec) -> str:

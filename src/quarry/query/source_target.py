@@ -33,11 +33,10 @@ from zoneinfo import ZoneInfo
 
 import polars as pl
 
-from quarry.query.columns import check_columns
+from quarry.query.columns import check_columns, check_line_axes
 from quarry.query.polars_target import (
     CoercedLiteral,
     CompareOp,
-    check_line_axes,
     coerce_literal,
     sums_as_decimal,
 )
@@ -103,6 +102,8 @@ def to_source(
     _require_identifier(result_name, "result_name", spec)
     if schema is not None:
         check_columns(spec, set(schema))
+        if spec.line_reduce is not None:
+            check_line_axes(spec.line_reduce, schema, dataset=spec.dataset)
     try:
         return _render(spec, backing, result_name, schema, relation_projection)
     except (ValueError, TypeError) as exc:
@@ -119,8 +120,6 @@ def _render(
 ) -> str:
     if backing != "duckdb":
         if spec.line_reduce is not None:
-            if schema is not None:
-                check_line_axes(spec.line_reduce, schema, dataset=spec.dataset)
             time, value = spec.line_reduce.time, spec.line_reduce.value
             axes = [time, value]
             sql = py_literal(

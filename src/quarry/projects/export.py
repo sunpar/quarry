@@ -9,6 +9,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from quarry.config import load_config
 from quarry.kernel.lineage import analyze
 from quarry.projects.models import Project, SavedDatasetMeta, SavedViewMeta
 from quarry.projects.recipe import split_leading_future
@@ -24,8 +25,11 @@ NO_SCHEMA_NOTE = (
 )
 
 
-def notebook(project: Project, store: ProjectStore) -> dict[str, Json]:
+def notebook(
+    project: Project, store: ProjectStore, *, row_cap: int | None = None
+) -> dict[str, Json]:
     """An nbformat 4.5 document: the setup, every saved dataset, then every saved view."""
+    row_cap = load_config(store.root).data.row_cap if row_cap is None else row_cap
     slug = project.meta.slug
     cells: list[dict[str, Json]] = [
         _markdown(f"# {project.meta.name}\n\n{project.meta.description}".rstrip() + "\n"),
@@ -44,7 +48,7 @@ def notebook(project: Project, store: ProjectStore) -> dict[str, Json]:
         cells.append(_markdown(_view_heading(view)))
         queries, dropped = to_code_input(saved.state, saved.queries)
         left_out = py_comment(f"To code leaves out: {', '.join(dropped)}") + "\n" if dropped else ""
-        cells.append(_code(left_out + _queries_source(queries, backings, taken)))
+        cells.append(_code(left_out + _queries_source(queries, backings, taken, row_cap)))
         cells.append(_markdown(_fenced("tsx", saved.source.rstrip())))
     numbered: list[Json] = [{"id": f"cell-{n}", **cell} for n, cell in enumerate(cells)]
     return {
@@ -58,8 +62,10 @@ def notebook(project: Project, store: ProjectStore) -> dict[str, Json]:
     }
 
 
-def notebook_json(project: Project, store: ProjectStore) -> str:
-    return json.dumps(notebook(project, store), indent=1, ensure_ascii=False) + "\n"
+def notebook_json(project: Project, store: ProjectStore, *, row_cap: int | None = None) -> str:
+    return (
+        json.dumps(notebook(project, store, row_cap=row_cap), indent=1, ensure_ascii=False) + "\n"
+    )
 
 
 def dataset_script(project: Project, store: ProjectStore, name: str) -> str:
@@ -161,7 +167,7 @@ def _rebind_warning(rebinds: list[str]) -> str:
 
 
 def _queries_source(
-    queries: list[dict[str, Json]], backings: Mapping[str, Backing], taken: set[str]
+    queries: list[dict[str, Json]], backings: Mapping[str, Backing], taken: set[str], row_cap: int
 ) -> str:
     """The view's queries as Python, each assigning a name outside `taken`, which gains them.
 
@@ -171,7 +177,7 @@ def _queries_source(
     specs: list[tuple[int, QuerySpec]] = []
     for n, raw in enumerate(queries, start=1):
         try:
-            specs.append((n, QuerySpec.model_validate(raw)))
+            specs.append((n, QuerySpec.model_validate(raw).with_line_budget(row_cap)))
         except ValidationError as exc:
             blocks[n] = _unrendered(n, str(exc))
     names = result_names([(n, spec.dataset) for n, spec in specs], taken)

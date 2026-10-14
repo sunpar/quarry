@@ -458,3 +458,49 @@ def test_source_accepts_builtin_result_names(result_name: str) -> None:
     result = namespace[result_name]
     assert isinstance(result, pl.DataFrame)
     assert_frame_equal(result, to_polars(line_spec(4), frame).collect())
+
+
+@pytest.mark.parametrize("bad", ["time", "value"])
+@pytest.mark.parametrize("population", ["rows", "empty", "null_time", "filtered"])
+def test_duckdb_line_axes_use_the_same_validation_as_polars(bad: str, population: str) -> None:
+    frame = ticks([3, 1, 5, 4, 9, 2]).with_columns(
+        pl.col("ts").dt.time() if bad == "time" else pl.col("ts").alias("px")
+    )
+    if population == "empty":
+        frame = frame.head(0)
+    elif population == "null_time":
+        frame = frame.with_columns(pl.lit(None).cast(frame.schema["ts"]).alias("ts"))
+    spec = line_spec(4)
+    if population == "filtered":
+        spec = spec.model_copy(update={"filters": [Filter(col="ts", op="is_null")]})
+    with utc_connection() as conn:
+        conn.register("raw_ticks", frame)
+        relation = conn.sql("SELECT * FROM raw_ticks")
+        executor = Executor({"ticks": relation}, conn=conn, row_cap=50000)
+        with pytest.raises(QueryError, match=f"line_reduce {bad} must be"):
+            executor.query(spec)
+        with pytest.raises(QueryError, match=f"line_reduce {bad} must be"):
+            to_source(spec, "duckdb", schema=frame.schema)
+        with pytest.raises(duckdb.InvalidInputException, match=f"line_reduce {bad} must be"):
+            relation.query("ticks", to_sql(spec, "ticks")).pl()
+        with pytest.raises(duckdb.InvalidInputException, match=f"line_reduce {bad} must be"):
+            execute(to_source(spec, "duckdb"), {"ticks": relation})
+
+
+@pytest.mark.parametrize("bad", ["time", "value"])
+def test_missing_duckdb_line_axes_raise_query_error(bad: str) -> None:
+    spec = QuerySpec.model_validate(
+        {
+            "dataset": "ticks",
+            "line_reduce": {
+                "time": "missing" if bad == "time" else "ts",
+                "value": "missing" if bad == "value" else "px",
+                "max_rows": 4,
+            },
+        }
+    )
+    with utc_connection() as conn:
+        conn.register("raw_ticks", ticks([3, 1, 5, 4, 9, 2]))
+        relation = conn.sql("SELECT * FROM raw_ticks")
+        with pytest.raises(QueryError, match=r"missing.*does not exist"):
+            Executor({"ticks": relation}, conn=conn, row_cap=50000).query(spec)

@@ -37,6 +37,7 @@ from quarry.kernel.datasets import (
 )
 from quarry.kernel.datasets import describe as describe_dataset
 from quarry.kernel.lineage import CodeNames, analyze, dataset_reads, dataset_writes
+from quarry.query.columns import check_columns, check_line_axes
 from quarry.query.polars_target import to_polars
 from quarry.query.source_target import imported_names, result_names, to_source
 from quarry.query.spec import Json, QueryError, QuerySpec
@@ -247,7 +248,7 @@ class Executor:
         """Run `spec`, returning at most `row_cap` rows; `truncated` when more rows exist."""
         obj = self._dataset(spec.dataset)
         capped = (
-            self._line_budget(spec)
+            spec.with_line_budget(self._row_cap)
             if spec.line_reduce
             else spec.model_copy(update={"limit": self._capped(spec.limit)})
         )
@@ -278,7 +279,7 @@ class Executor:
         imported: set[str] = set()
         positions = [(n, spec.dataset) for n, spec in enumerate(specs, start=1)]
         for spec, result_name in zip(specs, result_names(positions, self._ns), strict=True):
-            spec = self._line_budget(spec)
+            spec = spec.with_line_budget(self._row_cap)
             obj = self._dataset(spec.dataset)
             projection = None
             if isinstance(obj, duckdb.DuckDBPyRelation):
@@ -422,17 +423,6 @@ class Executor:
         """`limit` when it is within the cap, else one row past it to detect truncation."""
         return limit if limit is not None and limit <= self._row_cap else self._row_cap + 1
 
-    def _line_budget(self, spec: QuerySpec) -> QuerySpec:
-        if spec.line_reduce is None:
-            return spec
-        return spec.model_copy(
-            update={
-                "line_reduce": spec.line_reduce.model_copy(
-                    update={"max_rows": min(spec.line_reduce.max_rows, self._row_cap)}
-                )
-            }
-        )
-
     def _dataset(self, name: str) -> Dataset:
         obj = self._ns.get(name)
         if not is_dataset(obj):
@@ -527,6 +517,10 @@ def _run_query(
     # As describe reports it, so the spec's filters, sorts and aggs see the types it advertises
     # (an INTERVAL is text), and a repeated `a` is `a` and `a_1`, which SQL can tell apart.
     rel = importable_relation(obj)
+    if spec.line_reduce is not None:
+        schema = relation_frame(rel, 0).schema
+        check_columns(spec, set(schema))
+        check_line_axes(spec.line_reduce, schema, dataset=spec.dataset)
     sql_part, polars_part = split_for_relation(spec)
     # Unique per query: `query` replaces a temp view of its name, and the drop below removes
     # it, so a fixed name could destroy a view the researcher made under it.
