@@ -68,6 +68,13 @@ def backing_of(obj: Dataset) -> Backing:
     return "duckdb"
 
 
+def schema_of(obj: Dataset) -> pl.Schema:
+    """Return the schema queries read, including a relation's importable projection."""
+    if isinstance(obj, duckdb.DuckDBPyRelation):
+        return relation_frame(obj, 0).schema
+    return obj.collect_schema() if isinstance(obj, pl.LazyFrame) else obj.schema
+
+
 def describe(name: str, obj: Dataset, *, count_rows: bool) -> DatasetMeta:
     """Schema as polars dtype strings, a preview, and a row count when it is cheap or asked for."""
     if isinstance(obj, pl.DataFrame):

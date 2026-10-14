@@ -5,18 +5,22 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Iterator, Mapping
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from typing import NamedTuple
 
+import duckdb
 import nbformat
 import polars as pl
 import pytest
 
 from quarry.kernel.datasets import Column
+from quarry.kernel.executor import Executor
 from quarry.projects.export import dataset_script, notebook, notebook_json
 from quarry.projects.models import SavedDatasetMeta, SavedViewMeta
 from quarry.projects.store import ProjectStore
-from quarry.query import Json
+from quarry.query import Json, QuerySpec
 from tests.fixtures import kept_default_connection
 
 RECIPE = "prices = pl.DataFrame({'ts': ['2024-01-02'], 'px': [1.0]})\n"
@@ -105,7 +109,60 @@ def run_code_cells(doc: Mapping[str, Json]) -> dict[str, object]:
     return namespace
 
 
-def test_notebook_validates_and_runs(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("recipe", "query", "expected"),
+    [
+        (
+            "prices = pl.DataFrame({'ret': [0.0, 1.0, None]}).lazy()\n",
+            {"dataset": "prices", "filters": [{"col": "ret", "op": "in", "value": [0]}]},
+            [{"ret": 0.0}],
+        ),
+        (
+            "prices = pl.DataFrame({'ts': ['2024-01-02', '2024-01-03']})\n",
+            {"dataset": "prices", "filters": [{"col": "ts", "op": "eq", "value": "2024-01-02"}]},
+            [{"ts": "2024-01-02"}],
+        ),
+        (
+            "from datetime import date\n"
+            "prices = pl.DataFrame({'ts': [date(2024, 1, 2), date(2024, 1, 3)]})\n",
+            {"dataset": "prices", "filters": [{"col": "ts", "op": "eq", "value": "2024-01-02"}]},
+            [{"ts": date(2024, 1, 2)}],
+        ),
+        (
+            "prices = pl.DataFrame({'k': ['a', 'a'], 'n': [9223372036854775807] * 2})\n",
+            {"dataset": "prices", "group_by": ["k"], "aggs": [{"col": "n", "fn": "sum"}]},
+            [{"k": "a", "n_sum": Decimal("18446744073709551614")}],
+        ),
+        (
+            "prices = sql_local(\"SELECT INTERVAL '1 day' AS elapsed, "
+            'union_value(x := 7) AS choice")\n',
+            {"dataset": "prices"},
+            [{"elapsed": "1 day", "choice": "7"}],
+        ),
+    ],
+    ids=["float-in", "date-shaped-string", "date", "integer-sum", "relation-projection"],
+)
+def test_exported_queries_use_the_replayed_dataset_schema(
+    tmp_path: Path, recipe: str, query: dict[str, Json], expected: list[dict[str, object]]
+) -> None:
+    store = project_with_saved_items(tmp_path)
+    # Deliberately retain stale saved backing/schema: the recipe's actual object is authoritative.
+    store.write_dataset("momentum", store.get("momentum").datasets[0], recipe=recipe, raw=recipe)
+    store.write_view(
+        "momentum", store.get("momentum").views[0], source=VIEW_SOURCE, state={}, queries=[query]
+    )
+    namespace = run_code_cells(notebook(store.get("momentum"), store))
+    result = namespace["prices_1"]
+    assert isinstance(result, pl.DataFrame) and result.to_dicts() == expected
+    # To code uses the same replayed object; its result must agree even with stale disk metadata.
+    to_code_namespace = {"pl": pl, "prices": namespace["prices"]}
+    executor = Executor(to_code_namespace, conn=duckdb.default_connection(), row_cap=50_000)
+    exec(executor.to_code([QuerySpec.model_validate(query)]).code, to_code_namespace)
+    to_code_result = to_code_namespace["prices_1"]
+    assert isinstance(to_code_result, pl.DataFrame) and to_code_result.equals(result)
+
+
+def test_notebook_validates_and_runs(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     store = project_with_saved_items(tmp_path)
     doc = notebook(store.get("momentum"), store)
     # A copy: validate repairs what it can in place, such as a repeated cell id.
@@ -117,22 +174,44 @@ def test_notebook_validates_and_runs(tmp_path: Path) -> None:
         ("markdown", "## prices\n\nclosing prices"),
         ("code", "prices = pl.DataFrame"),
         ("markdown", "## View: table\n\nthe table"),
-        ("code", "# Rendered from"),
+        ("code", "# Render against"),
         ("markdown", "```tsx\nexport default"),
     ]
     assert len(cells) == len(expected)
     for (kind, source), (want_kind, prefix) in zip(cells, expected, strict=True):
         assert kind == want_kind and source.startswith(prefix), (kind, source[:40])
     assert f"load_config(Path({str(tmp_path)!r}))" in cells[1][1]
-    code = cells_of(doc)[5].source
-    assert code.startswith("# Rendered from the saved view's queries without a schema")
-    assert "prices_1 = (" in code and "# query 2 could not be rendered:" in code
     namespace = run_code_cells(doc)
+    code = capsys.readouterr().out
+    assert "prices_1 = (" in code and "# query 2 could not be rendered:" in code
     assert isinstance(namespace["prices_1"], pl.DataFrame)
     ids = [c.id for c in cells_of(doc)]
     assert len(set(ids)) == len(ids)
     assert notebook(store.get("momentum"), store) == doc  # an export is reproducible
     assert json.loads(notebook_json(store.get("momentum"), store))["nbformat"] == 4
+    metadata = doc["metadata"]
+    assert isinstance(metadata, dict)
+    quarry_metadata = metadata["quarry"]
+    assert isinstance(quarry_metadata, dict)
+    environment = quarry_metadata["export_environment"]
+    assert isinstance(environment, dict) and set(environment) == {
+        "quarry",
+        "python",
+        "polars",
+        "duckdb",
+    }
+    assert all(isinstance(version, str) and version for version in environment.values())
+
+
+def test_export_generation_does_not_run_recipes(tmp_path: Path) -> None:
+    store = project_with_saved_items(tmp_path)
+    marker = tmp_path / "recipe-ran"
+    recipe = f"Path({str(marker)!r}).touch()\n" + RECIPE
+    store.write_dataset("momentum", store.get("momentum").datasets[0], recipe=recipe, raw=recipe)
+    doc = notebook(store.get("momentum"), store)
+    assert not marker.exists()
+    run_code_cells(doc)
+    assert marker.exists()
 
 
 def test_a_result_name_never_overwrites_a_saved_dataset(tmp_path: Path) -> None:
@@ -149,19 +228,105 @@ def test_a_result_name_never_overwrites_a_saved_dataset(tmp_path: Path) -> None:
         queries=[{"dataset": "prices", "limit": 1}],
     )
     doc = notebook(store.get("momentum"), store)
-    code = sources(doc, "code")[1:]  # after the setup
     # chart sorts before table: its query skips the saved prices_1, and table's skips chart's too.
-    assert "prices_2 = (" in code[2] and "prices_3 = (" in code[3]
     namespace = run_code_cells(doc)
+    assert isinstance(namespace["prices_2"], pl.DataFrame)
     saved = namespace["prices_1"]
     assert isinstance(saved, pl.DataFrame) and saved["a"].to_list() == [9]
     assert isinstance(namespace["prices_3"], pl.DataFrame)
 
 
-def test_a_query_whose_import_would_rebind_a_saved_dataset_is_not_rendered(
-    tmp_path: Path,
+def test_query_results_preserve_recipe_bindings_and_helper_names(tmp_path: Path) -> None:
+    store = project_with_saved_items(tmp_path)
+    recipe = "prices_1 = 'keep this helper'\nrun_queries = pl.DataFrame({'a': [9]})\n" + RECIPE
+    store.write_dataset("momentum", store.get("momentum").datasets[0], recipe=recipe, raw=recipe)
+    namespace = run_code_cells(notebook(store.get("momentum"), store))
+    assert namespace["prices_1"] == "keep this helper"
+    assert isinstance(namespace["prices_2"], pl.DataFrame)
+    helper_name = namespace["run_queries"]
+    assert isinstance(helper_name, pl.DataFrame) and helper_name.to_dicts() == [{"a": 9}]
+
+
+@pytest.mark.parametrize(
+    ("name", "binding_name"),
+    [
+        ("globals", "globals"),
+        ("__import__", "__import__"),
+        ("__builtins__", "__builtins__"),
+        ("exec", "exec"),
+        ("_quarry_queries_1", "_quarry_queries_1"),
+        (
+            "_\uff51\uff55\uff41\uff52\uff52\uff59_\uff51\uff55\uff45\uff52\uff49\uff45\uff53_1",
+            "_quarry_queries_1",
+        ),
+    ],
+)
+def test_runtime_rendering_preserves_recipes_that_shadow_builtins(
+    tmp_path: Path, name: str, binding_name: str
 ) -> None:
     store = project_with_saved_items(tmp_path)
+    recipe = f"{name} = pl.DataFrame({{'a': [9]}})\n" + RECIPE
+    store.write_dataset("momentum", store.get("momentum").datasets[0], recipe=recipe, raw=recipe)
+    namespace = run_code_cells(notebook(store.get("momentum"), store))
+    result = namespace["prices_1"]
+    assert isinstance(result, pl.DataFrame) and result.to_dicts() == [
+        {"ts": "2024-01-02", "px": 1.0}
+    ]
+    binding = namespace[binding_name]
+    assert isinstance(binding, pl.DataFrame) and binding.to_dicts() == [{"a": 9}]
+
+
+def test_runtime_callable_survives_recipe_exception_aliases(tmp_path: Path) -> None:
+    store = project_with_saved_items(tmp_path)
+    recipe = (
+        "try:\n    raise ValueError()\nexcept ValueError as _quarry_queries_1:\n    pass\n" + RECIPE
+    )
+    store.write_dataset("momentum", store.get("momentum").datasets[0], recipe=recipe, raw=recipe)
+    namespace = run_code_cells(notebook(store.get("momentum"), store))
+    result = namespace["prices_1"]
+    assert isinstance(result, pl.DataFrame) and result.to_dicts() == [
+        {"ts": "2024-01-02", "px": 1.0}
+    ]
+    assert "_quarry_queries_1" not in namespace
+
+
+@pytest.mark.parametrize(
+    "bad_query",
+    [
+        {"dataset": "prices-invalid"},
+        {"dataset": "prices", "filters": [{"col": "px", "op": "eq", "value": float("nan")}]},
+        {"dataset": "prices", "filters": [{"col": "px", "op": "eq", "value": float("inf")}]},
+    ],
+    ids=["invalid-identifier", "nan", "infinity"],
+)
+def test_malformed_query_stays_a_comment_and_valid_siblings_run(
+    tmp_path: Path, bad_query: dict[str, Json], capsys: pytest.CaptureFixture[str]
+) -> None:
+    store = project_with_saved_items(tmp_path)
+    store.write_view(
+        "momentum",
+        store.get("momentum").views[0],
+        source=VIEW_SOURCE,
+        state={},
+        queries=[bad_query, {"dataset": "prices", "limit": 1}],
+    )
+    namespace = run_code_cells(notebook(store.get("momentum"), store))
+    result = namespace["prices_2"]
+    assert isinstance(result, pl.DataFrame) and result.to_dicts() == [
+        {"ts": "2024-01-02", "px": 1.0}
+    ]
+    assert "# query 1 could not be rendered:" in capsys.readouterr().out
+
+
+def test_a_query_whose_import_would_rebind_a_saved_dataset_is_not_rendered(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    store = project_with_saved_items(tmp_path)
+    recipe = (
+        "prices = pl.DataFrame({'ts': ['2024-01-02']}).with_columns(pl.col('ts').str.to_date())\n"
+    )
+    store.write_dataset("momentum", store.get("momentum").datasets[0], recipe=recipe, raw=recipe)
     save_another_dataset(store, "date", "import polars as pl\ndate = pl.DataFrame({'a': [1]})\n")
     since: dict[str, Json] = {
         "dataset": "prices",
@@ -175,27 +340,29 @@ def test_a_query_whose_import_would_rebind_a_saved_dataset_is_not_rendered(
         queries=[since, {"dataset": "prices", "limit": 1}],
     )
     doc = notebook(store.get("momentum"), store)
-    code = cells_of(doc)[-2].source
+    namespace = run_code_cells(doc)
+    code = capsys.readouterr().out
     assert "# query 1 could not be rendered: dataset 'date' would be shadowed" in code
     # The failed query keeps its position number.
     assert "from datetime import" not in code and "prices_2 = (" in code
-    namespace = run_code_cells(doc)
     saved = namespace["date"]
     assert isinstance(saved, pl.DataFrame) and saved["a"].to_list() == [1]
 
 
-def test_an_unrendered_query_stays_a_comment_whatever_its_error_says(tmp_path: Path) -> None:
+def test_an_unrendered_query_stays_a_comment_whatever_its_error_says(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     store = project_with_saved_items(tmp_path)
     hostile: dict[str, Json] = {"dataset": "prices", "x\rimport sys; sys.exit(3)\n\x00\u202e": 1}
     store.write_view(
         "momentum", store.get("momentum").views[0], source=VIEW_SOURCE, state={}, queries=[hostile]
     )
     doc = notebook(store.get("momentum"), store)
-    code = cells_of(doc)[-2].source
+    # The key's line breaks would run the rest as code, and a NUL stops it compiling.
+    run_code_cells(doc)
+    code = capsys.readouterr().out
     assert "# query 1 could not be rendered:" in code
     assert "\\u0000\\u202e" in code and "\x00" not in code
-    # The key's line breaks would have run the rest of it as code, and a NUL stops it compiling.
-    run_code_cells(doc)
 
 
 def test_dataset_script_has_a_header_and_the_recipe(tmp_path: Path) -> None:
@@ -320,7 +487,9 @@ def test_a_cycle_keeps_saved_order_when_an_outside_recipe_assigns_a_member(
     assert not any(source.startswith("# This recipe") for source in code[:3])
 
 
-def test_a_view_that_publishes_its_spec_exports_that_spec(tmp_path: Path) -> None:
+def test_a_view_that_publishes_its_spec_exports_that_spec(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     store = project_with_saved_items(tmp_path)
     table = store.get("momentum").views[0]
     spec: dict[str, Json] = {
@@ -336,6 +505,10 @@ def test_a_view_that_publishes_its_spec_exports_that_spec(tmp_path: Path) -> Non
         state={"spec": spec, "dropped": ['filter px "!="']},
         queries=[{"dataset": "prices", "format": "arrow"}, {**spec, "limit": 1}],
     )
-    code = sources(notebook(store.get("momentum"), store), "code")[2]
+    doc = notebook(store.get("momentum"), store)
+    code = sources(doc, "code")[2]
     assert code.startswith('# To code leaves out: filter px "!="\n')
+    namespace = run_code_cells(doc)
+    code = capsys.readouterr().out
     assert "prices_1 = (" in code and "prices_2" not in code and "limit" not in code
+    assert isinstance(namespace["prices_1"], pl.DataFrame)

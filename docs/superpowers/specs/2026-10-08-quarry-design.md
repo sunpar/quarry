@@ -639,8 +639,13 @@ later has correct lineage.
 notebook: for each saved dataset, a markdown cell with name and description
 and a code cell with the recipe; for each saved view, a markdown cell with
 its description, its dataset recipes if not already emitted, a code cell with
-the `to_source` rendering of its saved queries, and the TSX in a fenced block
-for reference. A saved dataset also exports alone as a `.py` script.
+code that renders its saved queries with `to_source` against the rebuilt
+datasets' schema and backing, displays that Python and executes it, and the
+TSX in a fenced block for reference. Rendering runs after every dataset recipe;
+export generation runs no recipes or live queries. Notebook metadata records
+Quarry, Python, Polars and DuckDB versions from the export environment, without
+pinning input data or installing dependencies. A saved dataset also exports
+alone as a `.py` script.
 
 ## 11. Persistence layout
 

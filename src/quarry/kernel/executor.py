@@ -32,6 +32,7 @@ from quarry.kernel.datasets import (
     importable_relation,
     is_dataset,
     relation_frame,
+    schema_of,
     to_json_rows,
     undescribed,
 )
@@ -260,14 +261,10 @@ class Executor:
         positions = [(n, spec.dataset) for n, spec in enumerate(specs, start=1)]
         for spec, result_name in zip(specs, result_names(positions, self._ns), strict=True):
             obj = self._dataset(spec.dataset)
-            projection = None
-            if isinstance(obj, duckdb.DuckDBPyRelation):
-                projection = importable_projection(obj)
-                schema = relation_frame(obj, 0).schema
-            elif isinstance(obj, pl.LazyFrame):
-                schema = obj.collect_schema()
-            else:
-                schema = obj.schema
+            projection = (
+                importable_projection(obj) if isinstance(obj, duckdb.DuckDBPyRelation) else None
+            )
+            schema = schema_of(obj)
             backing = backing_of(obj)
             blocks.append(
                 to_source(
