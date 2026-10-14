@@ -56,13 +56,17 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **Lineage blind spots**: lineage reads table names only from a string literal
   passed first to `sql_local(...)` or any `.sql(...)` call, so SQL built at run
   time (an f-string, a variable) and literals passed to `.execute(...)` or
-  `.query(...)` add no reads. Earlier ordinary scalar and dictionary bindings
-  are omitted too: a result that reads `params` can save without the step that
-  defined it, then fail fresh replay with `NameError`. Helpers bound without
-  `def` or `class` (lambdas, `partial`, imports) and in-place mutation inside a
-  function remain invisible. A literal reading `FROM RECENT` is not matched to
-  dataset `recent`, though DuckDB's catalog ignores case. Silent: a saved recipe
-  can miss a source step.
+  `.query(...)` add no reads. Helpers bound without `def` or `class` (lambdas,
+  `partial`, imports) are invisible, and so is in-place mutation inside a
+  function, such as a helper that sets `df.columns`. A literal reading
+  `FROM RECENT` is not matched to dataset `recent`, though DuckDB's catalog
+  ignores case. Silent: a saved recipe can miss a source step.
+- **Scalar and dictionary recipe inputs**: earlier ordinary bindings can be
+  omitted from a saved recipe. A result that reads `params["scale"]` can save
+  without the step that defined `params`, then fail fresh replay with
+  `NameError`. Extend the existing
+  [lineage analyzer](../src/quarry/kernel/lineage.py) to retain those producer
+  steps.
 - **Lineage approximations**: a failed step's in-place mutation is not a write,
   while a successful step's store that never ran is one. Class bodies report
   every name they load as a read, and a SQL literal's CTE named like a dataset
@@ -277,11 +281,11 @@ one up when a researcher needs it.
   view is missing has no Remove, and recall and layout errors never clear.
 - The rail's project list does not scroll, and `SaveDialog` picks its project
   only when it opens, so a project list that arrives later leaves none chosen.
-- Retain earlier scalar and dictionary bindings a saved recipe reads, using the
-  existing lineage analyzer. Also count in-place mutation inside a function as a
-  write of the frame it changes: a helper that sets `df.columns` or deletes
-  `df["k"]` is invisible, as are helpers bound without `def` or `class`.
-  Module-level attribute and subscript assignment and `del` are covered.
+- Count in-place mutation inside a function as a write of the frame it changes:
+  a helper that sets `df.columns` or deletes `df["k"]` is invisible to lineage,
+  as are helpers bound without `def` or `class`. Module-level attribute and
+  subscript assignment and `del` are covered. Rare in step code; revisit if a
+  recipe misses a step for that reason.
 - Read SQL built at run time (f-strings, concatenation) and literals passed to
   `.execute(...)` or `.query(...)`: only literals given to `sql_local(...)` or
   `.sql(...)` reach DuckDB's parser (`json_serialize_sql`). The recipe then

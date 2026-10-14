@@ -1,31 +1,31 @@
 # Working state
 
-Checkpoint as of 2026-10-14. This page holds temporary context: what is in
-flight, the latest check results and the next actions. Rewrite it at the end of
-each session and when a pull request opens or merges. Anything that will still
-be true next month belongs in [context/](context/) or
+Checkpoint as of 2026-10-14 22:32 UTC. This page holds temporary context: what
+is in flight, the latest check results and the next actions. Rewrite it at the
+end of each session and when a pull request opens or merges. Anything that will
+still be true next month belongs in [context/](context/) or
 [open-items.md](open-items.md), as the [docs index](README.md) explains.
 
 ## Current objective
 
-Implement the bounded improvements selected from the related-project survey,
-then bring each implementation PR through `open-pr-and-babysit` and leave it
-open when ready to merge. The researcher delegated routine design choices.
-Separate assessments cover parameterized workflows, session branching and the
-complete remaining-work inventory.
+Finish the review workflows for the five bounded improvements selected from the
+related-project survey, and leave the implementation and coordination PRs open
+when ready to merge. The researcher delegated routine design choices. Separate
+assessments cover parameterized workflows, session branching and the complete
+remaining-work inventory.
 
-| Work                  | Open PR / code checkpoint                                     | Contract                                                                              | Verification                                                         | Review                                                                                                                          |
-| --------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Reproducible exports  | [PR #18](https://github.com/sunpar/quarry/pull/18), `7c59864` | Render saved queries against replayed schemas and record allowlisted runtime versions | Mac and Linux full passed: 1,086 Python, 235 frontend, 25 gate tests | Codex 2 clean on this head; all prior review threads resolved; readiness reconciled                                             |
-| Whole-series charts   | [PR #22](https://github.com/sunpar/quarry/pull/22), `c855625` | Reduce line points across the full time range                                         | Mac and Linux full passed: 1,176 Python, 237 frontend, 25 gate tests | All six review threads resolved; final Codex 2 pending, deadline 22:10:25 UTC                                                   |
-| Table filters         | [PR #19](https://github.com/sunpar/quarry/pull/19), `744d5ba` | Push both tables' filters into query specs                                            | Mac and Linux full passed: 1,071 Python, 249 frontend, 25 gate tests | Budget exhausted, no clean result; fallback elapsed at 21:31:27 UTC and eligibility reconciled at 21:34:21 UTC                  |
-| Mount and query reuse | [PR #21](https://github.com/sunpar/quarry/pull/21), `68fbc2d` | Mount views once and reuse in-flight queries                                          | Mac and Linux full passed: 1,069 Python, 253 frontend, 25 gate tests | Connection and early-restore fixes verified; budget exhausted without clean review; fallback deadline 22:10:18 UTC              |
-| Frozen HTML reports   | [PR #20](https://github.com/sunpar/quarry/pull/20), `dcf6581` | Export saved metadata and pinned rows as offline HTML without live execution          | Mac and Linux full passed: 1,100 Python, 236 frontend, 25 gate tests | All six review threads resolved; budget exhausted, no clean result; fallback elapsed at 21:48:57 UTC and eligibility reconciled |
+| Work                  | Open PR / code checkpoint                                     | Contract                                                                              | Verification                                                         | Review                                                                                                                                          |
+| --------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reproducible exports  | [PR #18](https://github.com/sunpar/quarry/pull/18), `7c59864` | Render saved queries against replayed schemas and record allowlisted runtime versions | Mac and Linux full passed: 1,086 Python, 235 frontend, 25 gate tests | Codex 2 clean on this head; all prior review threads resolved; readiness reconciled                                                             |
+| Whole-series charts   | [PR #22](https://github.com/sunpar/quarry/pull/22), `706f4f1` | Reduce line points across the full time range                                         | Mac and Linux full passed: 1,188 Python, 237 frontend, 25 gate tests | All eight review threads resolved; budget exhausted without clean review; eligibility pending until 22:35:03 UTC                                |
+| Table filters         | [PR #19](https://github.com/sunpar/quarry/pull/19), `744d5ba` | Push both tables' filters into query specs                                            | Mac and Linux full passed: 1,071 Python, 249 frontend, 25 gate tests | Budget exhausted, no clean result; fallback elapsed at 21:31:27 UTC and eligibility reconciled at 21:34:21 UTC                                  |
+| Mount and query reuse | [PR #21](https://github.com/sunpar/quarry/pull/21), `68fbc2d` | Mount views once and reuse in-flight queries                                          | Mac and Linux full passed: 1,069 Python, 253 frontend, 25 gate tests | Connection and early-restore fixes verified; budget exhausted without clean review; fallback elapsed at 22:10:18 UTC and eligibility reconciled |
+| Frozen HTML reports   | [PR #20](https://github.com/sunpar/quarry/pull/20), `dcf6581` | Export saved metadata and pinned rows as offline HTML without live execution          | Mac and Linux full passed: 1,100 Python, 236 frontend, 25 gate tests | All six review threads resolved; budget exhausted, no clean result; fallback elapsed at 21:48:57 UTC and eligibility reconciled                 |
 
-Code checkpoints identify the candidate implementations. Later documentation
-commits can change PR heads; check and review evidence belongs to its exact SHA.
-The table-filter deadline is a silence fallback after the final push, not a
-clean review. New substantive feedback or another push can change it.
+Code checkpoints identify the implementations under review. Check and review
+evidence belongs to its exact SHA. A silence fallback ends the capped review
+workflow without a clean verdict; new substantive feedback or another push can
+change eligibility.
 
 | Work                  | Task thread                                                                        | Assessment status                                       |
 | --------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------- |
@@ -38,11 +38,10 @@ clean review. New substantive feedback or another push can change it.
 | Session branching     | Assess Quarry session branching (`01a13c16-2d48-71c0-99cc-5cebb5b319a1`)           | Complete; no implementation                             |
 | Remaining work        | Reconcile Quarry remaining work (`01a13c16-330f-7d80-b840-bd2ceb9a2f6b`)           | Complete inventory; final status reconciliation pending |
 
-All five implementation PRs remain open and unmerged. Their current heads have
-passed Mac and Linux full checks; whole-series review and the query-reuse
-silence deadline remain pending. Table filters do not close
-`TABLE-SORT-RETAIN-ROWS`: same-spec refreshes retain rows, but changed sort or
-filter specs still show "Loading".
+All five implementation PRs remain open and unmerged. Their listed heads have
+passed Mac and Linux full checks; whole-series eligibility remains pending until
+22:35:03 UTC. Table filters do not close `TABLE-SORT-RETAIN-ROWS`: same-spec
+refreshes retain rows, but changed sort or filter specs still show "Loading".
 
 The app threads reached sandbox approval prompts for their external commands.
 Execution continues through delegated workers using the controller's authorized
@@ -51,14 +50,21 @@ its own worktree and branch from `38b07ac`. Full gates share one resource lock.
 The controller owns this page and the consolidated backlog; workers retain their
 reports and review budgets in their worktree Git directories.
 
-A combined local check on Mac at `f707839` passed 1,226 Python, 270 frontend and
-25 gate tests, with three expected skips, in 77.01 seconds. It combined
-`7c59864`, `c855625`, `744d5ba`, `68fbc2d` and `dcf6581`, and a fresh GitHub
-check confirmed those heads after verification. Product code merged without
-conflicts. Three documentation files needed reconciliation, and the append-only
-export test conflict retained both branches' cases. This is local combined
-evidence; the Linux runs tested each feature separately. Later merges still need
-to reconcile this checkpoint and the feature-owned backlog edits.
+A combined local check on Mac at `5f0ef9e` passed 1,238 Python, 270 frontend and
+25 gate tests, with three expected skips, in 78.35 seconds. It combined
+`7c59864`, `706f4f1`, `744d5ba`, `68fbc2d` and `dcf6581`; all five source heads
+were unchanged after the check. The export-code conflict retained runtime-schema
+rendering and protected helper bindings while applying the configured line
+budget. Documentation and appended export tests also needed reconciliation. This
+is local combined evidence; Linux tested each feature separately. Later merges
+still need to preserve that export composition and reconcile this checkpoint and
+the feature-owned backlog edits.
+
+The documentation checkpoint is published in
+[PR #23](https://github.com/sunpar/quarry/pull/23). Its worktree Git directory
+holds the review ledger and exact-head gate evidence. The opening head,
+`0916e77`, passed the Mac PR wrapper: 1,069 Python, 235 frontend and 25 gate
+tests, with three expected skips, in 100.02 seconds including push and creation.
 
 Local assessment evidence is under `/Users/sunpar/Documents/Codex/2026-10-14/`:
 the workflow assessment is
@@ -283,8 +289,8 @@ external or licensed integrations, and hosted CI were not run in this work.
 
 ## Next actions
 
-1. Finish the remaining whole-series review and query-reuse silence window, then
-   reconcile fresh feedback and keep all five implementation PRs open.
+1. Reconcile the whole-series silence deadline and remaining documentation
+   reviews, then keep all implementation and coordination PRs open.
 2. Reconcile implemented work, open PRs, research ideas and the existing backlog
    in one remaining-work inventory.
 3. Keep parameter contracts, metric definitions and session branching as
