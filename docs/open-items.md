@@ -67,13 +67,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   (`WITH df AS (...) SELECT * FROM df`) reads that dataset, since DuckDB's
   parser does not resolve CTEs; both only add steps to a recipe. Silent; see
   [decisions](context/decisions.md#lineage).
-- **Exported queries render without a schema**: a notebook renders each saved
-  view query with `to_source` and no `schema=`, since only dtype strings are on
-  disk. Numbers render as given and sums plainly, so `ret in [0]` on a float
-  column fails loudly when the cell runs, and an Int64 sum can wrap silently. No
-  `relation_projection` either, since that needs the live relation, so a
-  relation query whose result holds an INTERVAL or UNION column, which `.pl()`
-  cannot import, fails loudly when the cell runs.
 - **Interrupts stop only the kernel's DuckDB connection**: DuckDB workers for a
   relation on a researcher's own `duckdb.connect()` can keep running after an
   interrupt. Silent: they hold CPU and delay that connection's next query.
@@ -285,10 +278,6 @@ one up when a researcher needs it.
   `.sql(...)` reach DuckDB's parser (`json_serialize_sql`). The recipe then
   shows the missing read; a `# reads: name` comment the researcher writes is one
   way to declare it.
-- Render exported queries against a schema: only dtype strings are on disk, and
-  mapping them back to polars dtypes is a parser nobody needs yet. The notebook
-  says so in a comment, and "To code" in a session renders against the live
-  schema.
 - Perspective shows at most 50,000 rows, the pivot built-in's limit and the
   default `row_cap`. Server-side pivoting through the mapped spec is what "To
   code" gives; the viewer stays a client-side explorer.

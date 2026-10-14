@@ -1109,16 +1109,19 @@ them.
   and a query that fails validation keeps its number. A query whose generated
   import, such as `from datetime import date`, would rebind a saved dataset
   stays a displayed `# query N could not be rendered` comment naming it, as "To
-  code" refuses one. Runtime calls import their renderer without binding a
-  helper name in the notebook namespace. Free text in an exported comment, such
-  as a description, a validation error or a pydantic message quoting a raw JSON
-  key, goes through `py_comment`, which `raw_recipe` shares: line breaks become
-  spaces and anything else unprintable is escaped, so a line break cannot run
-  the rest as code, a NUL cannot stop the cell compiling, and a bidi control
-  cannot disguise it. The plan named results with no check and put the
-  multi-line pydantic message into a comment. Cost if wrong: such a query is
-  missing from the export until the dataset is renamed, and a view's result
-  numbers depend on the views that sort before it.
+  code" refuses one. Setup captures the renderer and notebook namespace before
+  recipes can rebind builtin names. Its callable's name avoids saved names and
+  recipe identifier tokens, including exception aliases Python deletes; token
+  matching leaves malformed-recipe exports inert. This preserves helper lookup
+  for previously runnable queries, not arbitrary changes to Python builtins.
+  Free text in an exported comment, such as a description, a validation error or
+  a pydantic message quoting a raw JSON key, goes through `py_comment`, which
+  `raw_recipe` shares: line breaks become spaces and anything else unprintable
+  is escaped, so a line break cannot run the rest as code, a NUL cannot stop the
+  cell compiling, and a bidi control cannot disguise it. The plan named results
+  with no check and put the multi-line pydantic message into a comment. Cost if
+  wrong: such a query is missing from the export until the dataset is renamed,
+  and a view's result numbers depend on the views that sort before it.
 - **Exported recipes run in dependency order**: a raw recipe replays its
   upstream steps, so the recipe of `returns`, derived before a later step
   filtered `prices`, also rebinds `prices` to the unfiltered frame. The notebook
