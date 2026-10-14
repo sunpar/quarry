@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Final, Literal
@@ -11,8 +10,8 @@ from zoneinfo import ZoneInfo
 import duckdb
 import polars as pl
 
-from quarry.query.columns import check_columns, check_output_columns
-from quarry.query.spec import Agg, AggFn, Filter, Json, LineReduction, Pivot, QueryError, QuerySpec
+from quarry.query.columns import check_columns, check_line_axes, check_output_columns
+from quarry.query.spec import Agg, AggFn, Filter, Json, Pivot, QuerySpec
 from quarry.query.sql_target import LINE_CONNECTION_CONFIG, line_sql, quote_ident
 
 CompareOp = Literal["eq", "ne", "lt", "le", "gt", "ge", "in", "not_in", "between"]
@@ -87,17 +86,6 @@ def to_polars(
     if spec.select is not None:
         lf = lf.select(spec.select)
     return lf
-
-
-def check_line_axes(
-    reduction: LineReduction, schema: Mapping[str, pl.DataType], *, dataset: str
-) -> None:
-    """Live and exported Polars reductions accept the same axis dtypes."""
-    time, value = reduction.time, reduction.value
-    if not (schema[time] == pl.Date or isinstance(schema[time], pl.Datetime)):
-        raise QueryError("line_reduce time must be Date or Datetime", dataset=dataset, column=time)
-    if not schema[value].is_numeric():
-        raise QueryError("line_reduce value must be numeric", dataset=dataset, column=value)
 
 
 def filter_expr(f: Filter, dtype: pl.DataType) -> pl.Expr:

@@ -39,7 +39,7 @@ class CreateProjectRequest(BaseModel):
     description: str = ""
 
 
-def register_project_routes(api: APIRouter, projects: ProjectService) -> None:
+def register_project_routes(api: APIRouter, projects: ProjectService, *, row_cap: int) -> None:
     @api.post("/projects", status_code=201)
     def create_project(body: CreateProjectRequest) -> ProjectMeta:
         if body.name.strip() == "":
@@ -80,7 +80,7 @@ def register_project_routes(api: APIRouter, projects: ProjectService) -> None:
     def export_notebook(slug: str) -> JSONResponse:
         project = _found(lambda: projects.get(slug))
         headers = _attachment(f"{project.meta.slug}.ipynb")
-        return JSONResponse(notebook(project, projects.store), headers=headers)
+        return JSONResponse(notebook(project, projects.store, row_cap=row_cap), headers=headers)
 
     @api.get("/projects/{slug}/export.html")
     def export_report(slug: str) -> HTMLResponse:

@@ -1333,7 +1333,11 @@ them.
   bindings on refusal. It reads runtime axis dtypes, so saved notebook exports
   can reduce lines without parsing saved dtype strings. Supplied schemas share
   live axis validation and filter coercion; schema-less exports retain the
-  documented filter-literal limits.
+  documented filter-literal limits. Axis validation is shared across backings;
+  SQL validates metadata independently of surviving rows. Live queries, session
+  source and notebook exports share `QuerySpec.with_line_budget`. The notebook
+  captures the active server cap at export, or reads project config when called
+  directly, instead of rendering the uncapped saved request.
 - **No two roles share a column, and no pick hides the pickers**: a saved column
   counts only while the live schema offers it, so a stale choice falls back to
   the default instead of failing the query. Roles resolve in an order that

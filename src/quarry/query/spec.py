@@ -128,6 +128,18 @@ class QuerySpec(BaseModel):
     offset: int = Field(default=0, ge=0)
     format: Literal["json", "arrow"] = "json"
 
+    def with_line_budget(self, row_cap: int) -> QuerySpec:
+        """Apply the same effective line budget to live queries and every export."""
+        if self.line_reduce is None:
+            return self
+        return self.model_copy(
+            update={
+                "line_reduce": self.line_reduce.model_copy(
+                    update={"max_rows": min(self.line_reduce.max_rows, row_cap)}
+                )
+            }
+        )
+
     @model_validator(mode="after")
     def _check_shape(self) -> QuerySpec:
         if self.line_reduce is not None:

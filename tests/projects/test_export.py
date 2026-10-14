@@ -552,3 +552,46 @@ def test_saved_whole_series_query_executes_in_notebook(
     frame = namespace["prices"]
     assert isinstance(frame, pl.DataFrame | pl.LazyFrame)
     assert result.schema == frame.lazy().collect_schema()
+
+
+@pytest.mark.parametrize("via_route", [False, True])
+def test_notebook_uses_configured_effective_line_budget(tmp_path: Path, via_route: bool) -> None:
+    from polars.testing import assert_frame_equal
+
+    from quarry.query import QuerySpec, to_polars
+
+    store = project_with_saved_items(tmp_path)
+    (tmp_path / "config.toml").write_text("[data]\nrow_cap = 100\n")
+    recipe = (
+        "prices = pl.DataFrame({'ts': pl.Series(range(60001), dtype=pl.Int64).cast(pl.Datetime), "
+        "'px': [n % 17 for n in range(59999)] + [-10000, 20000]})\n"
+    )
+    meta = store.get("momentum").datasets[0]
+    store.write_dataset("momentum", meta, recipe=recipe, raw=recipe)
+    query: dict[str, Json] = {
+        "dataset": "prices",
+        "line_reduce": {"time": "ts", "value": "px", "max_rows": 50000},
+    }
+    store.write_view(
+        "momentum", store.get("momentum").views[0], source=VIEW_SOURCE, state={}, queries=[query]
+    )
+    cap = 100
+    if via_route:
+        from quarry.config import DataConfig, QuarryConfig
+        from tests.server.test_app import make_client
+
+        cap = 64  # The active server cap wins over the 100-row config file.
+        client = make_client(
+            tmp_path, [], config=QuarryConfig(root=tmp_path, data=DataConfig(row_cap=cap))
+        )
+        document = client.get("/projects/momentum/export.ipynb").json()
+    else:
+        document = notebook(store.get("momentum"), store)
+    namespace = run_code_cells(document)
+    frame, result = namespace["prices"], namespace["prices_1"]
+    assert isinstance(frame, pl.DataFrame) and isinstance(result, pl.DataFrame)
+    assert result.height <= cap
+    spec = QuerySpec.model_validate(
+        {"dataset": "prices", "line_reduce": {"time": "ts", "value": "px", "max_rows": cap}}
+    )
+    assert_frame_equal(result, to_polars(spec, frame).collect(), check_exact=True)

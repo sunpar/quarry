@@ -13,6 +13,7 @@ import polars as pl
 from pydantic import ValidationError
 
 from quarry import __version__
+from quarry.config import load_config
 from quarry.kernel.datasets import (
     backing_of,
     dataset_names,
@@ -36,8 +37,11 @@ from quarry.query.spec import Json, QueryError, QuerySpec
 from quarry.server.models import to_code_input
 
 
-def notebook(project: Project, store: ProjectStore) -> dict[str, Json]:
+def notebook(
+    project: Project, store: ProjectStore, *, row_cap: int | None = None
+) -> dict[str, Json]:
     """An nbformat 4.5 document: the setup, every saved dataset, then every saved view."""
+    row_cap = load_config(store.root).data.row_cap if row_cap is None else row_cap
     slug = project.meta.slug
     names = [d.name for d in project.datasets]
     recipes = [store.read_recipe(slug, name) for name in names]
@@ -53,7 +57,7 @@ def notebook(project: Project, store: ProjectStore) -> dict[str, Json]:
             + "\n# Capture the renderer before recipes can rebind Python's builtin names.\n"
             + f"from quarry.projects.export import run_queries as {query_runner}\n"
             + f"{query_runner} = __import__('functools').partial(\n"
-            + f"    {query_runner}, namespace=globals()\n"
+            + f"    {query_runner}, namespace=globals(), row_cap={row_cap}\n"
             + ")\n"
         ),
     ]
@@ -93,8 +97,10 @@ def notebook(project: Project, store: ProjectStore) -> dict[str, Json]:
     }
 
 
-def notebook_json(project: Project, store: ProjectStore) -> str:
-    return json.dumps(notebook(project, store), indent=1, ensure_ascii=False) + "\n"
+def notebook_json(project: Project, store: ProjectStore, *, row_cap: int | None = None) -> str:
+    return (
+        json.dumps(notebook(project, store, row_cap=row_cap), indent=1, ensure_ascii=False) + "\n"
+    )
 
 
 def dataset_script(project: Project, store: ProjectStore, name: str) -> str:
@@ -195,7 +201,7 @@ def _rebind_warning(rebinds: list[str]) -> str:
     return py_comment(warning) + "\n"
 
 
-def run_queries(queries_json: str, namespace: dict[str, object]) -> None:
+def run_queries(queries_json: str, namespace: dict[str, object], *, row_cap: int) -> None:
     """Render, display and execute a saved view's queries against the notebook's datasets.
 
     Result names avoid the execution namespace. An invalid query keeps its position number
@@ -208,7 +214,7 @@ def run_queries(queries_json: str, namespace: dict[str, object]) -> None:
         try:
             spec = QuerySpec.model_validate(raw)
             require_identifier(spec.dataset, "dataset", spec)
-            specs.append((n, spec))
+            specs.append((n, spec.with_line_budget(row_cap)))
         except (ValidationError, QueryError) as exc:
             blocks[n] = _unrendered(n, str(exc))
     names = result_names([(n, spec.dataset) for n, spec in specs], namespace)

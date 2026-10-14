@@ -289,7 +289,8 @@ them.
 
 `line_reduce` replaces grouping, pivot, sort, select, offset and limit. Filters
 define the full requested domain; the output contains the two axis columns.
-`time` is Date or Datetime and `value` is numeric. Missing times are omitted;
+`time` is Date or Datetime and `value` is numeric. All backings and generated
+source enforce axis types, including empty and fully filtered domains. Missing times are omitted;
 non-finite values become null. Rows sort by time, then value with nulls first.
 Exact duplicate pairs are interchangeable. When rows exceed `max_rows` (default
 50,000, capped by `row_cap`), reduction first reserves both endpoints of every
@@ -303,7 +304,9 @@ of prefix `truncated`.
 
 This is a lossy line overview, not raw-data reconstruction or a promise of
 pixel-identical rendering at every zoom level. "To code" uses the same effective
-budget as the query. The large-series view preserves null breaks and does no
+budget as the query. Notebook exports capture the active server cap when
+generated; standalone exports use the project configuration. The large-series
+view preserves null breaks and does no
 additional browser sampling. Polars materializes only the filtered axis columns
 on the server, then uses the shared DuckDB reducer on a private connection with
 one thread, a 256 MiB memory limit and no disk spill. Relation-backed reduction
