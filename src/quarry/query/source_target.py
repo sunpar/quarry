@@ -90,8 +90,8 @@ def to_source(
     INTERVAL and UNION columns to VARCHAR so `.pl()` can import them. Every failure caused by
     the spec is a QueryError.
     """
-    _require_identifier(spec.dataset, "dataset", spec)
-    _require_identifier(result_name, "result_name", spec)
+    require_identifier(spec.dataset, "dataset", spec)
+    require_identifier(result_name, "result_name", spec)
     if schema is not None:
         check_columns(spec, set(schema))
     try:
@@ -404,7 +404,8 @@ def _escape_unprintable(ch: str) -> str:
     return f"\\u{code:04x}" if code <= 0xFFFF else f"\\U{code:08x}"
 
 
-def _require_identifier(name: str, role: str, spec: QuerySpec) -> None:
+def require_identifier(name: str, role: str, spec: QuerySpec) -> None:
+    """Require an ASCII Python identifier for a name inserted into generated source."""
     # Both names are pasted into code that will run, so nothing else may get through.
     # Python NFKC-folds identifiers at parse time, so a name that is not ASCII could run as a
     # different name than the one checked here.

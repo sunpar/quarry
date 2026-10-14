@@ -6,6 +6,7 @@ import json
 import platform
 import re
 from pathlib import Path
+from unicodedata import normalize
 
 import duckdb
 import polars as pl
@@ -23,7 +24,14 @@ from quarry.kernel.lineage import analyze
 from quarry.projects.models import Project, SavedDatasetMeta, SavedViewMeta
 from quarry.projects.recipe import split_leading_future
 from quarry.projects.store import ProjectStore
-from quarry.query.source_target import IDENT_RE, imported_names, py_comment, result_names, to_source
+from quarry.query.source_target import (
+    IDENT_RE,
+    imported_names,
+    py_comment,
+    require_identifier,
+    result_names,
+    to_source,
+)
 from quarry.query.spec import Json, QueryError, QuerySpec
 from quarry.server.models import to_code_input
 
@@ -34,7 +42,9 @@ def notebook(project: Project, store: ProjectStore) -> dict[str, Json]:
     names = [d.name for d in project.datasets]
     recipes = [store.read_recipe(slug, name) for name in names]
     # Tokens also reserve exception aliases, which Python deletes after the handler.
-    taken = set(names) | {name for recipe in recipes for name in IDENT_RE.findall(recipe)}
+    taken = set(names) | {
+        name for recipe in recipes for name in IDENT_RE.findall(normalize("NFKC", recipe))
+    }
     query_runner = result_names([(1, "_quarry_queries")], taken)[0]
     cells: list[dict[str, Json]] = [
         _markdown(f"# {project.meta.name}\n\n{project.meta.description}".rstrip() + "\n"),
@@ -59,7 +69,7 @@ def notebook(project: Project, store: ProjectStore) -> dict[str, Json]:
             _code(
                 left_out
                 + "# Render against the rebuilt datasets, show the Python, then run it.\n"
-                + f"{query_runner}({queries!r})\n"
+                + f"{query_runner}({json.dumps(queries)!r})\n"
             )
         )
         cells.append(_markdown(_fenced("tsx", saved.source.rstrip())))
@@ -185,7 +195,7 @@ def _rebind_warning(rebinds: list[str]) -> str:
     return py_comment(warning) + "\n"
 
 
-def run_queries(queries: list[dict[str, Json]], namespace: dict[str, object]) -> None:
+def run_queries(queries_json: str, namespace: dict[str, object]) -> None:
     """Render, display and execute a saved view's queries against the notebook's datasets.
 
     Result names avoid the execution namespace. An invalid query keeps its position number
@@ -193,10 +203,13 @@ def run_queries(queries: list[dict[str, Json]], namespace: dict[str, object]) ->
     """
     blocks: dict[int, str] = {}
     specs: list[tuple[int, QuerySpec]] = []
+    queries: list[dict[str, Json]] = json.loads(queries_json)
     for n, raw in enumerate(queries, start=1):
         try:
-            specs.append((n, QuerySpec.model_validate(raw)))
-        except ValidationError as exc:
+            spec = QuerySpec.model_validate(raw)
+            require_identifier(spec.dataset, "dataset", spec)
+            specs.append((n, spec))
+        except (ValidationError, QueryError) as exc:
             blocks[n] = _unrendered(n, str(exc))
     names = result_names([(n, spec.dataset) for n, spec in specs], namespace)
     datasets = dataset_names(namespace)

@@ -248,10 +248,21 @@ def test_query_results_preserve_recipe_bindings_and_helper_names(tmp_path: Path)
 
 
 @pytest.mark.parametrize(
-    "name", ["globals", "__import__", "__builtins__", "exec", "_quarry_queries_1"]
+    ("name", "binding_name"),
+    [
+        ("globals", "globals"),
+        ("__import__", "__import__"),
+        ("__builtins__", "__builtins__"),
+        ("exec", "exec"),
+        ("_quarry_queries_1", "_quarry_queries_1"),
+        (
+            "_\uff51\uff55\uff41\uff52\uff52\uff59_\uff51\uff55\uff45\uff52\uff49\uff45\uff53_1",
+            "_quarry_queries_1",
+        ),
+    ],
 )
 def test_runtime_rendering_preserves_recipes_that_shadow_builtins(
-    tmp_path: Path, name: str
+    tmp_path: Path, name: str, binding_name: str
 ) -> None:
     store = project_with_saved_items(tmp_path)
     recipe = f"{name} = pl.DataFrame({{'a': [9]}})\n" + RECIPE
@@ -261,7 +272,7 @@ def test_runtime_rendering_preserves_recipes_that_shadow_builtins(
     assert isinstance(result, pl.DataFrame) and result.to_dicts() == [
         {"ts": "2024-01-02", "px": 1.0}
     ]
-    binding = namespace[name]
+    binding = namespace[binding_name]
     assert isinstance(binding, pl.DataFrame) and binding.to_dicts() == [{"a": 9}]
 
 
@@ -277,6 +288,34 @@ def test_runtime_callable_survives_recipe_exception_aliases(tmp_path: Path) -> N
         {"ts": "2024-01-02", "px": 1.0}
     ]
     assert "_quarry_queries_1" not in namespace
+
+
+@pytest.mark.parametrize(
+    "bad_query",
+    [
+        {"dataset": "prices-invalid"},
+        {"dataset": "prices", "filters": [{"col": "px", "op": "eq", "value": float("nan")}]},
+        {"dataset": "prices", "filters": [{"col": "px", "op": "eq", "value": float("inf")}]},
+    ],
+    ids=["invalid-identifier", "nan", "infinity"],
+)
+def test_malformed_query_stays_a_comment_and_valid_siblings_run(
+    tmp_path: Path, bad_query: dict[str, Json], capsys: pytest.CaptureFixture[str]
+) -> None:
+    store = project_with_saved_items(tmp_path)
+    store.write_view(
+        "momentum",
+        store.get("momentum").views[0],
+        source=VIEW_SOURCE,
+        state={},
+        queries=[bad_query, {"dataset": "prices", "limit": 1}],
+    )
+    namespace = run_code_cells(notebook(store.get("momentum"), store))
+    result = namespace["prices_2"]
+    assert isinstance(result, pl.DataFrame) and result.to_dicts() == [
+        {"ts": "2024-01-02", "px": 1.0}
+    ]
+    assert "# query 1 could not be rendered:" in capsys.readouterr().out
 
 
 def test_a_query_whose_import_would_rebind_a_saved_dataset_is_not_rendered(
