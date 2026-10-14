@@ -8,12 +8,29 @@ be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Claude Code and Codex subscription access merged in
+The [Docker plan](superpowers/plans/2026-10-14-quarry-linux-docker.md) is
+implemented. All four task threads passed spec and quality review. The final
+whole-branch review of `492fa17..52974bb` found no Critical or Important defect
+and approved integration. npm/build diagnostics remain nonblocking, with their
+limits recorded below. The branch and evidence are kept for review in
+`/Users/sunpar/.codex/worktrees/quarry-linux-docker/quarry`, on
+`codex/quarry-linux-docker` based on `492fa17`. Interactive acceptance used a
+temporary localhost port 18765 because an unrelated Mac service owns port 8765.
+The shipped default mapping remains 8765.
+
+| Task                            | Thread                                                                         | Status   |
+| ------------------------------- | ------------------------------------------------------------------------------ | -------- |
+| 1. Test image                   | Build Quarry Linux test image (01a13b8f-08de-7171-a4c1-94b46787fc62)           | Complete |
+| 2. Commands                     | Add Quarry Linux verification commands (01a13b90-62b8-7031-9edc-5a184a62e676)  | Complete |
+| 3. Interactive runtime          | Add Quarry Linux interactive runtime (01a13b90-6d23-7132-917c-3d08239d3df8)    | Complete |
+| 4. Documentation and acceptance | Document and verify Quarry Linux Docker (01a13b90-775b-74d2-979d-0ec2c73642f4) | Complete |
+
+The per-task briefs, reports, review packages, and progress ledger live under
+`.superpowers/sdd/2026-10-14-quarry-linux-docker/` in that checkout. The
+controller owns this page and the ledger. Provider inference remains opt-in.
+
+Claude Code and Codex subscription access previously merged in
 [PR #16](https://github.com/sunpar/quarry/pull/16) as `bc8dc2c` on 2026-10-14.
-The implementation followed the
-[accepted plan](superpowers/plans/2026-10-14-quarry-subscription-providers.md)
-with parallel adapter owners and the open-pr-and-babysit loop. Choose the next
-work from [open-items.md](open-items.md).
 
 ## Status by stage
 
@@ -124,37 +141,73 @@ files. Its documentation follow-up is
 
 ## Latest verification
 
-The final PR head `200998a` passed full local verification on macOS with 1,069
-Python tests (including all 10 browser tests), 235 frontend tests and 25
-gate/transport regressions. The Python suite took 59.40 seconds. Three tests
-skipped: the Linux memory cap and two opt-in live API providers. Lint,
-formatting, types, web build, offline wheel/sdist build and wheel asset checks
-passed. The staged smoke gate passed in 5.06 seconds.
+The implementation at `5392889` plus Task 4's documentation passed the unchanged
+full gates on Mac and native Linux ARM64. Each passed 1,069 Python tests
+(including browser tests), 235 frontend tests, and 25 gate/transport tests.
+Lint, formatting, types, web build, offline wheel/sdist packaging, and wheel
+assets passed. The direct app probe confirmed imports from
+`/opt/quarry-runtime`, Claude SDK 0.2.110, and Quarry absent from `.venv`.
 
-[Linux full CI](https://github.com/sunpar/quarry/actions/runs/38572143521)
-passed on that same head: 1,069 Python tests in 86.38 seconds, with the two live
-API providers and the filesystem case-folding test skipped. The squash merge has
-the same tree as the verified PR head.
+| Run                                       | Full command                                  | Total seconds | Python seconds |
+| ----------------------------------------- | --------------------------------------------- | ------------- | -------------- |
+| Mac final                                 | `make check`                                  | 74.45         | 54.24          |
+| Native Linux ARM64 final                  | `make linux-check`                            | 98.08         | 65.73          |
+| Native Linux resource measurement         | Check service running `make check`            | 86.81         | 61.70          |
+| Emulated Linux AMD64, Task 2 at `9ff7579` | `make linux-check LINUX_PLATFORM=linux/amd64` | 374.69        | 157.15         |
 
-Codex 0.162.1 completed a live Quarry Python execution and table render, and
-cancellation joined the process and reader. Claude Code 2.1.299 passed login and
-tool-isolation probes; its monthly quota prevented successful live inference.
-All five allowed live probes per provider were used. Offline replays cover
-malformed tool arguments, budgets, interruption, late callbacks, protocol
-cleanup and commentary separated from final answer text.
+All runs had three expected skips. Mac skipped the Linux memory-cap test and the
+two live API providers; Linux skipped filesystem case folding and the live API
+providers. The Linux memory-cap test ran and checks the configured 4096 MiB
+`RLIMIT_DATA`, not allocation exhaustion or total container memory. Emulated
+AMD64 passed the same test counts; its build overlapped fixture probes, and its
+timings and kernel behavior do not establish native x86 results. The app target
+was exercised only on native ARM64.
 
-Task reviews and simplify completed. Astra's native review found commentary
-mixed into Codex completion text; the fix passed 31 focused tests. Opus and Muse
-could not complete reviews because of subscription quota limits. The first
-GitHub Claude request failed without a substantive review. GitHub Codex returned
-clean on `200998a`, ending the bot loop after one explicit request to each
-provider. There are no unresolved findings or running review tasks.
+Docker Desktop 4.62.0, Engine 29.2.1, and Compose 5.0.2 used a Linux ARM64 VM
+with 14 CPUs and 8,216,498,176 bytes (about 7.65 GiB) of memory. The complete
+resource run recorded `/sys/fs/cgroup/memory.peak` of 4,806,164,480 bytes (about
+4.48 GiB), including the check container's processes and charged filesystem
+cache. This is a workload measurement, not a minimum VM memory requirement. The
+first sampler attached after its check finished; the bounded resource run
+retained both the peak counter and live samples.
+
+Native ARM64 interactive acceptance passed health/token checks, synthetic manual
+Python, query, pinned save, recall, notebook export with Linux paths, Mac
+browser display, private modes, recreation, token rotation, and shutdown. Live
+acceptance used port 18765; the default 8765 mapping was inspected because an
+unrelated Mac process retained that port. No owned containers or project network
+remain; the private `quarry-linux-arm64_home` volume retains synthetic
+development data. The unrelated host process and PostgreSQL container remained
+running.
+
+Source/lockfile rebuilds, stale dependency rejection, container failure
+propagation, shell use, and ordinary Make execution with an unavailable Docker
+client passed. Each implementation commit passed the staged smoke gate: 24 Node,
+154 Python, and 41 frontend tests. The timed Task 3 commit, including smoke,
+took 3.45 seconds.
+
+Existing frontend deprecations, esbuild install-script policy, and bundle-size
+notices remain. The pinned Claude package also emits an npm install-script
+policy warning; version/help probes and built UI acceptance pass. No unrelated
+dependency or policy change was made. Provider authentication/inference,
+external or licensed integrations, and hosted CI were not run in this work.
 
 ## Next actions
 
-1. Use the [native-login setup](../README.md#using-codex-or-claude-code-login)
-   on the Quarry host when selecting a subscription provider.
-2. Choose the next item from [open-items.md](open-items.md).
+1. Review the completed branch and choose its integration path.
+2. Use the existing full verification and PR gates if publishing it; retain the
+   native-x86 and live-integration limits until their own checks run.
+
+## Docker preflight
+
+Disposable Alpine probes confirmed Linux, case-sensitive container storage, and
+IPv4/IPv6 loopback with networking disabled. The pinned provider CLI packages
+exist in npm. Their version and login-help probes passed in the app image.
+
+Codex Advisor reviewed the approach before the plan was finalized. Its points
+about installing the app separately, runtime cache ownership, relay network
+access, and the memory test's scope are reflected in the implementation.
+Detailed task reports and logs are retained alongside the progress ledger.
 
 ## Resuming
 
