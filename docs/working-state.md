@@ -16,7 +16,10 @@ branch protections or rulesets to migrate. The rollout is open in
 [sunpar/quarry#15](https://github.com/sunpar/quarry/pull/15). Astra completed
 its local review without findings on `ecc1c65`; Opus and Muse were unavailable
 due to provider quotas. Their one-attempt budgets are recorded in the worktree
-ledger. Continue the authorized open-pr-and-babysit workflow.
+ledger. Both Claude bot requests failed before substantive review. Codex
+returned findings from the initial automatic review and its two requested
+reviews. The capped bot rotation is exhausted. The final two findings have
+reproducing regressions and local fixes; continue CI and merge monitoring.
 
 ## Status by stage
 
@@ -131,32 +134,37 @@ Local-first rollout, macOS and Python 3.11 on 2026-10-14: all 962 Python tests
 passed, with the same three skips (two live providers and the Linux memory cap).
 All 10 browser tests ran against a fresh build and all 235 frontend tests
 passed. Python lint/format/types, frontend checks and the offline wheel/sdist
-build passed; the wheel includes UI, runtime manifest, checker and assets.
+build passed; the wheel includes UI, runtime manifest, checker and assets. Full
+verification also passed with a conflicting `UV_PYTHON` in the process
+environment. A real setup probe replaced an existing Python 3.14 environment
+with the version file's Python 3.11 despite the inherited override.
 
 Branch coverage passed the same suite in 61.92 seconds; the full coverage
 command took 90.34 seconds including setup/build checks. It covered 3,904 of
 4,012 statements and 882 of 946 branches. These figures cover pytest processes,
 not all kernel subprocess execution. The initial staged smoke gate took 4.27
 seconds; the expanded regression suite took 8.78 seconds after review fixes. All
-24 gate/transport regressions passed, including snapshot imports in xdist and a
+25 gate/transport regressions passed, including snapshot imports in xdist and a
 real kernel. A real pre-commit rejected staged invalid Python despite an
 unstaged fix and preserved the index and HEAD. Workflow actionlint passed.
 
 Full checks install the snapshot wheel in a separate environment so the existing
 isolated Python export test still runs. Shared dependencies contain no editable
-Quarry install. Linux hosted validation and licensed Highcharts/SciChart browser
-coverage have not been exercised in this session.
+Quarry install. Linux manual full verification passed on `0a56038`, including
+the kernel memory cap. The final interpreter and nested-fork fixes still need
+Linux validation on their pushed commit. Licensed Highcharts/SciChart browser
+coverage has not been exercised in this session.
 
 ## Next actions
 
-1. Seven Codex findings are fixed: complete the code map, paginate exact-head PR
-   lookup, use explicit fork repository identity, reject equal base/head before
-   pushing, avoid fetched-ref tracking, persist the hook bootstrap in Git
-   metadata and force setup into the repository environment. Required
-   self-assignment remains after verified PR creation, with the URL printed
-   before metadata changes. Full local validation passed again.
-2. Push and validate the fixes, reply to the eight review threads, then continue
-   the remaining capped bot rotation and merge only when its conditions hold.
+1. Push the final fixes: let the version file select Python during setup and
+   offline checks, and include the fork network source in open-PR lookups.
+   Earlier findings are fixed and their eight threads are resolved. Required
+   self-assignment remains after verified PR creation.
+2. Reply to and resolve the final two threads, then run manual Linux full CI on
+   the exact pushed commit. Issue no more review requests. Merge only after all
+   findings are resolved, CI passes, the worktree is clean and the workflow
+   silence deadline expires.
 
 ## Resuming
 

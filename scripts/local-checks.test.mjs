@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -12,6 +19,54 @@ import {
 
 const source = import.meta.dirname + "/..";
 const python = join(source, ".venv/bin/python");
+
+test("dependency setup follows the version file despite an interpreter override", (t) => {
+  const target = mkdtempSync(join(tmpdir(), "quarry-interpreter-"));
+  t.after(() => rmSync(target, { recursive: true, force: true }));
+  for (const directory of ["scripts", "web", "bin"])
+    mkdirSync(join(target, directory));
+  cpSync(
+    join(source, "scripts/local-checks.mjs"),
+    join(target, "scripts/local-checks.mjs"),
+  );
+  writeFileSync(join(target, ".python-version"), "3.11\n");
+  writeFileSync(
+    join(target, "pyproject.toml"),
+    '[project]\nname = "interpreter-probe"\nversion = "0.0.0"\nrequires-python = ">=3.11"\n',
+  );
+  execFileSync("uv", ["lock", "--offline", "--python", python], {
+    cwd: target,
+    stdio: "pipe",
+  });
+  const npm = join(target, "bin/npm");
+  writeFileSync(npm, "#!/bin/sh\nprintf 'setup-probe-stop\\n'\nexit 79\n");
+  chmodSync(npm, 0o755);
+  const result = spawnSync(
+    process.execPath,
+    [join(target, "scripts/local-checks.mjs"), "deps"],
+    {
+      env: {
+        ...process.env,
+        PATH: `${join(target, "bin")}:${process.env.PATH}`,
+        UV_PYTHON: "quarry-nonexistent-interpreter",
+        UV_PROJECT_ENVIRONMENT: join(target, "external"),
+      },
+      encoding: "utf8",
+    },
+  );
+  assert.match(result.stdout, /setup-probe-stop/, result.stderr);
+  assert.equal(
+    execFileSync(
+      join(target, ".venv/bin/python"),
+      [
+        "-c",
+        "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
+      ],
+      { encoding: "utf8" },
+    ).trim(),
+    "3.11",
+  );
+});
 
 test("dependency inputs and runtime determine whether snapshots can reuse installed tools", (t) => {
   const target = mkdtempSync(join(tmpdir(), "quarry-deps-"));

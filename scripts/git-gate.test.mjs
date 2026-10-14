@@ -84,6 +84,8 @@ test("committed snapshot tests the requested non-HEAD ref and cleans up after fa
 test("push checks each distinct qualifying tip once, ignores deletions, and does not test private branches", async (t) => {
   const { root, git } = repository(t);
   const sha = git("rev-parse", "HEAD");
+  const mainSha = "1".repeat(40);
+  const privateSha = "2".repeat(40);
   const checked = [];
   const run = (command, args) => {
     assert.equal(command, "gh");
@@ -91,13 +93,23 @@ test("push checks each distinct qualifying tip once, ignores deletions, and does
       return JSON.stringify({
         nameWithOwner: "owner/repo",
         isFork: true,
-        parent: { owner: { login: "upstream" }, name: "repo" },
+        parent: { owner: { login: "middle" }, name: "repo" },
+      });
+    if (args[1] === "repos/owner/repo")
+      return JSON.stringify({
+        parent: { full_name: "middle/repo" },
+        source: { full_name: "upstream/repo" },
       });
     assert.ok(
-      ["repos/owner/repo/pulls", "repos/upstream/repo/pulls"].includes(args[1]),
+      [
+        "repos/owner/repo/pulls",
+        "repos/middle/repo/pulls",
+        "repos/upstream/repo/pulls",
+      ].includes(args[1]),
     );
     return JSON.stringify([
-      args.includes("head=owner:feature")
+      args[1] === "repos/upstream/repo/pulls" &&
+      (args.includes("head=owner:feature") || args.includes("head=owner:alias"))
         ? [
             {
               head: { repo: { full_name: "owner/repo" } },
@@ -107,7 +119,7 @@ test("push checks each distinct qualifying tip once, ignores deletions, and does
     ]);
   };
   const zero = "0".repeat(40);
-  const input = `refs/heads/feature ${sha} refs/heads/feature ${zero}\nrefs/heads/main ${sha} refs/heads/main ${zero}\nrefs/heads/private ${sha} refs/heads/private ${zero}\n(delete) ${zero} refs/heads/old ${sha}\n`;
+  const input = `refs/heads/feature ${sha} refs/heads/feature ${zero}\nrefs/heads/feature ${sha} refs/heads/alias ${zero}\nrefs/heads/main ${mainSha} refs/heads/main ${zero}\nrefs/heads/private ${privateSha} refs/heads/private ${zero}\n(delete) ${zero} refs/heads/old ${sha}\n`;
   await gatePush(
     root,
     "git@github.com:owner/repo.git",
@@ -115,7 +127,7 @@ test("push checks each distinct qualifying tip once, ignores deletions, and does
     run,
     async (ref) => checked.push(ref),
   );
-  assert.deepEqual(checked, [sha]);
+  assert.deepEqual(checked, [sha, mainSha]);
 });
 
 test("PR lookup and test failures abort pushes instead of being treated as no PR", async (t) => {
@@ -349,6 +361,11 @@ test("renamed push destinations use outgoing SHA and upstream fork PRs", async (
         parent: { owner: { login: "upstream" }, name: "repo" },
       });
     }
+    if (args[1] === "repos/owner/fork")
+      return JSON.stringify({
+        parent: { full_name: "upstream/repo" },
+        source: { full_name: "upstream/repo" },
+      });
     assert.ok(args.includes("head=owner:destination"));
     return JSON.stringify(
       args[1] === "repos/upstream/repo/pulls"
@@ -368,7 +385,7 @@ test("renamed push destinations use outgoing SHA and upstream fork PRs", async (
     async (ref) => checked.push(ref),
   );
   assert.deepEqual(checked, [sha]);
-  assert.equal(calls.filter(([, operation]) => operation === "api").length, 2);
+  assert.equal(calls.filter(([, operation]) => operation === "api").length, 3);
 });
 
 test("open PR beyond the first page still verifies the outgoing commit", async (t) => {

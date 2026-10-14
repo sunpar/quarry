@@ -110,23 +110,18 @@ export async function gatePush(
     );
   if (!updates.length) return;
   const destination = JSON.parse(
-    run("gh", [
-      "repo",
-      "view",
-      remote,
-      "--json",
-      "nameWithOwner,isFork,parent",
-    ]),
+    run("gh", ["repo", "view", remote, "--json", "nameWithOwner,isFork"]),
   );
+  const repositories = [destination.nameWithOwner];
+  if (destination.isFork) {
+    const { parent, source } = JSON.parse(
+      run("gh", ["api", `repos/${destination.nameWithOwner}`]),
+    );
+    repositories.push(...new Set([parent.full_name, source.full_name]));
+  }
   const tips = new Set();
   for (const [, sha, ref] of updates) {
     const branch = ref.slice("refs/heads/".length);
-    const repositories = [
-      destination.nameWithOwner,
-      ...(destination.isFork
-        ? [`${destination.parent.owner.login}/${destination.parent.name}`]
-        : []),
-    ];
     const prs = repositories.flatMap((repository) =>
       JSON.parse(
         run("gh", [

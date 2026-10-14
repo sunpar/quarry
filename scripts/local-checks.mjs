@@ -76,7 +76,7 @@ export function offlineEnvironment(root) {
   for (const key of Object.keys(env)) {
     if (
       key.startsWith("GIT_") ||
-      /^(QUARRY_.*(API_KEY|MSSQL_DSN|LIVE_PROVIDERS)|ANTHROPIC_API_KEY|OPENAI_API_KEY)$/.test(
+      /^(UV_PYTHON|QUARRY_.*(API_KEY|MSSQL_DSN|LIVE_PROVIDERS)|ANTHROPIC_API_KEY|OPENAI_API_KEY)$/.test(
         key,
       )
     )
@@ -102,6 +102,7 @@ export function runChecks(root, suite, paths = []) {
     const env = { ...process.env };
     env.UV_PROJECT_ENVIRONMENT = join(root, ".venv");
     env.VIRTUAL_ENV = env.UV_PROJECT_ENVIRONMENT;
+    delete env.UV_PYTHON;
     delete env.UV_OFFLINE;
     delete env.UV_PYTHON_DOWNLOADS;
     run(
