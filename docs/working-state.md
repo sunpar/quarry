@@ -8,14 +8,16 @@ still be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Take [Docker PR #24](https://github.com/sunpar/quarry/pull/24) through reviews,
-full checks, and merge. Its branch is rebased onto `6a12919`; the documentation
-conflicts retained main's improvement-work checkpoint and Docker evidence. The
-committed-snapshot Mac gate passed at `7bd6dc6`: 1,069 Python tests, 235
-frontend tests, and 25 gate/transport tests. Astra found no actionable issues;
-local Opus and Muse were unavailable because of subscription limits. The first
-GitHub Claude request and manual full Linux CI are running. The workflow ledger
-is in this worktree's Git directory as `open-pr-and-babysit.json`.
+Fix the save/recall browser test's session-selection race. The test now waits
+for the old completion message to disappear after New session, so Recall uses
+the newly rendered session. A prior controlled delayed-response reproduction
+confirmed the cause and this synchronization. No tests are run for this change,
+including hook suites and hosted CI, at the user's explicit request. The PR
+workflow ledger records review and merge status in this worktree's Git
+directory.
+
+[Docker PR #24](https://github.com/sunpar/quarry/pull/24) merged as `3d9ab20`.
+Codex returned no findings and hosted Linux CI passed on its head `6f5feea`.
 
 The coordination documentation merged in PR #23. The five feature PRs below
 remain separate integration work. The bounded feature work and the workflow,

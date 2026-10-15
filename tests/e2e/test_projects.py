@@ -24,6 +24,7 @@ def test_save_recall_and_canvas(serve: Serve, page: Page) -> None:
     expect(page.get_by_text("Saved view closes")).to_be_visible(timeout=60_000)
 
     page.get_by_role("button", name="New session").click()
+    expect(page.get_by_text("Here is df", exact=True)).not_to_be_visible()
     page.get_by_role("button", name="Momentum", exact=True).click()
     page.get_by_role("button", name="Recall df", exact=True).click()
     expect(page.get_by_text("Recall df from Momentum")).to_be_visible(timeout=30_000)
