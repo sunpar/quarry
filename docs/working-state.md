@@ -1,6 +1,6 @@
 # Working state
 
-Checkpoint as of 2026-10-14 23:01 UTC. This page holds temporary context: what
+Checkpoint as of 2026-10-15 00:50 UTC. This page holds temporary context: what
 is in flight, the latest check results and the next actions. Rewrite it at the
 end of each session and when a pull request opens or merges. Anything that will
 still be true next month belongs in [context/](context/) or
@@ -8,10 +8,19 @@ still be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Finish the coordination PR's GitHub review and leave all six PRs open for
-integration. The bounded feature work and the workflow, branching and
-remaining-work assessments are complete. The researcher delegated routine design
-choices for that batch.
+Take [Docker PR #24](https://github.com/sunpar/quarry/pull/24) through reviews,
+full checks, and merge. Its branch is rebased onto `6a12919`; the documentation
+conflicts retained main's improvement-work checkpoint and Docker evidence. The
+committed-snapshot Mac gate passed at `7bd6dc6`: 1,069 Python tests, 235
+frontend tests, and 25 gate/transport tests. Astra found no actionable issues;
+local Opus and Muse were unavailable because of subscription limits. The first
+GitHub Claude request and manual full Linux CI are running. The workflow ledger
+is in this worktree's Git directory as `open-pr-and-babysit.json`.
+
+The coordination documentation merged in PR #23. The five feature PRs below
+remain separate integration work. The bounded feature work and the workflow,
+branching and remaining-work assessments are complete. The researcher delegated
+routine design choices for that batch.
 
 | Work                  | Open PR / code checkpoint                                     | Contract                                                                              | Verification                                                         | Review                                                                                                                                                |
 | --------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -318,14 +327,14 @@ external or licensed integrations, and hosted CI were not run in this work.
 
 ## Next actions
 
-1. Finish the documentation PR review workflow and keep all implementation and
-   coordination PRs open.
+1. Finish Docker PR #24 reviews and exact-head checks, then merge it when
+   eligible.
 2. Use the validated remaining-work inventory to select follow-up work; keep its
    source identities when implementation or priorities change.
 3. Keep parameter contracts, metric definitions and session branching as
    explicit follow-up decisions where the assessments find missing semantics.
-4. Integrate the completed Docker branch separately; retain its native-x86 and
-   live-integration limits until those checks run.
+4. Retain Docker's native-x86 and live-integration limits until their own checks
+   run.
 
 ## Docker preflight
 

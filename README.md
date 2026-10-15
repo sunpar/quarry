@@ -49,6 +49,163 @@ boundary. Tests use fake providers and synthetic local data. Licensed
 Highcharts/SciChart browser coverage and live providers remain outside the local
 gate.
 
+## Test Linux from macOS with Docker
+
+Start Docker Desktop with its Compose plugin, then run the Linux gate from the
+repository root:
+
+```bash
+make linux-check
+```
+
+The command builds a Linux image from the current working tree and runs the
+existing `make check` with networking disabled. It includes real kernel
+subprocesses, Chromium browser tests, and the Linux memory-cap test. The image
+keeps its own locked dependencies and caches; it never mounts your Mac checkout,
+virtual environment, Quarry data, or provider credentials. Dependency downloads
+happen during the image build.
+
+`make linux-build` builds the check image without running tests.
+`make linux-shell` rebuilds it and opens Bash for focused checks. Source and
+lockfile changes require a rebuild, which these Make commands perform before
+running. The images use the built browser UI. They do not run Vite or mount your
+working tree for live editing.
+
+The default platform follows the Docker server. On Apple Silicon, use this
+explicit override to check x86 compatibility:
+
+```bash
+make linux-check LINUX_PLATFORM=linux/amd64
+```
+
+Each platform gets its own image tags and Compose project. AMD64 runs through
+emulation on an ARM Docker host; its results do not establish native x86 timing
+or kernel resource behavior. The memory-cap test reads the configured Linux
+data-segment limit, not allocation exhaustion or total container memory. The
+[working state](docs/working-state.md) records measured virtual machine
+resources, memory usage, timings, and current platform coverage. Those
+measurements apply to the verification workload, not a minimum memory
+requirement.
+
+Docker checks test the copied working tree. Continue using the staged and
+committed Git gates for their exact snapshots. Hosted checks remain manual. Live
+providers, external SQL Server, firm loaders, and licensed chart libraries need
+separate opt-in checks.
+
+### Use the Linux app in your Mac browser
+
+Start the installed app and its relay in the foreground:
+
+```bash
+make linux-serve
+```
+
+Open the printed `http://127.0.0.1:8765/` link, including its token fragment.
+The banner's SSH tunnel instruction is unnecessary for Docker. Quarry keeps its
+loopback listener; the relay publishes only on your Mac's localhost. Containers
+attached to this project's dedicated bridge can also reach the relay and still
+need the token. If port 8765 is occupied, use the
+[temporary port override](#use-another-localhost-port).
+
+The named home volume keeps Linux sessions, projects, configuration, and native
+provider logins across container recreation. Its Quarry root is
+`/home/quarry/.quarry`. This state is separate from your Mac's `~/.quarry`.
+Manual Python steps through `/sessions/{session_id}/steps/manual` need no
+provider. Prompts that create views require one; the routine browser tests use
+fake providers instead.
+
+For direct Compose commands below, select the same platform as `linux-serve`.
+These variables select the Docker server's platform; for an override, set
+`LINUX_PLATFORM` to that value before deriving `LINUX_PLATFORM_TAG`:
+
+```bash
+export LINUX_PLATFORM="$(docker version \
+  --format '{{.Server.Os}}/{{.Server.Arch}}')"
+export LINUX_PLATFORM_TAG="${LINUX_PLATFORM//\//-}"
+```
+
+The app image already includes the supported Codex and Claude Code CLIs and the
+Claude SDK. Sign in inside the container as its `quarry` user, following the
+CLI's instructions:
+
+```bash
+docker compose --project-name "quarry-${LINUX_PLATFORM_TAG}" \
+  exec quarry codex login --device-auth
+```
+
+For Claude Code, use:
+
+```bash
+docker compose --project-name "quarry-${LINUX_PLATFORM_TAG}" \
+  exec quarry claude auth login
+```
+
+Edit `/home/quarry/.quarry/config.toml` inside the container using the
+[native-login settings](#using-codex-or-claude-code-login), then restart the
+app. For API providers, place the key file in that private Linux home and
+configure `api_key_file`. Compose does not forward your Mac's provider
+environment variables. Login, account access, quota, and inference remain
+outside the offline gate.
+
+### Stop or reset the Linux app
+
+Stop the project from another terminal while retaining its home volume:
+
+```bash
+make linux-down
+```
+
+To erase this platform's Linux sessions, projects, configuration, and provider
+logins, explicitly remove its volumes using the Compose environment above:
+
+```bash
+docker compose --project-name "quarry-${LINUX_PLATFORM_TAG}" down --volumes
+```
+
+### Copy a Linux coverage report to your Mac
+
+Build the selected check image, run the existing coverage gate in a named
+container, and keep that container until you copy its report. Use the Compose
+environment above and check the gate's exit status before using the report:
+
+```bash
+make linux-build
+docker compose --project-name "quarry-${LINUX_PLATFORM_TAG}" \
+  run --name "quarry-coverage-${LINUX_PLATFORM_TAG}" --no-deps -T \
+  check make coverage
+docker cp "quarry-coverage-${LINUX_PLATFORM_TAG}:/workspace/coverage.xml" \
+  coverage.xml
+docker rm "quarry-coverage-${LINUX_PLATFORM_TAG}"
+```
+
+The copy writes the repository's ignored `coverage.xml` on your Mac. No report
+mount changes the check container's filesystem.
+
+### Use another localhost port
+
+If another service owns 8765, leave that service running and create a temporary
+Compose override outside the build inputs, such as `/tmp/quarry-port.yaml`:
+
+```yaml
+services:
+  quarry:
+    ports: !override
+      - "127.0.0.1:18765:8766"
+```
+
+The `!override` tag replaces the default publish rather than adding a second
+one. With the Compose environment above, build and start the same app through
+that override:
+
+```bash
+docker compose --project-name "quarry-${LINUX_PLATFORM_TAG}" \
+  -f compose.yaml -f /tmp/quarry-port.yaml up --build quarry relay
+```
+
+Open the token-bearing link with host port 18765 in place of 8765; the banner
+still describes Quarry's internal port. `make linux-down` stops the same project
+and retains its home volume. The shipped default remains port 8765.
+
 ## Using the core from a REPL (Stage 1)
 
 The snippet assumes `config.toml` under the root (`~/.quarry` here) sets
