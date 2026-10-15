@@ -8,13 +8,13 @@ still be true next month belongs in [context/](context/) or
 
 ## Current objective
 
-Fix the save/recall browser test's session-selection race. The test now waits
-for the old completion message to disappear after New session, so Recall uses
-the newly rendered session. A prior controlled delayed-response reproduction
-confirmed the cause and this synchronization. No tests are run for this change,
-including hook suites and hosted CI, at the user's explicit request. The PR
-workflow ledger records review and merge status in this worktree's Git
-directory.
+[PR #25](https://github.com/sunpar/quarry/pull/25) corrects the save/recall
+browser test's session-selection race. The test now waits for the old completion
+message to disappear after New session, so Recall uses the newly rendered
+session. A prior controlled delayed-response reproduction confirmed the cause
+and this synchronization. No tests are run for this change, including hook
+suites and hosted CI, at the user's explicit request. The PR workflow ledger
+records review and merge status in this worktree's Git directory.
 
 [Docker PR #24](https://github.com/sunpar/quarry/pull/24) merged as `3d9ab20`.
 Codex returned no findings and hosted Linux CI passed on its head `6f5feea`.
@@ -139,8 +139,8 @@ temporary localhost port 18765 because an unrelated Mac service owns port 8765.
 The shipped default mapping remains 8765.
 
 The plan and this checkpoint are published separately in
-[PR #17](https://github.com/sunpar/quarry/pull/17). The Docker tooling remains
-ready for its own integration pull request.
+[PR #17](https://github.com/sunpar/quarry/pull/17). The Docker tooling merged in
+[PR #24](https://github.com/sunpar/quarry/pull/24).
 
 | Task                            | Thread                                                                         | Status   |
 | ------------------------------- | ------------------------------------------------------------------------------ | -------- |
@@ -329,13 +329,11 @@ external or licensed integrations, and hosted CI were not run in this work.
 
 ## Next actions
 
-1. Finish Docker PR #24 reviews and exact-head checks, then merge it when
-   eligible.
-2. Use the validated remaining-work inventory to select follow-up work; keep its
+1. Use the validated remaining-work inventory to select follow-up work; keep its
    source identities when implementation or priorities change.
-3. Keep parameter contracts, metric definitions and session branching as
+2. Keep parameter contracts, metric definitions and session branching as
    explicit follow-up decisions where the assessments find missing semantics.
-4. Retain Docker's native-x86 and live-integration limits until their own checks
+3. Retain Docker's native-x86 and live-integration limits until their own checks
    run.
 
 ## Docker preflight
