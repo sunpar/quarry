@@ -1398,6 +1398,23 @@ them.
   native networking and non-HTTP browser transports outside that boundary.
 - **Local Python matches CI**: `.python-version` pins 3.11. The local venv had
   resolved 3.14, so failures specific to 3.11 surfaced only in CI.
+- **Docker checks copy the working tree**: `check` uses the existing local gate
+  on Linux storage with no network or mounts. Locked setup runs during the
+  build; uv and Chromium caches stay in the image for unprivileged offline
+  checks. This keeps Mac filesystem semantics and dependencies out of Linux
+  results. Cost: source edits rebuild the image, and baked caches increase its
+  size. Git snapshot gates remain separate.
+- **The Docker app installs a wheel separately**: `app` uses
+  `/opt/quarry-runtime` with locked runtime dependencies, the Claude SDK, and
+  pinned native CLIs. `.venv` keeps Quarry absent, as its snapshot fingerprint
+  requires. Cost: two Python environments in a development image; the app has no
+  editable checkout install.
+- **Docker reaches the loopback app through a relay**: socat shares the app's
+  network namespace and publishes through host localhost on a dedicated bridge.
+  Quarry keeps its token and `127.0.0.1` binding. A private named home persists
+  Linux state and provider logins. Cost: bridge peers can reach the relay, port
+  8765 must be available or replaced through a temporary Compose override, and
+  removing the home volume erases both state and logins.
 - **Python tests use two isolated workers**: `pytest` defaults to
   `-n 2 --dist=loadfile`, keeping each file in one process. Real kernel
   subprocesses remain, and browser fixtures reserve their socket and join their

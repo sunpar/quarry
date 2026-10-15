@@ -193,6 +193,18 @@ manual hosted jobs call them.
 | `scripts/no-network.cjs`               | Restrict Node test TCP connections to loopback and Unix sockets                                                                                | §14 Tests | `scripts/local-checks.test.mjs`                                     |
 | `scripts/test_python/sitecustomize.py` | Restrict Python test TCP connections to loopback and Unix sockets, including isolated exports                                                  | §14 Tests | `scripts/local-checks.test.mjs`, kernel tests                       |
 
+## Linux Docker
+
+Docker copies repository inputs into Linux images for verification and
+interactive use. Container acceptance evidence is in the
+[working state](../working-state.md).
+
+| File            | Responsibility                                                                                                                                                               | Spec                    |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `Dockerfile`    | Build pinned Linux tools and offline caches in `check`; extend it with an installed wheel, separate runtime environment, and native provider CLIs in `app`; run as `quarry`. | §14 Tests, §12 Security |
+| `.dockerignore` | Allowlist build inputs and exclude host environments, caches, generated assets, data, and credentials.                                                                       | §14 Tests, §12 Security |
+| `compose.yaml`  | Run isolated offline checks; start the app with a named private home, dedicated bridge, and relay sharing its network namespace; publish only on host loopback.              | §14 Tests, §12 Security |
+
 ## Commands
 
 The gate commands are in the [README](../../README.md#development),
@@ -201,4 +213,7 @@ shows `quarry serve` and its routes, and
 [using the browser UI](../../README.md#using-the-browser-ui-stage-3) covers the
 web build and dev loop. `.verify.toml` delegates to `make check`. The Makefile
 exposes dependency setup, hook installation, staged smoke, full checks, branch
-coverage, committed checks and verified PR creation.
+coverage, committed checks and verified PR creation. The
+[Linux Docker commands](../../README.md#test-linux-from-macos-with-docker)
+build, check, and open the selected Linux image or start and stop its installed
+app.
