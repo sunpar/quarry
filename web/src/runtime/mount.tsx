@@ -48,6 +48,7 @@ export function createRuntime(
   };
 
   const mount = async (message: Extract<HostToRuntime, { type: "mount" }>) => {
+    mounted?.bridge.dispose();
     const bridge = new RuntimeBridge(message.viewId, post, () =>
       store.queriesChanged(),
     );
@@ -81,10 +82,12 @@ export function createRuntime(
     }
   };
 
-  post({ type: "ready" });
-
   return {
     handle(message) {
+      if (message.type === "connect") {
+        post({ type: "ready", id: message.id });
+        return;
+      }
       if (message.type === "mount") {
         void mount(message);
         return;

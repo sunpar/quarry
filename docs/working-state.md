@@ -99,6 +99,22 @@ passing replay/recall tests and a synthetic prefix replay; the
 [copying question](open-items.md#open-questions) records the unresolved replay
 and input contract.
 
+### Additional feature review evidence
+
+Whole-series had six native Astra findings, fixed before `81738ea`. At that
+head, a bounded 1,000,001-row probe produced identical 48,037-row results on
+both backings, preserving all 60 gap markers within the private 256 MiB
+allowance.
+
+On `933f52b`, the unchanged save-and-recall browser test failed during a Linux
+session transition; one isolated run and five traced repetitions passed. The
+ledger retains the failed run.
+
+Frozen-report review covered private temporary-file cleanup, lookup error
+ownership, the 5 MiB escaped-output limit and bounded HTML/JSON encoding.
+Missing directory or metadata for a referenced dataset now fails export; the
+regression retains a valid sibling.
+
 ### Docker integration
 
 The [Docker plan](superpowers/plans/2026-10-14-quarry-linux-docker.md) is

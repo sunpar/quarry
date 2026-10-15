@@ -70,7 +70,7 @@ describe("data-table-tanstack built-in", () => {
     }
   });
 
-  it("drops a saved sort on a column the live schema lacks", () => {
+  it("keeps a missing saved sort visible so it can be cleared", () => {
     query.mockReturnValue({ status: "loading" });
     saved.sort = { col: "gone", desc: true };
     schema.current = [{ name: "a", dtype: "Int64" }];
@@ -80,7 +80,14 @@ describe("data-table-tanstack built-in", () => {
       delete saved.sort;
       schema.current = null;
     }
-    expect(query).toHaveBeenLastCalledWith({ dataset: "df", limit: 500 });
+    expect(query).toHaveBeenLastCalledWith({
+      dataset: "df",
+      limit: 500,
+      sort: [{ col: "gone", desc: true }],
+    });
+    expect(
+      screen.getByRole("button", { name: "Clear sort (gone)" }),
+    ).toBeTruthy();
   });
 
   it("shows the notice when a full page comes back", () => {

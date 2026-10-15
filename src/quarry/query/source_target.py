@@ -33,7 +33,7 @@ from zoneinfo import ZoneInfo
 
 import polars as pl
 
-from quarry.query.columns import check_columns
+from quarry.query.columns import check_columns, check_line_axes
 from quarry.query.polars_target import (
     CoercedLiteral,
     CompareOp,
@@ -51,7 +51,14 @@ from quarry.query.spec import (
     QueryError,
     QuerySpec,
 )
-from quarry.query.sql_target import quote_ident, relation_view, split_for_relation, to_sql
+from quarry.query.sql_target import (
+    LINE_CONNECTION_CONFIG,
+    line_sql,
+    quote_ident,
+    relation_view,
+    split_for_relation,
+    to_sql,
+)
 
 DATE_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATETIME_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
@@ -88,12 +95,15 @@ def to_source(
     `relation_projection`, for a DuckDB relation, is the DuckDB select list the kernel reads
     the relation through (`importable_projection`): it renames repeated columns and casts
     INTERVAL and UNION columns to VARCHAR so `.pl()` can import them. Every failure caused by
-    the spec is a QueryError.
+    the spec is a QueryError. Polars line reduction restores its runtime axis dtypes after
+    lossless DuckDB transport; a supplied schema also validates the axes before rendering.
     """
-    _require_identifier(spec.dataset, "dataset", spec)
-    _require_identifier(result_name, "result_name", spec)
+    require_identifier(spec.dataset, "dataset", spec)
+    require_identifier(result_name, "result_name", spec)
     if schema is not None:
         check_columns(spec, set(schema))
+        if spec.line_reduce is not None:
+            check_line_axes(spec.line_reduce, schema, dataset=spec.dataset)
     try:
         return _render(spec, backing, result_name, schema, relation_projection)
     except (ValueError, TypeError) as exc:
@@ -109,13 +119,84 @@ def _render(
     relation_projection: str | None,
 ) -> str:
     if backing != "duckdb":
-        chain = _chain_source(
-            spec,
-            result_name=result_name,
-            schema=schema,
-            head=f"{spec.dataset}.lazy()",
-            head_is_lazy=True,
-        )
+        if spec.line_reduce is not None:
+            time, value = spec.line_reduce.time, spec.line_reduce.value
+            axes = [time, value]
+            sql = py_literal(
+                line_sql(
+                    spec,
+                    'SELECT * FROM "typed_points"',
+                    time_ticks=quote_ident(time),
+                    output_value="CAST(v AS VARCHAR)",
+                )
+            )
+            time_name, value_name = py_literal(time), py_literal(value)
+            time_col, value_col = f"pl.col({time_name})", f"pl.col({value_name})"
+            source = "\n".join(
+                [
+                    "_frame.lazy()",
+                    *_filter_steps(spec, schema),
+                    f".select({py_literal(axes)})",
+                    ".collect()",
+                ]
+            )
+            body = (
+                "_schema = _frame.lazy().collect_schema()\n"
+                f"if not (_schema[{time_name}] == pl.Date "
+                f"or isinstance(_schema[{time_name}], pl.Datetime)):\n"
+                '    raise ValueError("line_reduce time must be Date or Datetime")\n'
+                f"if not _schema[{value_name}].is_numeric():\n"
+                '    raise ValueError("line_reduce value must be numeric")\n'
+                "_integer_type = {pl.Int128(): 'HUGEINT', pl.UInt128(): 'UHUGEINT'}"
+                f".get(_schema[{value_name}])\n"
+                f"_points = (\n{_indent(source)}\n).with_columns(\n"
+                f"    {time_col}.cast(pl.Int64),\n"
+                f"    {value_col}.cast(pl.String) if _integer_type else {value_col},\n"
+                ")\n"
+                f"with duckdb.connect(config={LINE_CONNECTION_CONFIG!r}) as _connection:\n"
+                '    _connection.register("points", _points)\n'
+                f"    _value = {py_literal(quote_ident(value))}\n"
+                "    if _integer_type:\n"
+                "        _value = 'CAST(' + _value + ' AS ' + _integer_type + ') AS ' + _value\n"
+                '    _connection.table("points").project('
+                f"{py_literal(quote_ident(time) + ', ')} + _value"
+                ').create_view("typed_points")\n'
+                f"    return _connection.sql({sql}).pl().with_columns(\n"
+                f"        {time_col}.cast(_schema[{time_name}]),\n"
+                f"        {value_col}.cast(_schema[{value_name}]),\n"
+                "    )"
+            )
+            function = f"def _reduce():\n{_indent(body)}"
+            quoted = "\n".join(
+                "            " + py_literal(line + "\n") for line in function.splitlines()
+            )
+            scope = ", ".join(
+                [
+                    '"__builtins__": builtins.__dict__',
+                    f'"_frame": {spec.dataset}',
+                    '"pl": pl',
+                    *(f"{py_literal(n)}: {n}" for n in _imported_names(spec, schema)),
+                ]
+            )
+            chain = (
+                f"{result_name} = (\n"
+                "    lambda _scope: (\n"
+                "        builtins.exec(\n"
+                f"{quoted},\n"
+                "            _scope,\n"
+                "        ),\n"
+                '        _scope["_reduce"](),\n'
+                "    )[1]\n"
+                f")({{{scope}}})"
+            )
+        else:
+            chain = _chain_source(
+                spec,
+                result_name=result_name,
+                schema=schema,
+                head=f"{spec.dataset}.lazy()",
+                head_is_lazy=True,
+            )
         imported = _imported_names(spec, schema)
         if spec.dataset in imported:
             raise QueryError(
@@ -360,14 +441,20 @@ def _imported_names(spec: QuerySpec, schema: Schema | None) -> list[str]:
         for f in spec.filters
         if f.op not in TEXT_OPS | NULL_OPS
     ]
-    return sorted({name for value in literals for name in _temporal_names(value)})
+    return sorted(
+        {name for value in literals for name in _temporal_names(value)}
+        | ({"builtins", "duckdb"} if spec.line_reduce else set())
+    )
 
 
 def _import_lines(names: list[str]) -> str:
+    modules = [n for n in names if n in {"builtins", "duckdb"}]
+    temporal = [n for n in names if n not in modules]
     lines = [
-        f"from {module} import {', '.join(n for n in names if IMPORTED_FROM[n] == module)}\n"
-        for module in sorted({IMPORTED_FROM[n] for n in names})
+        f"from {module} import {', '.join(n for n in temporal if IMPORTED_FROM[n] == module)}\n"
+        for module in sorted({IMPORTED_FROM[n] for n in temporal})
     ]
+    lines.extend(f"import {module}\n" for module in modules)
     return "".join(lines) + "\n" if lines else ""
 
 
@@ -404,7 +491,8 @@ def _escape_unprintable(ch: str) -> str:
     return f"\\u{code:04x}" if code <= 0xFFFF else f"\\U{code:08x}"
 
 
-def _require_identifier(name: str, role: str, spec: QuerySpec) -> None:
+def require_identifier(name: str, role: str, spec: QuerySpec) -> None:
+    """Require an ASCII Python identifier for a name inserted into generated source."""
     # Both names are pasted into code that will run, so nothing else may get through.
     # Python NFKC-folds identifiers at parse time, so a name that is not ASCII could run as a
     # different name than the one checked here.

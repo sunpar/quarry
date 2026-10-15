@@ -222,7 +222,7 @@ def create_app(
     async def kernel_dead(_request: Request, exc: KernelDead) -> JSONResponse:
         return JSONResponse(status_code=503, content={"detail": f"kernel is not running: {exc}"})
 
-    register_project_routes(api, projects)
+    register_project_routes(api, projects, row_cap=config.data.row_cap)
     register_component_routes(
         api,
         library=library,

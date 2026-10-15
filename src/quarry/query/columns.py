@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
-from quarry.query.spec import QueryError, QuerySpec
+import polars as pl
+
+from quarry.query.spec import LineReduction, QueryError, QuerySpec
 
 
 def check_columns(spec: QuerySpec, available: set[str]) -> None:
@@ -29,6 +31,8 @@ def check_output_columns(spec: QuerySpec, available: set[str]) -> None:
 
 def _input_columns(spec: QuerySpec) -> list[str]:
     names = [f.col for f in spec.filters]
+    if spec.line_reduce is not None:
+        names += [spec.line_reduce.time, spec.line_reduce.value]
     if spec.group_by is not None:
         names += [*spec.group_by, *(a.col for a in spec.aggs)]
     if spec.pivot is not None:
@@ -41,3 +45,14 @@ def _require_columns(spec: QuerySpec, names: Iterable[str], available: set[str])
         if name not in available:
             message = f"Column {name!r} does not exist in dataset {spec.dataset!r}"
             raise QueryError(message, dataset=spec.dataset, column=name)
+
+
+def check_line_axes(
+    reduction: LineReduction, schema: Mapping[str, pl.DataType], *, dataset: str
+) -> None:
+    """Live and exported reductions accept the same axis dtypes."""
+    time, value = reduction.time, reduction.value
+    if not (schema[time] == pl.Date or isinstance(schema[time], pl.Datetime)):
+        raise QueryError("line_reduce time must be Date or Datetime", dataset=dataset, column=time)
+    if not schema[value].is_numeric():
+        raise QueryError("line_reduce value must be numeric", dataset=dataset, column=value)

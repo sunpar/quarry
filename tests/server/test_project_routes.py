@@ -87,3 +87,37 @@ def test_a_non_ascii_dataset_name_downloads_under_both_filename_forms(tmp_path: 
     assert script.headers["content-disposition"] == (
         "attachment; filename=\"__.py\"; filename*=UTF-8''%E6%95%B0%E6%8D%AE.py"
     )
+
+
+def test_html_report_download_requires_auth_and_uses_saved_artifacts(tmp_path: Path) -> None:
+    project_with_saved_items(tmp_path)
+    client = make_client(tmp_path, [])
+    assert (
+        client.get("/projects/momentum/export.html", headers={"Authorization": ""}).status_code
+        == 401
+    )
+    report = client.get("/projects/momentum/export.html")
+    assert report.status_code == 200
+    assert report.headers["content-type"].startswith("text/html")
+    assert report.headers["content-disposition"] == (
+        "attachment; filename=\"momentum.html\"; filename*=UTF-8''momentum.html"
+    )
+    assert "Live results unavailable" in report.text
+    assert "View results unavailable" in report.text
+    assert client.get("/projects/nope/export.html").status_code == 404
+
+
+def test_html_report_artifact_failure_is_an_explicit_error(tmp_path: Path) -> None:
+    project_with_saved_items(tmp_path)
+    (tmp_path / "projects/momentum/views/table/state.json").write_text("corrupt")
+    report = make_client(tmp_path, []).get("/projects/momentum/export.html")
+    assert report.status_code == 400
+    assert "saved artifact" in report.json()["detail"]
+
+
+def test_html_report_rejects_a_missing_view_dependency(tmp_path: Path) -> None:
+    project_with_saved_items(tmp_path)
+    (tmp_path / "projects/momentum/datasets/prices/meta.json").unlink()
+    report = make_client(tmp_path, []).get("/projects/momentum/export.html")
+    assert report.status_code == 400
+    assert "prices" in report.json()["detail"] and "table" in report.json()["detail"]

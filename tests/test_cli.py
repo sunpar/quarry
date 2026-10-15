@@ -10,6 +10,7 @@ import uvicorn
 
 from quarry.cli import banner, free_port, main, new_token
 from tests.fixtures import umask
+from tests.projects.test_export import project_with_saved_items
 
 
 def test_banner_contains_tunnel_and_url() -> None:
@@ -95,8 +96,6 @@ def test_serve_leaves_an_existing_root_mode_alone(tmp_path: Path) -> None:
 
 
 def test_projects_list_and_export(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    from tests.projects.test_export import project_with_saved_items
-
     project_with_saved_items(tmp_path)
     assert main(["projects", "list", "--root", str(tmp_path)]) == 0
     out = capsys.readouterr().out
@@ -108,3 +107,117 @@ def test_projects_list_and_export(tmp_path: Path, capsys: pytest.CaptureFixture[
     assert json.loads(target.read_text())["nbformat"] == 4
     assert main(["projects", "export", "nope", "--root", str(tmp_path)]) == 1
     assert "no such project" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("format_name, extension", [("notebook", "ipynb"), ("html", "html")])
+def test_exports_replace_existing_outputs_privately(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, format_name: str, extension: str
+) -> None:
+    project_with_saved_items(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / f"momentum.{extension}"
+    target.write_text("old output")
+    target.chmod(0o644)
+    with umask(0o022):
+        assert (
+            main(
+                ["projects", "export", "momentum", "--root", str(tmp_path), "--format", format_name]
+            )
+            == 0
+        )
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    assert target.read_text() != "old output"
+    if format_name == "html":
+        assert "Live results unavailable" in target.read_text()
+
+
+def test_html_export_failure_leaves_output_untouched(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project_with_saved_items(tmp_path)
+    (tmp_path / "projects/momentum/views/table/state.json").write_text("corrupt")
+    target = tmp_path / "report.html"
+    target.write_text("previous report")
+    assert (
+        main(
+            [
+                "projects",
+                "export",
+                "momentum",
+                "--root",
+                str(tmp_path),
+                "--format",
+                "html",
+                "--out",
+                str(target),
+            ]
+        )
+        == 1
+    )
+    assert target.read_text() == "previous report"
+    assert "saved artifact" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("format_name, extension", [("notebook", "ipynb"), ("html", "html")])
+@pytest.mark.parametrize("symlink", [False, True])
+def test_exports_do_not_reuse_preexisting_temporary_files(
+    tmp_path: Path, format_name: str, extension: str, symlink: bool
+) -> None:
+    project_with_saved_items(tmp_path)
+    target = tmp_path / f"report.{extension}"
+    previous_temp = tmp_path / f".report.{extension}.tmp"
+    victim = tmp_path / "unrelated.txt"
+    victim.write_text("leave this alone")
+    if symlink:
+        previous_temp.symlink_to(victim)
+    else:
+        previous_temp.write_text("old temporary file")
+        previous_temp.chmod(0o644)
+    assert (
+        main(
+            [
+                "projects",
+                "export",
+                "momentum",
+                "--root",
+                str(tmp_path),
+                "--format",
+                format_name,
+                "--out",
+                str(target),
+            ]
+        )
+        == 0
+    )
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    assert victim.read_text() == "leave this alone"
+    assert previous_temp.read_text() == ("leave this alone" if symlink else "old temporary file")
+
+
+@pytest.mark.parametrize("format_name", ["notebook", "html"])
+def test_missing_recipe_is_an_export_failure_for_an_existing_project(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], format_name: str
+) -> None:
+    project_with_saved_items(tmp_path)
+    (tmp_path / "projects/momentum/datasets/prices/recipe.py").unlink()
+    target = tmp_path / "report"
+    target.write_text("previous export")
+    assert (
+        main(
+            [
+                "projects",
+                "export",
+                "momentum",
+                "--root",
+                str(tmp_path),
+                "--format",
+                format_name,
+                "--out",
+                str(target),
+            ]
+        )
+        == 1
+    )
+    error = capsys.readouterr().err
+    assert "export failed" in error and "no such project" not in error
+    assert target.read_text() == "previous export"

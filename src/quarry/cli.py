@@ -7,11 +7,14 @@ import secrets
 import socket
 import sys
 from pathlib import Path
+from typing import Literal
 
 import uvicorn
 
 from quarry.config import load_config
 from quarry.projects.export import notebook_json
+from quarry.projects.files import write_atomic
+from quarry.projects.report import ReportError, report_html
 from quarry.projects.store import ProjectStore
 from quarry.server.app import QuarryServer, create_app
 
@@ -31,10 +34,11 @@ def main(argv: list[str] | None = None) -> int:
     with_root.add_argument("--root", type=Path, default=Path("~/.quarry"))
     project_sub.add_parser("list", parents=[with_root], help="list projects under the root")
     export = project_sub.add_parser(
-        "export", parents=[with_root], help="write a project as a Jupyter notebook"
+        "export", parents=[with_root], help="write a notebook or frozen HTML report"
     )
     export.add_argument("slug")
-    export.add_argument("--out", type=Path, default=None, help="defaults to <slug>.ipynb here")
+    export.add_argument("--format", choices=["notebook", "html"], default="notebook")
+    export.add_argument("--out", type=Path, default=None, help="defaults to <slug>.<format> here")
     args = parser.parse_args(argv)
     if args.command == "serve":
         return run_serve(
@@ -43,7 +47,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "projects" and args.project_command == "list":
         return run_projects_list(root=args.root.expanduser())
     if args.command == "projects" and args.project_command == "export":
-        return run_projects_export(root=args.root.expanduser(), slug=args.slug, out=args.out)
+        return run_projects_export(
+            root=args.root.expanduser(), slug=args.slug, out=args.out, format_name=args.format
+        )
     parser.print_usage(sys.stderr)
     return 2
 
@@ -64,15 +70,29 @@ def run_projects_list(*, root: Path) -> int:
     return 0
 
 
-def run_projects_export(*, root: Path, slug: str, out: Path | None) -> int:
+def run_projects_export(
+    *,
+    root: Path,
+    slug: str,
+    out: Path | None,
+    format_name: Literal["notebook", "html"] = "notebook",
+) -> int:
     store = ProjectStore(root)
+    extension = "html" if format_name == "html" else "ipynb"
+    target = out if out is not None else Path(f"{slug}.{extension}")
     try:
-        project = store.get(slug)
-    except KeyError:
-        print(f"no such project: {slug}", file=sys.stderr)
+        try:
+            project = store.get(slug)
+        except KeyError:
+            print(f"no such project: {slug}", file=sys.stderr)
+            return 1
+        text = (
+            report_html(project, store) if format_name == "html" else notebook_json(project, store)
+        )
+        write_atomic(target, text)
+    except (ReportError, OSError, ValueError, KeyError) as exc:
+        print(f"export failed: {exc}", file=sys.stderr)
         return 1
-    target = out if out is not None else Path(f"{slug}.ipynb")
-    target.write_text(notebook_json(project, store), encoding="utf-8")
     print(f"wrote {target}")
     return 0
 

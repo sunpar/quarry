@@ -194,6 +194,7 @@ function CanvasCardView({
   if (saved.data === undefined) return null;
   return (
     <ViewHost
+      key={JSON.stringify([sessionId, `canvas:${view}`])}
       viewId={`canvas:${view}`}
       sessionId={sessionId}
       contentKey={saved.data.meta.saved_at}

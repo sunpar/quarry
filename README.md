@@ -223,6 +223,7 @@ line writes the same notebook and needs no running server:
 quarry projects list --root ~/.quarry                       # slug, name, last update
 quarry projects export momentum --root ~/.quarry            # writes ./momentum.ipynb
 quarry projects export momentum --out ~/notebooks/mom.ipynb
+quarry projects export momentum --format html --out ~/reports/momentum.html
 ```
 
 The notebook's first code cell, and the recipe's first lines after its header,
@@ -235,6 +236,15 @@ path.
 An exported view's queries render without the dataset's schema, which only a
 live session has, and the cell says so; "To code" under the view in a session
 renders them exactly.
+
+"Export HTML report" downloads a frozen, self-contained `<slug>.html` report. It
+includes saved metadata, recipes, view source, state and query specs, plus the
+first 20 rows of each pinned dataset. Live dataset results and rendered view
+results are unavailable because those saves do not persist them. Export never
+runs recipes, queries or views, and the report loads no external assets. Saved
+timestamps describe Quarry saves; upstream freshness is unavailable. Reports
+over 5 MiB, or missing or corrupt saved artifacts, fail with an error. CLI
+exports replace their output atomically with owner-only permissions.
 
 ## Libraries
 

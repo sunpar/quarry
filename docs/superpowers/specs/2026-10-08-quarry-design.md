@@ -268,6 +268,7 @@ QuerySpec {
   group_by?: string[],
   aggs?: Agg[],
   pivot?: { index: string[], columns: string, values: string, agg: AggFn },
+  line_reduce?: { time: string, value: string, max_rows?: number },
   sort?: [{ col, desc: boolean }],
   limit?: number,          // default and max: config row_cap (default 50000)
   offset?: number,
@@ -285,6 +286,41 @@ both), then sort, then offset and limit, then select. A spec with both
 `group_by` and `pivot` is rejected. `first` and `last` need a row order, which
 a DuckDB relation does not have, so specs on relation-backed datasets reject
 them.
+
+`line_reduce` replaces grouping, pivot, sort, select, offset and limit. Filters
+define the full requested domain; the output contains the two axis columns.
+`time` is Date or Datetime and `value` is numeric. All backings and generated
+source enforce axis types, including empty and fully filtered domains. Missing times are omitted;
+non-finite values become null. Rows sort by time, then value with nulls first.
+Exact duplicate pairs are interchangeable. When rows exceed `max_rows` (default
+50,000, capped by `row_cap`), reduction first reserves both endpoints of every
+null run, then divides the full time range into equal-width bins, retaining each
+bin's first, last, minimum and maximum rows. Extrema ties choose the earliest
+ordered row. Constant times use one bin. Budgets that cannot fit all gap markers
+and one four-row bin fail; all-null inputs need only their run endpoints. Inputs
+within budget keep every ordered row. Results report `source_row_count` after
+missing-time removal and `reduced` when representatives omit rows, independently
+of prefix `truncated`.
+
+This is a lossy line overview, not raw-data reconstruction or a promise of
+pixel-identical rendering at every zoom level. "To code" uses the same effective
+budget as the query. Notebook exports capture the active server cap when
+generated; standalone exports use the project configuration. The large-series
+view preserves null breaks and does no
+additional browser sampling. Polars materializes only the filtered axis columns
+on the server, then uses the shared DuckDB reducer on a private connection with
+one thread, a 256 MiB memory limit and no disk spill. Relation-backed reduction
+uses its existing connection. Oversized in-memory reductions fail rather than
+increase resource limits.
+
+Polars sends time as integer ticks in its original unit, and 128-bit values as
+decimal strings, restoring both axis dtypes after reduction. This preserves
+zoned nanosecond timestamps and the full integer range. Polars `to_source`
+restores its runtime axis dtypes inside an isolated execution scope. Supplied
+schemas validate axes and coerce filter literals before rendering; schema-less
+exports retain the compiler's documented literal-coercion limits. DuckDB
+relation output uses the relation's existing temporal precision and UTC timezone
+schema.
 
 ## 6. Kernel
 
@@ -527,18 +563,24 @@ hooks module, and renders the default export inside an error boundary.
 
 ### Bridge
 
-postMessage with correlation ids. Every message carries `viewId`.
+postMessage with correlation ids. Every view-specific message carries `viewId`.
 
-Host to runtime: `mount { source, initialState, datasets }`,
+Host to runtime: `connect { id }`, `mount { source, initialState, datasets }`,
 `restore { state }`, `queryResult { id, ok, schema, rows | arrow | error }`,
 `schemaResult { id, ok, schema | error }`.
 
-Runtime to host: `ready`, `query { id, spec }`, `schema { id, dataset }`,
+Runtime to host: `ready { id }`, `query { id, spec }`, `schema { id, dataset }`,
 `stateChanged { state, queries }`, `error { message, stack }`.
 
-That is the entire surface. The host serves `query` by calling
-`POST /sessions/{id}/query`, which forwards to the kernel. The host is the
-only party holding the token.
+The host installs its listener before `connect`; the runtime acknowledges with
+`ready` echoing the connection ID, and the host consumes that acknowledgment once
+before sending its queued mount. Content changes reuse the bridge. History restores
+and linked changes wait for the mount; the latest full restore replaces earlier
+queued linked changes, and later linked changes follow it.
+The host serves concurrent identical `query` specs in the same session and data
+generation through one in-flight `POST /sessions/{id}/query`, which forwards to
+the kernel. Settled host results are discarded; runtime caches and state remain
+per view. The host is the only party holding the token.
 
 ### Hooks exposed to generated code
 
@@ -639,8 +681,22 @@ later has correct lineage.
 notebook: for each saved dataset, a markdown cell with name and description
 and a code cell with the recipe; for each saved view, a markdown cell with
 its description, its dataset recipes if not already emitted, a code cell with
-the `to_source` rendering of its saved queries, and the TSX in a fenced block
-for reference. A saved dataset also exports alone as a `.py` script.
+code that renders its saved queries with `to_source` against the rebuilt
+datasets' schema and backing, displays that Python and executes it, and the
+TSX in a fenced block for reference. Rendering runs after every dataset recipe;
+export generation runs no recipes or live queries. Notebook metadata records
+Quarry, Python, Polars and DuckDB versions from the export environment, without
+pinning input data or installing dependencies. A saved dataset also exports
+alone as a `.py` script.
+
+`--format html` and "Export HTML report" produce a self-contained, script-free
+report from saved metadata, recipes, views, state, query specs and the first
+20 pinned dataset rows. They execute no recipe, query or view. Live dataset
+results and rendered view results are marked unavailable because they are not
+persisted. Saved timestamps describe Quarry saves, not upstream freshness.
+The escaped UTF-8 document is capped at 5 MiB; missing or corrupt saved
+artifacts fail the export. CLI notebook and HTML outputs are private atomic
+writes.
 
 ## 11. Persistence layout
 

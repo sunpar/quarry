@@ -26,16 +26,26 @@ export interface HostBridgeOptions {
 
 export class HostBridge {
   private ready = false;
+  private connectionId: string | null = null;
   private mountSpec: MountSpec | null = null;
-  // Linked keys that arrived before the view mounted; the runtime would drop them.
+  // Controls that arrived before the view mounted; the runtime would drop them.
+  private pendingRestore: JsonObject | null = null;
   private pendingMerge: JsonObject | null = null;
+  private readonly replies = new Map<
+    string,
+    (message: HostToRuntime) => void
+  >();
 
   constructor(private readonly options: HostBridgeOptions) {}
 
   listen(target: Window): () => void {
     const handler = (event: MessageEvent<unknown>) => this.handleEvent(event);
     target.addEventListener("message", handler);
-    return () => target.removeEventListener("message", handler);
+    return () => {
+      target.removeEventListener("message", handler);
+      this.connectionId = null;
+      this.replies.clear();
+    };
   }
 
   handleEvent(event: { data: unknown; source: unknown }): void {
@@ -49,11 +59,15 @@ export class HostBridge {
     if (this.ready) this.flushMount();
   }
 
-  /** The frame's `load` fired, so its runtime is listening even if `ready` was missed. */
-  frameLoaded(): void {
-    if (this.ready) return;
-    this.ready = true;
-    this.flushMount();
+  /** Ask the listening runtime to acknowledge readiness after our listener is installed. */
+  connect(): void {
+    this.ready = false;
+    this.connectionId = crypto.randomUUID();
+    this.send({
+      type: "connect",
+      viewId: this.options.viewId,
+      id: this.connectionId,
+    });
   }
 
   refresh(): void {
@@ -61,7 +75,10 @@ export class HostBridge {
   }
 
   restore(state: JsonObject): void {
-    this.send({ type: "restore", viewId: this.options.viewId, state });
+    this.pendingMerge = null;
+    if (this.ready && this.mountSpec !== null)
+      this.send({ type: "restore", viewId: this.options.viewId, state });
+    else this.pendingRestore = state;
   }
 
   merge(state: JsonObject): void {
@@ -72,6 +89,8 @@ export class HostBridge {
 
   private receive(message: RuntimeToHost): void {
     if (message.type === "ready") {
+      if (message.id !== this.connectionId) return;
+      this.connectionId = null;
       this.ready = true;
       this.flushMount();
       return;
@@ -80,9 +99,10 @@ export class HostBridge {
     const { viewId } = this.options;
     switch (message.type) {
       case "query":
+        this.replies.set(message.id, (reply) => this.send(reply));
         void this.options.onQuery(message.spec).then(
           (result) =>
-            this.send({
+            this.reply({
               type: "queryResult",
               viewId,
               id: message.id,
@@ -90,7 +110,7 @@ export class HostBridge {
               result,
             }),
           (error: unknown) =>
-            this.send({
+            this.reply({
               type: "queryResult",
               viewId,
               id: message.id,
@@ -100,9 +120,10 @@ export class HostBridge {
         );
         return;
       case "schema":
+        this.replies.set(message.id, (reply) => this.send(reply));
         void this.options.onSchema(message.dataset).then(
           (schema) =>
-            this.send({
+            this.reply({
               type: "schemaResult",
               viewId,
               id: message.id,
@@ -110,7 +131,7 @@ export class HostBridge {
               schema,
             }),
           (error: unknown) =>
-            this.send({
+            this.reply({
               type: "schemaResult",
               viewId,
               id: message.id,
@@ -135,13 +156,30 @@ export class HostBridge {
       viewId: this.options.viewId,
       ...this.mountSpec,
     });
-    if (this.pendingMerge === null) return;
-    this.send({
-      type: "merge",
-      viewId: this.options.viewId,
-      state: this.pendingMerge,
-    });
-    this.pendingMerge = null;
+    if (this.pendingRestore !== null) {
+      this.send({
+        type: "restore",
+        viewId: this.options.viewId,
+        state: this.pendingRestore,
+      });
+      this.pendingRestore = null;
+    }
+    if (this.pendingMerge !== null) {
+      this.send({
+        type: "merge",
+        viewId: this.options.viewId,
+        state: this.pendingMerge,
+      });
+      this.pendingMerge = null;
+    }
+  }
+
+  private reply(
+    message: Extract<HostToRuntime, { type: "queryResult" | "schemaResult" }>,
+  ): void {
+    const receiver = this.replies.get(message.id);
+    this.replies.delete(message.id);
+    receiver?.(message);
   }
 
   private send(message: HostToRuntime): void {

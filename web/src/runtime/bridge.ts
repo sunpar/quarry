@@ -12,7 +12,6 @@ export class RuntimeBridge {
   // The specs mounted `useQuery` hooks hold, keyed by spec and counted: two hooks may share one.
   private readonly held = new Map<string, { spec: QuerySpec; count: number }>();
   private reported = "";
-  private counter = 0;
 
   constructor(
     readonly viewId: string,
@@ -21,8 +20,10 @@ export class RuntimeBridge {
     private readonly onQueriesChanged: () => void = () => undefined,
   ) {}
 
-  ready(): void {
-    this.post({ type: "ready" });
+  dispose(): void {
+    for (const pending of this.pending.values())
+      pending.reject(new Error("View replaced"));
+    this.pending.clear();
   }
 
   retain(key: string, spec: QuerySpec): void {
@@ -41,13 +42,13 @@ export class RuntimeBridge {
   }
 
   query(spec: QuerySpec): Promise<QueryResult> {
-    const id = this.nextId();
+    const id = crypto.randomUUID();
     this.post({ type: "query", viewId: this.viewId, id, spec });
     return this.wait<QueryResult>(id);
   }
 
   schema(dataset: string): Promise<Column[]> {
-    const id = this.nextId();
+    const id = crypto.randomUUID();
     this.post({ type: "schema", viewId: this.viewId, id, dataset });
     return this.wait<Column[]>(id);
   }
@@ -86,11 +87,6 @@ export class RuntimeBridge {
   // JSON keys never hold a raw newline, so the sorted join names the set.
   private heldKeys(): string {
     return [...this.held.keys()].sort().join("\n");
-  }
-
-  private nextId(): string {
-    this.counter += 1;
-    return `${this.viewId}:${this.counter}`;
   }
 
   private wait<T>(id: string): Promise<T> {

@@ -1,11 +1,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { StrictMode, useLayoutEffect } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Session, Step } from "@/shared/api-types";
+import type { HostToRuntime } from "@/shared/bridge-types";
 import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
 import { keys } from "../api/keys";
+import { HostBridge } from "../bridge/HostBridge";
 import { ViewFrameContainer } from "./ViewFrameContainer";
+
+afterEach(() => vi.restoreAllMocks());
 
 const step: Step = {
   id: "s1",
@@ -79,11 +84,116 @@ function mount(onRepair = vi.fn()) {
 }
 
 describe("ViewFrameContainer", () => {
+  it("mounts once under StrictMode when load precedes the passive listener", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(keys.libraries(), []);
+    const api = new ApiClient("t", async () => new Response("[]"));
+    const posted: HostToRuntime[] = [];
+    const loaded = new WeakSet<Element>();
+    function Caller() {
+      useLayoutEffect(() => {
+        const frame = screen.getByTitle("View for step 1") as HTMLIFrameElement;
+        if (loaded.has(frame)) return;
+        loaded.add(frame);
+        (frame.contentWindow as Window).postMessage = (m) => posted.push(m);
+        frame.dispatchEvent(new Event("load"));
+      }, []);
+      return (
+        <ViewFrameContainer
+          sessionId="s"
+          step={step}
+          running={false}
+          dataVersion="1"
+          onRepair={() => undefined}
+        />
+      );
+    }
+    render(
+      <StrictMode>
+        <QueryClientProvider client={qc}>
+          <ApiProvider client={api}>
+            <Caller />
+          </ApiProvider>
+        </QueryClientProvider>
+      </StrictMode>,
+    );
+    const connects = posted.filter((m) => m.type === "connect");
+    expect(connects).toHaveLength(2);
+    expect(connects[0]?.id).not.toBe(connects[1]?.id);
+    const frame = screen.getByTitle("View for step 1") as HTMLIFrameElement;
+    const acknowledge = (id: string | undefined) =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "ready", id },
+          source: frame.contentWindow,
+        }),
+      );
+    await act(async () => acknowledge(connects[0]?.id));
+    expect(posted.filter((m) => m.type === "mount")).toHaveLength(0);
+    await act(async () => acknowledge(connects[1]?.id));
+    expect(posted.filter((m) => m.type === "mount")).toHaveLength(1);
+  });
+
+  it("connects the replacement host when its frame loads before passive cleanup", async () => {
+    const connect = vi.spyOn(HostBridge.prototype, "connect");
+    const qc = new QueryClient();
+    qc.setQueryData(keys.libraries(), []);
+    const api = new ApiClient("t", async () => new Response("[]"));
+    const posted: HostToRuntime[] = [];
+    function Caller({ sessionId }: { sessionId: string }) {
+      useLayoutEffect(() => {
+        const frame = screen.getByTitle("View for step 1") as HTMLIFrameElement;
+        (frame.contentWindow as Window).postMessage = (m) => posted.push(m);
+        frame.dispatchEvent(new Event("load"));
+      }, [sessionId]);
+      return (
+        <ViewFrameContainer
+          sessionId={sessionId}
+          step={step}
+          running={false}
+          dataVersion="1"
+          onRepair={() => undefined}
+        />
+      );
+    }
+    const tree = (sessionId: string) => (
+      <QueryClientProvider client={qc}>
+        <ApiProvider client={api}>
+          <Caller sessionId={sessionId} />
+        </ApiProvider>
+      </QueryClientProvider>
+    );
+    const view = render(tree("first"));
+    const first = connect.mock.instances[0];
+    const oldFrame = screen.getByTitle("View for step 1");
+    expect(first).toBeDefined();
+    view.rerender(tree("next"));
+    const newFrame = screen.getByTitle("View for step 1") as HTMLIFrameElement;
+    expect(newFrame).not.toBe(oldFrame);
+    expect(connect).toHaveBeenCalledTimes(2);
+    expect(connect.mock.instances[1]).not.toBe(first);
+    const connection = posted.findLast((m) => m.type === "connect");
+    if (connection?.type !== "connect") throw new Error("not connected");
+    posted.length = 0;
+    await act(async () =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "ready", id: connection.id },
+          source: newFrame.contentWindow,
+        }),
+      ),
+    );
+    expect(posted).toEqual([
+      expect.objectContaining({ type: "mount", viewId: "s1" }),
+    ]);
+    connect.mockRestore();
+  });
+
   it("tells the view to refetch when kernel data may have changed", async () => {
     const { iframe, setVersion } = mount();
-    const posted: unknown[] = [];
+    const posted: HostToRuntime[] = [];
     vi.spyOn(iframe.contentWindow as Window, "postMessage").mockImplementation(
-      (m: unknown) => posted.push(m),
+      (m: HostToRuntime) => posted.push(m),
     );
     setVersion("1:100");
     expect(posted).toEqual([]);
@@ -91,16 +201,23 @@ describe("ViewFrameContainer", () => {
     expect(posted).toEqual([{ type: "refresh", viewId: "s1" }]);
   });
 
-  it("mounts on the frame's load when ready never arrives", async () => {
-    const { iframe } = mount();
-    const posted: unknown[] = [];
+  it("connects on frame load and mounts after the acknowledgment", async () => {
+    const { iframe, send } = mount();
+    const posted: HostToRuntime[] = [];
     vi.spyOn(iframe.contentWindow as Window, "postMessage").mockImplementation(
-      (m: unknown) => posted.push(m),
+      (m: HostToRuntime) => posted.push(m),
     );
     await act(async () => {
       iframe.dispatchEvent(new Event("load"));
     });
     expect(posted).toEqual([
+      expect.objectContaining({ type: "connect", viewId: "s1" }),
+    ]);
+    const connection = posted[0];
+    if (connection?.type !== "connect") throw new Error("not connected");
+    await act(async () => send({ type: "ready", id: connection.id }));
+    expect(posted).toEqual([
+      expect.objectContaining({ type: "connect", viewId: "s1" }),
       expect.objectContaining({ type: "mount", viewId: "s1" }),
     ]);
   });

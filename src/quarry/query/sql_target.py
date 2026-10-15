@@ -17,9 +17,20 @@ SQL_AGG: Final[dict[AggFn, str]] = {
     "median": "median",
     "std": "stddev_samp",
 }
+LINE_CONNECTION_CONFIG: Final[dict[str, str | bool | int | float | list[str]]] = {
+    "threads": 1,
+    "memory_limit": "256MiB",
+    "max_temp_directory_size": "0B",
+}
 
 
-def to_sql(spec: QuerySpec, relation: str, *, columns: Sequence[str] | None = None) -> str:
+def to_sql(
+    spec: QuerySpec,
+    relation: str,
+    *,
+    columns: Sequence[str] | None = None,
+    reduction_stats: bool = False,
+) -> str:
     """Render `spec` as one DuckDB statement reading from the identifier `relation`.
 
     When `columns` is given, unknown column references raise QueryError before rendering.
@@ -32,6 +43,8 @@ def to_sql(spec: QuerySpec, relation: str, *, columns: Sequence[str] | None = No
     inner = f"SELECT * FROM {quote_ident(relation)}"
     if spec.filters:
         inner += " WHERE " + " AND ".join(filter_sql(f) for f in spec.filters)
+    if spec.line_reduce is not None:
+        return line_sql(spec, inner, reduction_stats=reduction_stats)
     if spec.group_by is not None:
         keys = ", ".join(quote_ident(c) for c in spec.group_by)
         aggs = ", ".join(agg_sql(a) for a in spec.aggs)
@@ -50,6 +63,95 @@ def to_sql(spec: QuerySpec, relation: str, *, columns: Sequence[str] | None = No
     if spec.offset:
         outer += f" OFFSET {spec.offset}"
     return outer
+
+
+def line_sql(
+    spec: QuerySpec,
+    source: str,
+    *,
+    reduction_stats: bool = False,
+    time_ticks: str | None = None,
+    value_expression: str | None = None,
+    output_value: str = "v",
+) -> str:
+    """Select M4 representatives and every null-run endpoint within one row budget.
+
+    Ordering is time, then value (null first). Exact duplicates are interchangeable.
+    Equal-width time bins retain first, last, min and max, with earliest ties.
+    Null-run endpoints consume budget before bins; insufficient budgets fail explicitly.
+    """
+    reduction = spec.line_reduce
+    assert reduction is not None
+    time, value = quote_ident(reduction.time), quote_ident(reduction.value)
+    budget = reduction.max_rows
+    ticks = time_ticks or (
+        f"CASE WHEN typeof({time}) = 'TIMESTAMP_NS' THEN epoch_ns({time})::HUGEINT "
+        f"ELSE epoch_us({time})::HUGEINT * 1000 END"
+    )
+    values = value_expression or value
+    time_type = f"typeof((SELECT {time} FROM ({source}) LIMIT 0))"
+    value_type = f"typeof((SELECT {values} FROM ({source}) LIMIT 0))"
+    temporal = (
+        f"WHEN {time_type} NOT IN ('DATE', 'TIMESTAMP', 'TIMESTAMP_S', "
+        "'TIMESTAMP_MS', 'TIMESTAMP_NS', 'TIMESTAMP WITH TIME ZONE') "
+        "THEN error('line_reduce time must be Date or Datetime') "
+        if time_ticks is None
+        else ""
+    )
+    numeric = (
+        f"{value_type} IN ('TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT', "
+        "'UTINYINT', 'USMALLINT', 'UINTEGER', 'UBIGINT', 'UHUGEINT', 'FLOAT', 'DOUBLE') "
+        f"OR starts_with({value_type}, 'DECIMAL(')"
+    )
+    stats = ", n AS " + quote_ident(reduction_count_name(spec)) if reduction_stats else ""
+    # The metadata branch is evaluated even with no surviving points. Its scalar typeof
+    # expressions inspect schema without materializing the source a second time.
+    return f"""WITH axis_contract AS MATERIALIZED (
+    SELECT CASE {temporal}WHEN NOT ({numeric}) THEN
+        error('line_reduce value must be numeric') ELSE 0 END AS checked
+), points AS (
+    SELECT {time} AS t, {ticks} AS ticks,
+        CASE WHEN isfinite({values}) THEN {values} END AS v
+    FROM ({source}) WHERE {time} IS NOT NULL
+), ordered AS (
+    SELECT *, row_number() OVER w AS i,
+        v IS NULL AND (NOT lag(v IS NULL, 1, false) OVER w
+            OR NOT lead(v IS NULL, 1, false) OVER w) AS gap
+    FROM points WINDOW w AS (ORDER BY t, v NULLS FIRST)
+), counts AS (
+    SELECT count(*) AS n, count(*) FILTER (WHERE gap) AS gaps,
+        min(ticks::HUGEINT) AS lo, max(ticks::HUGEINT) AS hi,
+        count(v) AS finite FROM ordered
+), budget AS (
+    SELECT *, CASE WHEN n <= {budget} OR (finite = 0 AND gaps <= {budget}) THEN 1
+        WHEN {budget} - gaps >= 4 THEN ({budget} - gaps) // 4
+        ELSE error('line_reduce row budget cannot preserve gaps and four extrema; '
+            || 'increase max_rows or filter the time range')
+        END AS bins FROM counts
+), binned AS (
+    SELECT *, CASE WHEN hi = lo THEN 0
+        ELSE least(bins - 1, (ticks::HUGEINT - lo) * bins // (hi - lo)) END AS bucket
+    FROM ordered CROSS JOIN budget
+), representatives AS (
+    SELECT unnest([min(i), max(i), arg_min(i, struct_pack(val := v, idx := i)),
+        arg_max(i, struct_pack(val := v, idx := -i))]) AS i
+    FROM binned WHERE v IS NOT NULL GROUP BY bucket
+), reduced AS (
+    SELECT t, v, n, i FROM binned
+    WHERE n <= {budget} OR gap OR i IN (SELECT i FROM representatives)
+    UNION ALL SELECT NULL, NULL, NULL, NULL FROM axis_contract WHERE checked <> 0
+)
+SELECT t AS {time}, {output_value} AS {value}{stats} FROM reduced
+ORDER BY reduced.i"""
+
+
+def reduction_count_name(spec: QuerySpec) -> str:
+    """A metadata column outside the two requested axis names."""
+    assert spec.line_reduce is not None
+    name = "_quarry_input_rows"
+    while name.lower() in {spec.line_reduce.time.lower(), spec.line_reduce.value.lower()}:
+        name += "_"
+    return name
 
 
 def relation_view(dataset: str) -> str:

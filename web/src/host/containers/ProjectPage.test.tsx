@@ -41,6 +41,8 @@ function setup() {
     gets.push(`${path} ${new Headers(init?.headers).get("authorization")}`);
     if (path === "/projects/p") return new Response(JSON.stringify(project));
     if (path === "/projects/p/export.ipynb") return new Response("{}");
+    if (path === "/projects/p/export.html")
+      return new Response("<html></html>");
     return new Response(JSON.stringify({ detail: "no recipe" }), {
       status: 404,
     });
@@ -68,6 +70,15 @@ function setup() {
 }
 
 describe("ProjectPage downloads", () => {
+  it("exports the frozen HTML report with the token", async () => {
+    const { gets, saved } = setup();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Export HTML report" }),
+    );
+    await waitFor(() => expect(saved).toEqual(["p.html"]));
+    expect(gets).toContain("/projects/p/export.html Bearer t");
+  });
+
   it("exports the notebook with the token", async () => {
     const { gets, saved } = setup();
     fireEvent.click(

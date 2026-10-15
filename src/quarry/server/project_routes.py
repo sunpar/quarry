@@ -7,7 +7,7 @@ from typing import TypeVar
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from quarry.projects.export import dataset_script, notebook
@@ -18,6 +18,7 @@ from quarry.projects.models import (
     SavedDatasetMeta,
     SavedViewMeta,
 )
+from quarry.projects.report import ReportError, report_html
 from quarry.server.models import Step
 from quarry.server.projects import (
     ProjectService,
@@ -38,7 +39,7 @@ class CreateProjectRequest(BaseModel):
     description: str = ""
 
 
-def register_project_routes(api: APIRouter, projects: ProjectService) -> None:
+def register_project_routes(api: APIRouter, projects: ProjectService, *, row_cap: int) -> None:
     @api.post("/projects", status_code=201)
     def create_project(body: CreateProjectRequest) -> ProjectMeta:
         if body.name.strip() == "":
@@ -79,7 +80,16 @@ def register_project_routes(api: APIRouter, projects: ProjectService) -> None:
     def export_notebook(slug: str) -> JSONResponse:
         project = _found(lambda: projects.get(slug))
         headers = _attachment(f"{project.meta.slug}.ipynb")
-        return JSONResponse(notebook(project, projects.store), headers=headers)
+        return JSONResponse(notebook(project, projects.store, row_cap=row_cap), headers=headers)
+
+    @api.get("/projects/{slug}/export.html")
+    def export_report(slug: str) -> HTMLResponse:
+        try:
+            project = _found(lambda: projects.get(slug))
+            text = report_html(project, projects.store)
+        except (ReportError, OSError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return HTMLResponse(text, headers=_attachment(f"{project.meta.slug}.html"))
 
     @api.get("/projects/{slug}/datasets/{name}/recipe.py")
     def export_recipe(slug: str, name: str) -> PlainTextResponse:

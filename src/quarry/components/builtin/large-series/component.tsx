@@ -11,9 +11,6 @@ type Columns = {
   value: string | null;
 };
 
-// The one built-in that asks for more rows than the server's cap; the server truncates.
-const LIMIT = 500000;
-
 const isTime = (dtype: string) =>
   dtype === "Date" || dtype.startsWith("Datetime");
 const isNumeric = (dtype: string) => /^(Int|UInt|Float|Decimal)/.test(dtype);
@@ -35,7 +32,7 @@ export default function LargeSeries({ datasets }: Props) {
   const ready = time !== null && value !== null;
   const result = useQuery(
     ready
-      ? { dataset, select: [time, value], sort: [{ col: time }], limit: LIMIT }
+      ? { dataset, line_reduce: { time, value, max_rows: 50000 } }
       : { dataset, limit: 1 },
   );
 
@@ -47,15 +44,6 @@ export default function LargeSeries({ datasets }: Props) {
         This dataset needs a date column and a numeric column.
       </p>
     );
-  if (result.status === "loading")
-    return <p className="p-4 text-sm text-muted-foreground">Loading</p>;
-  if (result.status === "error")
-    return (
-      <pre className="p-4 font-mono text-sm text-destructive">
-        {result.message}
-      </pre>
-    );
-
   const option = {
     animation: false,
     // Points are UTC epoch milliseconds; local time would shift labels across DST changes.
@@ -69,9 +57,12 @@ export default function LargeSeries({ datasets }: Props) {
       {
         type: "line",
         showSymbol: false,
-        // Line series have no `large` mode; downsampling to the pixel width is what scales.
-        sampling: "lttb",
-        data: toPoints(result.rows, time, value),
+        connectNulls: false,
+        data: toPoints(
+          result.status === "success" ? result.rows : [],
+          time,
+          value,
+        ),
         lineStyle: { color: "#1e6e63", width: 1 },
       },
     ],
@@ -92,17 +83,32 @@ export default function LargeSeries({ datasets }: Props) {
           onChange={(v) => setChosen({ time, value: v })}
         />
       </div>
-      {(result.truncated || result.rows.length >= LIMIT) && (
+      {result.status === "success" && result.truncated && (
         <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
           Showing the first {result.rows.length.toLocaleString()} rows.
         </p>
       )}
+      {result.status === "success" && result.reduced && (
+        <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
+          Reduced {result.sourceRowCount?.toLocaleString()} rows across the
+          whole time range to {result.rows.length.toLocaleString()}{" "}
+          representative {result.rows.length === 1 ? "row" : "rows"}.
+        </p>
+      )}
       <div className="min-h-0 flex-1">
-        <ReactECharts
-          option={option}
-          notMerge
-          style={{ height: "100%", width: "100%" }}
-        />
+        {result.status === "loading" ? (
+          <p className="p-4 text-sm text-muted-foreground">Loading</p>
+        ) : result.status === "error" ? (
+          <pre className="p-4 font-mono text-sm text-destructive">
+            {result.message}
+          </pre>
+        ) : (
+          <ReactECharts
+            option={option}
+            notMerge
+            style={{ height: "100%", width: "100%" }}
+          />
+        )}
       </div>
     </div>
   );
@@ -148,17 +154,17 @@ function parseValue(raw: Row[string]): number {
   return typeof raw === "string" && raw.trim() !== "" ? Number(raw) : NaN;
 }
 
-// [epoch ms, value] pairs, in the time order the rows arrive in; unplottable rows are dropped.
+// Keep null values as line breaks; a missing time has no position on the chart.
 function toPoints(
   rows: Row[],
   time: string,
   value: string,
-): [number, number][] {
-  const points: [number, number][] = [];
+): [number, number | null][] {
+  const points: [number, number | null][] = [];
   for (const row of rows) {
     const ms = parseTime(row[time] ?? null);
     const v = parseValue(row[value] ?? null);
-    if (Number.isFinite(ms) && Number.isFinite(v)) points.push([ms, v]);
+    if (Number.isFinite(ms)) points.push([ms, Number.isFinite(v) ? v : null]);
   }
   return points;
 }

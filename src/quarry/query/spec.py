@@ -105,6 +105,14 @@ class Sort(BaseModel):
     desc: bool = False
 
 
+class LineReduction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    time: str
+    value: str
+    max_rows: int = Field(default=50_000, gt=0)
+
+
 class QuerySpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -114,13 +122,41 @@ class QuerySpec(BaseModel):
     group_by: list[str] | None = Field(default=None, min_length=1)
     aggs: list[Agg] = Field(default_factory=list)
     pivot: Pivot | None = None
+    line_reduce: LineReduction | None = None
     sort: list[Sort] = Field(default_factory=list)
     limit: int | None = Field(default=None, gt=0)
     offset: int = Field(default=0, ge=0)
     format: Literal["json", "arrow"] = "json"
 
+    def with_line_budget(self, row_cap: int) -> QuerySpec:
+        """Apply the same effective line budget to live queries and every export."""
+        if self.line_reduce is None:
+            return self
+        return self.model_copy(
+            update={
+                "line_reduce": self.line_reduce.model_copy(
+                    update={"max_rows": min(self.line_reduce.max_rows, row_cap)}
+                )
+            }
+        )
+
     @model_validator(mode="after")
     def _check_shape(self) -> QuerySpec:
+        if self.line_reduce is not None:
+            if (
+                self.group_by
+                or self.aggs
+                or self.pivot
+                or self.sort
+                or self.select
+                or self.limit
+                or self.offset
+            ):
+                raise ValueError(
+                    "line_reduce accepts only filters and format; "
+                    "it defines its own ordering and row budget"
+                )
+            _require_unique([self.line_reduce.time, self.line_reduce.value], "line_reduce column")
         if self.group_by is not None and self.pivot is not None:
             raise ValueError("group_by and pivot cannot both be set")
         if self.aggs and self.group_by is None:

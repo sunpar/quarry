@@ -9,6 +9,48 @@ function setup() {
 }
 
 describe("RuntimeBridge", () => {
+  it("settles pending requests when the mounted view is replaced", async () => {
+    const { bridge } = setup();
+    const query = bridge.query({ dataset: "df" });
+    const schema = bridge.schema("df");
+    bridge.dispose();
+    await expect(query).rejects.toThrow("View replaced");
+    await expect(schema).rejects.toThrow("View replaced");
+  });
+
+  it("does not route an old answer into a replacement of the same view", async () => {
+    const sent: RuntimeToHost[] = [];
+    new RuntimeBridge("v1", (m) => sent.push(m)).query({ dataset: "df" });
+    const next = new RuntimeBridge("v1", (m) => sent.push(m));
+    const answer = next.query({ dataset: "df" });
+    expect(sent[0]).not.toEqual(sent[1]);
+    const [old, current] = sent;
+    if (old?.type !== "query" || current?.type !== "query")
+      throw new Error("expected queries");
+    const result = {
+      schema: [],
+      rows: [],
+      arrow_base64: null,
+      row_count: 0,
+      truncated: false,
+    };
+    next.handle({
+      type: "queryResult",
+      viewId: "v1",
+      id: old.id,
+      ok: false,
+      error: "old answer",
+    });
+    next.handle({
+      type: "queryResult",
+      viewId: "v1",
+      id: current.id,
+      ok: true,
+      result,
+    });
+    await expect(answer).resolves.toEqual(result);
+  });
+
   it("resolves a query with the matching id", async () => {
     const { bridge, sent } = setup();
     const promise = bridge.query({ dataset: "df" });

@@ -802,14 +802,19 @@ them.
   fallback cannot work. `ensureEngine` starts Perspective's own worker script as
   a classic worker from a Blob URL, which `worker-src blob:` admits; the CSP is
   the planned one.
-- **The frame's `load` event is the mount fallback**: the runtime posts `ready`
-  once while loading, which can beat the host's listener;
-  `HostBridge.frameLoaded` sends the queued mount if `ready` was missed. The
-  `onLoad` handler is wired on the iframe element itself and remembered, so a
-  frame that loaded before the bridge existed mounts as soon as the effect runs.
-  A `ready` that arrives after `load` mounts a second time, which the runtime
-  tolerates; the double mount is a
-  [known problem](../open-items.md#known-problems).
+- **The runtime acknowledges the host's connection**: the host installs its
+  listener before sending `connect` after the iframe loads. The runtime answers
+  `ready` with the connection's UUID, consumed once before sending the queued
+  mount. Listener cleanup cancels its pending acknowledgment. Callers key the
+  host by session and view, keeping refs and subscriptions with their iframe. A
+  late libraries answer connects an already loaded frame; content changes reuse
+  its bridge. Reconnecting clears the previous runtime's readiness, keeping
+  changed content and controls queued until the new acknowledgment. The host
+  sends mount, the latest History restore, then later linked changes; a full
+  restore replaces earlier queued linked changes. A restore selected while
+  libraries load reaches the bridge when the answer arrives. Removing the
+  runtime's unprompted `ready` leaves one mount trigger, so a late
+  acknowledgment cannot reset state or repeat the first query.
 - **A repair step keeps the researcher's prompt**: the view source and browser
   error go only to the agent; the persisted step shows "Fix the view so it
   mounts." The plan stored the composed text as the step prompt, which put a
@@ -819,6 +824,14 @@ them.
   first N rows." whenever a page is full. AG Grid's client-side filters are off,
   since a filter over one page gives wrong answers; filters belong in the query
   spec (spec §9).
+- **Table filters run in the kernel**: both tables share a filter bar through
+  the runtime UI module table. Numeric comparisons accept finite numbers and
+  safe integers; text filters are literal and dates use calendar days. Decimal,
+  datetime and other types offer only null filters. Saved predicates stay
+  visible and removable after schema changes, without dropping them from the
+  mounted query. Filters and sort use view state; snapshots and "To code" use
+  the mounted query rather than a second saved spec. Cost: exact decimal, large
+  integer and datetime value filters need a later typed literal design.
 - **Loader keeps unused imports**: Sucrase runs with `keepUnusedImports`, so a
   refused module is refused even when nothing uses it. A type-only value import
   of a non-allowlisted path is refused too. The allowlist is checked with
@@ -826,9 +839,23 @@ them.
   The server's TSX check, `web/tools/transpile-check.ts`, calls the same
   `transpile()`, so the check and the frame agree on what a view imports.
 - **Mount is queued and resent**: the host sends `mount` only after the runtime
-  posts `ready`, keeps the spec and resends it on every later `ready`; the
-  runtime drops a mount that an even newer mount has overtaken. A reloaded frame
-  therefore remounts, and a slow first load cannot clobber a second.
+  acknowledges `connect`, keeps the spec and resends it after a frame reload;
+  the runtime drops a mount that an even newer mount has overtaken. A reloaded
+  frame therefore remounts, and a slow first load cannot clobber a second.
+- **Concurrent view queries share the host's in-flight request**: the existing
+  QueryClient keys a request by session, `dataVersion`, and the full query spec.
+  A completed step or changed kernel PID starts another generation, including
+  while an older request is pending. The host discards settled query entries;
+  each runtime keeps its own answers, Arrow decoding, state and held specs.
+  Failures are shared without retrying and a later request can recover. Cost:
+  staggered requests after settlement execute again, and `dataVersion` is the
+  existing step/kernel boundary rather than a dataset revision.
+- **Request IDs survive view replacement without collision**: every query and
+  schema request gets a UUID, so a pending reply from a replaced view cannot
+  resolve the new view's request under the same `viewId`. Listener cleanup
+  detaches pending reply subscriptions; runtime replacement rejects its
+  abandoned local requests. Neither interrupts a query executing in the kernel
+  or cancels a shared fetch another card needs.
 - **The time series drops what it cannot plot**: rows whose time does not parse
   or whose value is not finite are skipped, equal seconds collapse to the last
   row, and a naive ISO datetime is read as UTC because the kernel's DuckDB
@@ -1078,11 +1105,17 @@ them.
   `quarry.projects.export` writes nbformat 4.5 JSON itself, with `kernelspec`,
   `language_info` and deterministic `cell-<n>` ids, so the same project exports
   the same file, and `nbformat` is a dev dependency that the export tests
-  validate against. The wheel then needs no Jupyter package. Saved queries
-  render without a schema, since only dtype strings are on disk; the cell's
-  first comment says so, and a view's TSX sits in a fence one backtick longer
-  than any run in its source. Cost if wrong: a format change goes unnoticed
-  until a test validates it.
+  validate against. The wheel then needs no Jupyter package. Metadata records
+  the export environment's Quarry, Python, Polars and DuckDB versions; it does
+  not freeze configuration, input data or the later execution environment. A
+  view's TSX sits in a fence one backtick longer than any run in its source.
+  Cost if wrong: a format change goes unnoticed until a test validates it.
+- **Frozen HTML reports read saved artifacts**: the report includes metadata,
+  recipe and view source, state, query specs and the existing 20-row preview
+  bound for pinned data. It never replays code or loads external assets; live
+  and view results are unavailable because they are not persisted. Escaped UTF-8
+  output has a 5 MiB limit, and artifact failures stop the export. Cost: the
+  report cannot reproduce arbitrary charts or establish upstream freshness.
 - **Exports rebuild the kernel namespace**: a recipe is step code, so it calls
   the kernel's preloads (`pl`, `duckdb`, `pq`, `sql`, `sql_local`, `loaders`)
   without importing them, and an export without them failed on its first cell.
@@ -1092,27 +1125,37 @@ them.
   `build_namespace` from `quarry` and bind the namespace built for the export's
   Quarry root, written in as an absolute path, with DuckDB spilling under a new
   `tempfile.mkdtemp()` directory. An export therefore needs `quarry` importable,
-  in a Jupyter kernel too. The cells stay the plain Python the spec's goals (§1)
-  promise, and only this setup leans on Quarry; "To code" output needs none of
-  it. Cost if wrong: an export moved to another machine needs that root's
-  `config.toml` and `loaders.toml` there, or an edit to the path, and the file
-  names where the root lives.
+  in a Jupyter kernel too. After every recipe runs, each view cell calls
+  `run_queries` to render, display and execute Python using the rebuilt objects'
+  backing, schema and importable DuckDB projection, through the same helpers as
+  "To code". Export generation runs no recipes or live queries. This preserves
+  typed literals, exact integer sums and INTERVAL/UNION conversion without
+  parsing saved dtype strings. Supplied limits stay as "To code" renders them;
+  the server's row cap applies to interactive queries. Cost if wrong: an export
+  moved to another machine needs that root's `config.toml` and `loaders.toml`
+  there, or an edit to the path, and the file names where the root lives.
 - **Export names results across the whole notebook**: a view's queries assign
   `<dataset>_<n>`, n being the query's position in its view, through
   `result_names` in `quarry.query.source_target`, which "To code" uses too. The
-  suffix rises past every saved dataset and every name an earlier view took, so
-  no result overwrites what a later cell reads, and a query that fails
-  validation keeps its number. A query whose generated import, such as
-  `from datetime import date`, would rebind a saved dataset stays a
-  `# query N could not be rendered` comment naming it, as "To code" refuses one.
-  Free text in an exported comment, such as a description, a validation error or
-  a pydantic message quoting a raw JSON key, goes through `py_comment`, which
-  `raw_recipe` shares: line breaks become spaces and anything else unprintable
-  is escaped, so a line break cannot run the rest as code, a NUL cannot stop the
-  cell compiling, and a bidi control cannot disguise it. The plan named results
-  with no check and put the multi-line pydantic message into a comment. Cost if
-  wrong: such a query is missing from the export until the dataset is renamed,
-  and a view's result numbers depend on the views that sort before it.
+  suffix rises past every name in the execution namespace, including recipe
+  helpers and earlier results, so no result overwrites what a later cell reads,
+  and a query that fails validation keeps its number. A query whose generated
+  import, such as `from datetime import date`, would rebind a saved dataset
+  stays a displayed `# query N could not be rendered` comment naming it, as "To
+  code" refuses one. Setup captures the renderer and notebook namespace before
+  recipes can rebind builtin names. Its callable's name avoids saved names and
+  NFKC-normalized recipe identifier tokens, including exception aliases Python
+  deletes; token matching leaves malformed-recipe exports inert. This preserves
+  helper lookup for previously runnable queries, not arbitrary changes to Python
+  builtins. Free text in an exported comment, such as a description, a
+  validation error or a pydantic message quoting a raw JSON key, goes through
+  `py_comment`, which `raw_recipe` shares: line breaks become spaces and
+  anything else unprintable is escaped, so a line break cannot run the rest as
+  code, a NUL cannot stop the cell compiling, and a bidi control cannot disguise
+  it. The plan named results with no check and put the multi-line pydantic
+  message into a comment. Cost if wrong: such a query is missing from the export
+  until the dataset is renamed, and a view's result numbers depend on the views
+  that sort before it.
 - **Exported recipes run in dependency order**: a raw recipe replays its
   upstream steps, so the recipe of `returns`, derived before a later step
   filtered `prices`, also rebinds `prices` to the unfiltered frame. The notebook
@@ -1238,9 +1281,10 @@ them.
   `rowSortingFeature` and `enableSorting: false` are gone; v9's `TableOptions`
   refuses `enableSorting` without that feature. The numeric flag is typed
   through the `columnMeta: metaHelper<…>()` slot instead of a cast. As the AG
-  Grid table does, it drops a saved sort on a column the live schema lacks and
-  shows "Showing the first N rows." when a page is full; the plan's "N of M
-  rows" would repeat the page size, since `row_count` counts the rows returned.
+  Grid table does, it keeps a saved sort visible with a Clear sort action when
+  the live schema loses its column, and shows "Showing the first N rows." when a
+  page is full; the plan's "N of M rows" would repeat the page size, since
+  `row_count` counts the rows returned.
 - **OHLC reads times and prices as the time series does**: naive ISO datetimes
   are UTC, Decimal strings become numbers, a candle whose time or any price is
   not finite is dropped, and rows on the same second keep the last, because
@@ -1260,15 +1304,40 @@ them.
   built-ins read values with the time series' `parseValue`, never `Number()`,
   which turns `null` into 0. A null aggregate stays `null`, so Recharts leaves a
   gap; a scatter point whose x or y is not finite is dropped; a null or
-  non-numeric heatmap cell is NaN, which Plotly leaves blank; a large series row
-  whose time or value is not finite is dropped.
+  non-numeric heatmap cell is NaN, which Plotly leaves blank; large series omit
+  missing times and preserve non-finite values as null line breaks.
 - **The large series plots UTC epoch milliseconds**: points are
   `[epochMs, value]` pairs read with the time series' `parseTime`, so a naive
   datetime is UTC, and the option sets `useUTC: true`. Given strings, ECharts
   reads a naive datetime as browser-local time, which shifts it around DST
   changes. The plan's `large: true` and `largeThreshold` are gone: ECharts line
-  series have no large mode (`LineSeriesOption` has no `large`), so
-  `sampling: "lttb"` and `showSymbol: false` are what keep 50,000 points fast.
+  series have no large mode (`LineSeriesOption` has no `large`). The server
+  reduces the whole domain and the chart uses `showSymbol: false` without
+  browser sampling, which could discard the selected extrema.
+- **Whole-domain line reduction**: the compiler shares one gap-aware M4 SQL
+  reducer across all backings and exported Python. The
+  [query spec](../superpowers/specs/2026-10-08-quarry-design.md#query-spec)
+  defines ordering, ties, gap costs and insufficient budgets. The previous
+  500,000-row request reached only the first 50,000 rows. Reduction requires a
+  query operation because moving the prefix limit cannot select extrema across
+  the full domain. Polars eagerly materializes two filtered columns, as pivot
+  materializes its inputs; a private one-thread DuckDB connection limits memory
+  to 256 MiB and forbids spill. This trades server memory for a bounded browser
+  result and can refuse inputs that exceed that memory allowance. Mosaic's
+  [M4 implementation](https://github.com/uwdata/mosaic/blob/main/packages/mosaic/sql/src/transforms/m4.ts)
+  informed first/last/min/max selection; Quarry adds deterministic ties and
+  reserves null-run endpoints instead of hiding gaps. Polars transports integer
+  time ticks and 128-bit decimal strings to preserve precision, then restores
+  axis dtypes. Generated source keeps its private connection in an isolated
+  scope and assigns only the requested result after success, preserving caller
+  bindings on refusal. It reads runtime axis dtypes, so saved notebook exports
+  can reduce lines without parsing saved dtype strings. Supplied schemas share
+  live axis validation and filter coercion; schema-less exports retain the
+  documented filter-literal limits. Axis validation is shared across backings;
+  SQL validates metadata independently of surviving rows. Live queries, session
+  source and notebook exports share `QuerySpec.with_line_budget`. The notebook
+  captures the active server cap at export, or reads project config when called
+  directly, instead of rendering the uncapped saved request.
 - **No two roles share a column, and no pick hides the pickers**: a saved column
   counts only while the live schema offers it, so a stale choice falls back to
   the default instead of failing the query. Roles resolve in an order that

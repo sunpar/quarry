@@ -74,13 +74,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   (`WITH df AS (...) SELECT * FROM df`) reads that dataset, since DuckDB's
   parser does not resolve CTEs; both only add steps to a recipe. Silent; see
   [decisions](context/decisions.md#lineage).
-- **Exported queries render without a schema**: a notebook renders each saved
-  view query with `to_source` and no `schema=`, since only dtype strings are on
-  disk. Numbers render as given and sums plainly, so `ret in [0]` on a float
-  column fails loudly when the cell runs, and an Int64 sum can wrap silently. No
-  `relation_projection` either, since that needs the live relation, so a
-  relation query whose result holds an INTERVAL or UNION column, which `.pl()`
-  cannot import, fails loudly when the cell runs.
 - **Interrupts stop only the kernel's DuckDB connection**: DuckDB workers for a
   relation on a researcher's own `duckdb.connect()` can keep running after an
   interrupt. Silent: they hold CPU and delay that connection's next query.
@@ -144,10 +137,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   a peer connection's ICE traffic or a DNS prefetch, so a generated view can put
   rows in a STUN host name or a prefetched name despite the runtime CSP and the
   host's `frame-src 'self'`. Silent.
-- **A view can mount twice**: the host sends the queued `mount` on the frame's
-  `load` when `ready` was missed, and again when a late `ready` arrives. The
-  second mount rebuilds the view with a fresh store and cache, so it transpiles
-  and queries twice and drops any state set in between. Silent.
 - **Perspective dates outside years 1 to 9999**: a Date or Datetime filter term
   beyond them maps to a `+010000-...` ISO string, which the kernel cannot parse,
   so the pivot's probe query and "To code" fail. Loud.
@@ -166,10 +155,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **Pivot width is unbounded**: a pivot makes one column per distinct value of
   its `columns` key, which neither `row_cap` nor `limit` bounds, so a heatmap of
   dates by ticker over 5,000 tickers is 5,000 columns wide. A silent cost.
-- **Large series draws only the start of a long series**: the large-series
-  built-in asks for 500,000 rows sorted by time, but the default `row_cap` of
-  50,000 cuts the answer to its first 50,000, so a longer series ends early. The
-  view says "Showing the first 50,000 rows"; raising `data.row_cap` draws more.
 - **Other local users can read the licensed libraries**: `/libs/` serves the
   configured Highcharts and SciChart files without the token, since the
   opaque-origin frame loads them, so on a shared machine any account that can
@@ -216,8 +201,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   with 409, the code an existing id gets; `<root>/components` as a regular file
   makes every save a 409 "folder already exists"; and "Save to library" stays
   disabled with no message for an id over 64 characters. Loud but misleading.
-- **The CLI writes notebooks at the umask**: `quarry projects export` writes the
-  notebook with default permissions, not 0600 as project files are. Silent.
 - **An export can fail on a pathological recipe**: `export._stores` catches only
   `SyntaxError`, so a recipe that makes `analyze` raise `RecursionError` or
   `MemoryError` fails the export; `tidy._binds` shares the pattern. Loud.
@@ -249,9 +232,9 @@ one up when a researcher needs it.
   `'infinity'` in TIMESTAMP_S and TIMESTAMP_NS columns.
 - Pre-aggregate relation pivots by index and pivot columns in SQL, because the
   pivot now pulls every filtered row into polars.
-- Push table filters into the query spec: AG Grid's client-side filters are off
-  and the TanStack table has none, so neither table filters today. Also keep the
-  previous rows while a sort refetches, so the grid stops flashing to "Loading".
+- Keep previous rows visible in both tables while a new sort or filter query
+  refetches. Both tables now record filters and sort in server-side query specs;
+  refreshes of the same spec already retain rows.
 - Restore the last snapshot's state on mount: a reload resets a view to
   `initial_state` even when `view.snapshots` has later state.
 - Make `npm run dev` views work inside the null-origin frame: Vite's dev CORS
@@ -292,10 +275,6 @@ one up when a researcher needs it.
   `.sql(...)` reach DuckDB's parser (`json_serialize_sql`). The recipe then
   shows the missing read; a `# reads: name` comment the researcher writes is one
   way to declare it.
-- Render exported queries against a schema: only dtype strings are on disk, and
-  mapping them back to polars dtypes is a parser nobody needs yet. The notebook
-  says so in a comment, and "To code" in a session renders against the live
-  schema.
 - Perspective shows at most 50,000 rows, the pivot built-in's limit and the
   default `row_cap`. Server-side pivoting through the mapped spec is what "To
   code" gives; the viewer stays a client-side explorer.

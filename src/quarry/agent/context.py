@@ -38,14 +38,24 @@ export is the component. It may import only these paths, and nothing else:
   react, @quarry/hooks, @/components/ui/button, @/components/ui/badge, @/components/ui/input,
   @/components/ui/select, @/components/ui/separator, @/components/ui/tabs,
   @/components/ui/tooltip, @/components/ui/textarea, @/components/ui/scroll-area,
+  @/components/ui/table-filters,
   and the chart library packages listed below.
 The hooks are exactly these, from "@quarry/hooks":
 
   Default export: a component receiving one prop, datasets: string[] (the names you passed,
   in order).
-  useQuery(spec): {status:"loading"} | {status:"success", rows, schema, rowCount, truncated, arrow}
+  useQuery(spec): {status:"loading"}
+    | {status:"success", rows, schema, rowCount, truncated, reduced, sourceRowCount, arrow}
     | {status:"error", message}
-    spec = {dataset, select?, filters?, group_by?, aggs?, pivot?, sort?, limit?, offset?, format?}
+    spec = {dataset, select?, filters?, group_by?, aggs?, pivot?, line_reduce?,
+      sort?, limit?, offset?, format?}
+    line_reduce = {time, value, max_rows?} reduces the whole time domain to line representatives
+      within the server row cap. Use it for long series, with a Date/Datetime time column and
+      numeric value column. It accepts filters and format, replacing grouping, pivot, select,
+      sort, offset and limit. It preserves endpoints, bin extrema and null-run breaks; a row
+      budget too small to preserve gaps fails instead of drawing a partial series.
+    reduced reports representative selection; sourceRowCount counts input rows with a time.
+      truncated reports prefix clipping for ordinary queries. Show the appropriate notice.
     arrow is an ArrayBuffer of Arrow IPC when spec.format is "arrow" (rows is then []), else null.
   useViewState(key, initial): [value, setValue]  (recorded; keys starting with "shared:" are linked)
   useDatasetSchema(name): Column[] | null
