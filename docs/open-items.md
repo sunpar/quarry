@@ -345,8 +345,8 @@ one up when a researcher needs it.
     without a dataset, a team-root 409, the 0700 folder mode and built-ins
     listed after a save, and the transpile test's skip copies
     `default_transpiler`'s logic.
-  - Export and CLI: the export route test's view has no queries. The CLI's
-    no-subcommand, default `--out` and write-failure paths are untested.
+  - CLI: the `quarry projects` no-project-subcommand and CLI write-failure paths
+    remain untested.
   - Other server tests: the library warning test checks only the library's name,
     and no test checks that `/libraries` sends no CORS header. The to-code 400
     test asserts only `"x" in detail`. `kept_default_connection` restores only
