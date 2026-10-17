@@ -193,6 +193,16 @@ def test_list_ops_reject_null_items(op: FilterOp, value: Json) -> None:
         Filter(col="x", op=op, value=value)
 
 
+@pytest.mark.parametrize(
+    ("op", "value"),
+    [("in", [[1], 2]), ("not_in", [{"a": 1}]), ("between", [1, [2]])],
+    ids=["in", "not_in", "between"],
+)
+def test_list_values_reject_nested_items(op: FilterOp, value: Json) -> None:
+    with pytest.raises(ValidationError, match=f"{op} requires scalar items"):
+        Filter(col="x", op=op, value=value)
+
+
 def test_list_ops_accept_non_null_items() -> None:
     assert Filter(col="x", op="in", value=[1, 2]).value == [1, 2]
 
@@ -203,7 +213,6 @@ def non_finite_filters(bad: float) -> list[tuple[FilterOp, Json]]:
         ("ge", bad),
         ("in", [1.0, bad]),
         ("not_in", [bad]),
-        ("in", [{"threshold": bad}]),
         ("between", [bad, 1.0]),
         ("between", [0.0, bad]),
     ]
@@ -221,7 +230,7 @@ def test_non_finite_filter_values_rejected(op: FilterOp, value: Json) -> None:
         Filter(col="x", op=op, value=value)
 
 
-@pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity", "[1, NaN]"])
+@pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity", "1, NaN"])
 def test_non_finite_filter_values_rejected_from_json(token: str) -> None:
     # The kernel decodes requests with pydantic, whose JSON parser accepts these tokens.
     with pytest.raises(ValidationError, match="finite"):

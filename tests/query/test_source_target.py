@@ -443,13 +443,6 @@ def test_unrenderable_literals_are_query_errors() -> None:
     with pytest.raises(QueryError) as info:
         to_source(huge, "polars", schema=trades().schema)
     assert info.value.column == "ret"
-    # A dict inside an `in` list passes the spec; neither the polars nor the SQL form renders it.
-    nested = QuerySpec(dataset="trades", filters=[Filter(col="ticker", op="in", value=[{"a": 1}])])
-    with pytest.raises(QueryError) as info:
-        to_source(nested, "polars")
-    assert info.value.column == "ticker"
-    with pytest.raises(QueryError, match="dict literals"):
-        to_source(nested, "duckdb")
 
 
 def test_relation_projection_casts_interval_columns_so_the_source_runs() -> None:

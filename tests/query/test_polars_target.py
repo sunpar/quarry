@@ -185,6 +185,13 @@ def test_pivot_unknown_sort_raises_query_error() -> None:
     assert info.value.column == "nope"
 
 
+def test_pivot_value_named_like_an_index_column_raises_query_error() -> None:
+    frame = pl.DataFrame({"ticker": ["A", "B"], "kind": ["ticker", "other"], "v": [1, 2]})
+    pivot = Pivot(index=["ticker"], columns="kind", values="v", agg="sum")
+    with pytest.raises(QueryError, match="'kind' is named like index column 'ticker'"):
+        to_polars(QuerySpec(dataset="t", pivot=pivot), frame)
+
+
 @pytest.mark.parametrize(
     ("value", "dtype", "expected"),
     [
