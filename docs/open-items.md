@@ -67,7 +67,10 @@ Decisions already made are in [decisions.md](context/decisions.md).
   and validation, which compares schema and row count, can pass it. Catching it
   needs tracking which objects each name reaches. A literal reading
   `FROM RECENT` is not matched to dataset `recent`, though DuckDB's catalog
-  ignores case. Silent: a saved recipe can miss a source step.
+  ignores case. A step that reads `__annotations__` does not depend on the steps
+  that annotated, since counting them would chain every annotated step to every
+  earlier one; replay then fails and the save is unvalidated. Silent otherwise:
+  a saved recipe can miss a source step.
 - **Lineage approximations**: a failed step's in-place mutation is not a write.
   A successful step's store that never ran is a write or define, but the step
   then also reads the name, so the step that bound it before stays in the

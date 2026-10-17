@@ -218,6 +218,7 @@ class Executor:
         }
         self._defined.update({name: _identity_check(self._ns[name]) for name in defines})
         if names is not None:
+            # A def that ran made a new object; one under `if False:` left the helper as it was.
             self._helper_needs.update(
                 {
                     n: (
@@ -225,7 +226,7 @@ class Executor:
                         names.helper_sql.get(n, frozenset()),
                     )
                     for n in defines
-                    if n in names.defines
+                    if n in names.defines and not (n in before and before[n](self._ns[n]))
                 }
             )
         return ExecResult(

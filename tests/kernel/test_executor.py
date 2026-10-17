@@ -483,8 +483,13 @@ def test_a_store_that_never_ran_keeps_the_earlier_producer(first: str, kind: str
 
 @pytest.mark.parametrize(
     "store",
-    ["if False:\n    get_data = None\n", "get_data = get_data", "get_data.label = 'report'"],
-    ids=["never_ran", "same_object", "attribute"],
+    [
+        "if False:\n    get_data = None\n",
+        "get_data = get_data",
+        "get_data.label = 'report'",
+        "if False:\n    def get_data():\n        return other\nget_data.label = 'report'",
+    ],
+    ids=["never_ran", "same_object", "attribute", "def_never_ran"],
 )
 def test_a_store_that_keeps_a_helper_keeps_what_its_body_reads(store: str) -> None:
     ex = make()
