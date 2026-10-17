@@ -146,7 +146,7 @@ def test_module_level_except_handler_body_still_binds_and_reads_at_module_level(
         "    n: int = 0\n"
     )
     names = analyze(code)
-    assert names.stores == {"df", "retry", "n"}
+    assert names.stores == {"df", "n"}
     assert names.defines == {"retry"}
     assert names.loads == {"load", "errors", "fallback", "prices", "int"}
 
@@ -189,10 +189,11 @@ def test_definition_time_expressions_are_loads() -> None:
     assert "x" in analyze("class C:\n    x = x\n").loads  # the class body reads the module's x
 
 
-def test_definitions_are_module_scope_bindings() -> None:
+def test_definitions_are_module_scope_defines_not_stores() -> None:
+    # A def that ran makes a new object; one that never ran leaves its name alone.
     names = analyze("if ok:\n    def helper():\n        pass\n")
     assert names.defines == {"helper"}
-    assert "helper" in names.stores
+    assert "helper" not in names.stores
 
     names = analyze("def outer():\n    def inner():\n        pass\n    return inner\n")
     assert names.defines == {"outer"}
@@ -270,7 +271,8 @@ def test_attribute_and_subscript_mutation_at_module_level_is_a_store() -> None:
 
 def test_mutation_inside_a_function_is_not_a_module_store() -> None:
     names = analyze("def f():\n    df.columns = ['a']\n")
-    assert names.stores == {"f"}
+    assert not names.stores
+    assert names.defines == {"f"}
     assert "df" in names.loads  # the function reads the module-level df
 
 

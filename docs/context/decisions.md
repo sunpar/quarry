@@ -275,11 +275,12 @@ them.
   and parameters such as `params = {...}`, so a recipe keeps the step that bound
   a name a later step reads. With only `def` and `class` names, a result reading
   `params["scale"]` saved without the step that bound `params`, and fresh replay
-  failed with `NameError`. A function or class name counts only when its object
-  changed, so a `def` that never ran is not a define. A name is forgotten once
-  it is deleted or holds another object without a step binding it. A helper's
-  body is forgotten once its name holds another object, unless the step defined
-  it anew, so a store that leaves the helper in place, such as
+  failed with `NameError`. A `def` or `class` is not a syntactic store, since
+  one that ran makes a new object: one that never ran is not a define, while
+  another store to that name, such as `make.factor = 2`, still counts. A name is
+  forgotten once it is deleted or holds another object without a step binding
+  it. A helper's body is forgotten once its name holds another object, unless
+  the step defined it anew, so a store that leaves the helper in place, such as
   `get_data.label = ...`, keeps what a call reads. A function name the step then
   binds to a dataset, as `df = df()` does, is a write only. A name the kernel
   preloads, such as `pl`, is read only after a step rebinds it. Cost: a star

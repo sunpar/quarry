@@ -502,6 +502,13 @@ def test_a_dataset_changed_in_place_is_a_write_beside_a_def_that_never_ran() -> 
     assert (changed.writes, changed.defines) == (["df"], [])
 
 
+def test_a_change_beside_a_def_that_never_ran_is_a_define() -> None:
+    ex = make()
+    ex.execute("def scale():\n    return 1\nscale.factor = 1")
+    changed = ex.execute("if False:\n    def scale():\n        return 2\nscale.factor = 2")
+    assert (changed.defines, changed.reads) == (["scale"], ["scale"])
+
+
 @pytest.mark.parametrize(
     "call", ["symbols.append('B')", "params['nested'].append('B')"], ids=["plain", "nested"]
 )
@@ -533,9 +540,22 @@ def test_interpreter_names_are_not_defines() -> None:
     assert make().execute("x: int = 1").defines == ["x"]  # not `__annotations__`
 
 
-@pytest.mark.parametrize("name", ["__prices__", "__builtins__"])
-def test_a_dunder_named_dataset_is_a_write(name: str) -> None:
-    result = make().execute(f"{name} = pl.DataFrame({{'a': [1]}})")
+@pytest.mark.parametrize("earlier", [False, True], ids=["first_step", "later_step"])
+@pytest.mark.parametrize(
+    ("name", "store"),
+    [
+        ("__prices__", "{name} = {frame}"),
+        ("__builtins__", "{name} = {frame}"),
+        ("__builtins__", "globals()['{name}'] = {frame}"),
+        ("__annotations__", "globals()['{name}'] = {frame}"),
+    ],
+    ids=["dunder", "builtins", "builtins_dynamic", "annotations_dynamic"],
+)
+def test_a_dunder_named_dataset_is_a_write(name: str, store: str, earlier: bool) -> None:
+    ex = make()
+    if earlier:
+        ex.execute("x: int = 1")  # the interpreter adds `__builtins__` and `__annotations__`
+    result = ex.execute(store.format(name=name, frame="pl.DataFrame({'a': [1]})"))
     assert (result.writes, result.defines) == ([name], [])
 
 

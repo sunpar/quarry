@@ -364,8 +364,8 @@ a store may never have run.
 
 - `writes` = bound names that are now dataset objects.
 - `defines` = every other bound name: helpers, imports, and parameters such
-  as `params = {...}`. A function or class name that still holds the same
-  object is left out, since its `def` never ran.
+  as `params = {...}`. A `def` or `class` is not a candidate binding: one that
+  ran made a new object, and one that never ran left its name alone.
 - `reads` = candidate reads that were datasets before execution or match an
   earlier step's `defines`. A candidate binding of such a name that still
   holds the same object is a read too, since its store may never have run.

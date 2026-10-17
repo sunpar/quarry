@@ -29,12 +29,13 @@ with tests in the second commit, plus a freed weak reference that matched `None`
 and the missing method-call rule. The prompt-step fold still counts a failed
 call's bindings, by choice; the fold decision records why.
 
-GitHub Codex raised four findings. Commits `00a0a26` and `de8f6d3` fix three:
-dunder dataset names lost their writes, the module check asked a proxy's raising
-`__class__`, and explicit stores to `__builtins__` or `__annotations__` were
-dropped. The fourth, a change through an alias, is recorded as a blind spot.
+GitHub Codex raised six findings. Commits `00a0a26`, `de8f6d3` and the latest
+commit fix five: dunder dataset names lost their writes, the module check asked
+a proxy's raising `__class__`, stores to `__builtins__` or `__annotations__`
+were dropped, explicit or dynamic, and a `def` that never ran hid another store
+to its name. The sixth, a change through an alias, is recorded as a blind spot.
 Claude's re-review found nothing blocking; `e8c4b11` documents the two limits it
-raised. Codex found nothing on `e8c4b11`.
+raised.
 
 `make check` on `8a65aba` passed with 1,257 Python tests (3 skipped), 270
 frontend and 25 gate/transport tests in 78.28 s on macOS arm64. Hosted Linux

@@ -188,15 +188,9 @@ class Executor:
             status, error = "interrupted", None
         elif status == "ok" and describe_errors:
             status, error = "error", describe_errors[0]
-        # Every other name the step bound. A def or class makes a new object whenever it runs, so
-        # one whose name holds the object it held never ran, as under `if False:`. A function
-        # name the step then bound to a dataset, as `df = df()` does, is a write.
-        defines = sorted(
-            n
-            for n in bound
-            if n not in writes
-            and not (n in stored.defines and n in before and before[n](self._ns[n]))
-        )
+        # Every other name the step bound. A function name the step then bound to a dataset, as
+        # `df = df()` does, is a write.
+        defines = sorted(n for n in bound if n not in writes)
         reads: list[str] = []
         if names is not None:
             # Names earlier steps defined, as they were when the step started, as
@@ -486,19 +480,17 @@ def _bound(
         if isinstance(name, str)
         and (
             name in stored.stores
-            # The interpreter binds these itself; only a store in the code counts for them.
             or (
-                name not in _INTERPRETER_NAMES
-                and (
-                    name not in before
-                    or not before[name](value)
-                    or (
-                        name in stored.effects
-                        and not is_dataset(value)
-                        # Not `isinstance`, which asks the object's `__class__`, which can raise.
-                        and not issubclass(type(value), ModuleType)
-                    )
-                )
+                not before[name](value)
+                if name in before
+                # The interpreter adds these itself, and never as a dataset.
+                else name not in _INTERPRETER_NAMES or is_dataset(value)
+            )
+            or (
+                name in stored.effects
+                and not is_dataset(value)
+                # Not `isinstance`, which asks the object's `__class__`, which can raise.
+                and not issubclass(type(value), ModuleType)
             )
         )
     }

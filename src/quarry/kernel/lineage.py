@@ -292,9 +292,12 @@ class _ScopeVisitor(ast.NodeVisitor):
             self.helpers.append((name, scope))
 
     def _define(self, name: str) -> None:
+        # Not a module store: a def or class makes a new object whenever it runs, which the
+        # executor sees, while one that never ran, as under `if False:`, leaves the name alone.
         if self._scope.kind == "module":
             self.defines.add(name)
-        self._scope.bound.add(name)
+        else:
+            self._scope.bound.add(name)
 
     def _visit_scope(
         self, kind: _ScopeKind, body: Iterable[ast.AST], bound: Iterable[str] = ()
