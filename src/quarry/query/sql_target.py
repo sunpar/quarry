@@ -53,10 +53,10 @@ def to_sql(
         inner = pivot_sql(inner, spec.pivot)
     projection = "*" if spec.select is None else ", ".join(quote_ident(c) for c in spec.select)
     outer = f"SELECT {projection} FROM ({inner})"
-    if spec.sort:
+    if order := spec.row_order:
         # Nulls sort first in both directions, matching the polars target.
         outer += " ORDER BY " + ", ".join(
-            f"{quote_ident(s.col)} {'DESC' if s.desc else 'ASC'} NULLS FIRST" for s in spec.sort
+            f"{quote_ident(s.col)} {'DESC' if s.desc else 'ASC'} NULLS FIRST" for s in order
         )
     if spec.limit is not None:
         outer += f" LIMIT {spec.limit}"
