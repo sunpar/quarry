@@ -1292,7 +1292,9 @@ them.
   rather than being rebuilt. Before, both tables replaced the grid with
   "Loading" on every change. Each table keeps the result itself, as the
   built-ins inline their column helpers: `useQuery`'s contract is fixed, and a
-  chart drawing old rows under newly chosen columns could mislead or fail.
+  chart drawing old rows under newly chosen columns could mislead or fail. Cost:
+  after a failed query, the next changed query shows the last successful rows,
+  not the error, while it loads.
 - **OHLC reads times and prices as the time series does**: naive ISO datetimes
   are UTC, Decimal strings become numbers, a candle whose time or any price is
   not finite is dropped, and rows on the same second keep the last, because

@@ -120,8 +120,13 @@ describe("data-table built-in", () => {
     expect(gridProps).toHaveBeenLastCalledWith(
       expect.objectContaining({ rowData: rows }),
     );
+    expect(screen.getByTestId("grid").parentElement?.ariaBusy).toBe("true");
     // The same grid stays mounted rather than being rebuilt.
     expect(gridMounts).toHaveBeenCalledTimes(1);
+    query.mockReturnValue({ status: "error", message: "unknown column" });
+    rerender(<DataTable datasets={["df"]} />);
+    expect(screen.getByText("unknown column")).toBeTruthy();
+    expect(screen.queryByTestId("grid")).toBeNull();
   });
 
   it("shows query errors in place", () => {

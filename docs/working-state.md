@@ -81,11 +81,11 @@ mappings. No implemented-but-unmerged records remain.
 The backlog also removes the completed notebook-route query and default-output
 test gaps. CLI project-subcommand and filesystem-write-failure coverage remain
 open. The backlog removes the resolved schema-free notebook rendering, duplicate
-mount, truncated long-series and CLI export-permissions problems. Its table
-filter entry now covers retaining rows while a changed sort or filter query
-loads. Completed-result query caching remains open; the implementation reuses
-only concurrent requests. Restoring the latest saved snapshot automatically on
-mount remains deferred; the history-restore fix covers scrubber selections.
+mount, truncated long-series and CLI export-permissions problems. PR #27 keeps
+table rows visible while a changed sort or filter query loads. Completed-result
+query caching remains open; the implementation reuses only concurrent requests.
+Restoring the latest saved snapshot automatically on mount remains deferred; the
+history-restore fix covers scrubber selections.
 
 The workflow assessment prioritizes scalar and dictionary dependency capture
 before reusable parameter contracts. Metric definitions and content validation
@@ -135,8 +135,8 @@ warnings remain.
 
 1. Select follow-up work from the validated inventory and preserve its stable
    source identities when priorities or implementations change.
-2. Prioritize scalar dependency capture, changed-query row retention and the
-   remaining correctness issues in [open-items.md](open-items.md).
+2. Prioritize scalar dependency capture and the remaining correctness issues in
+   [open-items.md](open-items.md).
 3. Decide workflow parameter contracts, metric validation and branching replay
    semantics before implementing those features.
 4. Retain native-x86 and live-integration limits until their own checks run.
