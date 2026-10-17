@@ -60,10 +60,10 @@ them.
   errors and differences between targets. Cost: a client omits a key rather than
   sending `[]`.
 - **Output names are unique, ignoring case**: a spec is rejected when its group
-  keys and aggregate names repeat a name, or when `select` does. polars raises
-  on a duplicate, DuckDB renames it or returns it twice, and DuckDB identifiers
-  ignore case. Cost: a polars frame cannot select two names that differ only in
-  case.
+  keys and aggregate names repeat a name, or when `select` or a pivot's index
+  does. polars raises on a duplicate or keeps one copy of a repeated pivot
+  index, DuckDB renames it or returns it twice, and DuckDB identifiers ignore
+  case. Cost: a polars frame cannot select two names that differ only in case.
 - **`Pivot.agg` takes every aggregate**: `std` is allowed, as spec §5 says. The
   plan narrowed the list only because polars string pivot aggregates lacked
   `std`, and `pl.element()` expressions close that gap.

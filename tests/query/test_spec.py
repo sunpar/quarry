@@ -63,6 +63,13 @@ def test_duplicate_select_names_rejected() -> None:
         QuerySpec(dataset="r", select=["a", "b", "a"])
 
 
+def test_duplicate_pivot_index_names_rejected() -> None:
+    # polars returns the column once, while DuckDB returns `a` and `a_1`.
+    pivot = Pivot(index=["a", "A"], columns="k", values="v", agg="sum")
+    with pytest.raises(ValidationError, match="duplicate pivot index column 'A'"):
+        QuerySpec(dataset="r", pivot=pivot)
+
+
 @pytest.mark.parametrize(
     ("fields", "message"),
     [

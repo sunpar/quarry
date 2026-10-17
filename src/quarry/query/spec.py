@@ -171,6 +171,8 @@ class QuerySpec(BaseModel):
             _require_unique([*self.group_by, *(a.name for a in self.aggs)], "output column")
         if self.select is not None:
             _require_unique(self.select, "select column")
+        if self.pivot is not None:  # polars keeps one copy of a repeated index; DuckDB renames it
+            _require_unique(self.pivot.index, "pivot index column")
         return self
 
 
