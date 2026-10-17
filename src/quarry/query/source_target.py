@@ -370,9 +370,9 @@ def _reshape_steps(spec: QuerySpec, schema: Schema | None, head_is_lazy: bool) -
 
 def _tail_steps(spec: QuerySpec) -> list[str]:
     steps: list[str] = []
-    if spec.sort:
-        cols = py_literal([s.col for s in spec.sort])
-        steps.append(f".sort({cols}, descending={py_literal([s.desc for s in spec.sort])})")
+    if order := spec.row_order:
+        cols = py_literal([s.col for s in order])
+        steps.append(f".sort({cols}, descending={py_literal([s.desc for s in order])})")
     if spec.limit is not None or spec.offset:
         steps.append(f".slice({spec.offset}, {py_literal(spec.limit)})")
     if spec.select is not None:
