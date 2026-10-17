@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import builtins
 import contextlib
 import io
 import json
@@ -52,9 +53,6 @@ from quarry.query.sql_target import (
 
 TAIL_BYTES: Final = 4096
 _NOTHING_STORED: Final = CodeNames(frozenset(), frozenset(), frozenset())
-# Names the interpreter adds to a step's namespace: `exec` adds `__builtins__`, and a module-level
-# annotation `__annotations__`.
-_INTERPRETER_NAMES: Final = frozenset({"__builtins__", "__annotations__"})
 
 Status = Literal["ok", "error", "interrupted"]
 # Whether a namespace value is still the object a name was bound to when the check was made.
@@ -111,6 +109,10 @@ class Executor:
         tail_bytes: int = TAIL_BYTES,
     ) -> None:
         """`conn` is the namespace's DuckDB connection, which an interrupt also stops."""
+        # The names `exec` and a module-level annotation would add on the first step, added now
+        # so that only a step's own code ever binds them.
+        namespace.setdefault("__builtins__", builtins.__dict__)
+        namespace.setdefault("__annotations__", {})
         self._ns = namespace
         self._conn = conn
         self._row_cap = row_cap
@@ -481,12 +483,8 @@ def _bound(
         if isinstance(name, str)
         and (
             name in stored.stores
-            or (
-                not before[name](value)
-                if name in before
-                # The interpreter adds these itself, and never as a dataset.
-                else name not in _INTERPRETER_NAMES or is_dataset(value)
-            )
+            or name not in before
+            or not before[name](value)
             or (
                 name in stored.effects
                 and not is_dataset(value)

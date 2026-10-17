@@ -545,23 +545,27 @@ def test_interpreter_names_are_not_defines() -> None:
     assert make().execute("x: int = 1").defines == ["x"]  # not `__annotations__`
 
 
-@pytest.mark.parametrize("earlier", [False, True], ids=["first_step", "later_step"])
+@pytest.mark.parametrize(
+    ("value", "kind"),
+    [("pl.DataFrame({'a': [1]})", "writes"), ("{'n': 2}", "defines")],
+    ids=["dataset", "value"],
+)
 @pytest.mark.parametrize(
     ("name", "store"),
     [
-        ("__prices__", "{name} = {frame}"),
-        ("__builtins__", "{name} = {frame}"),
-        ("__builtins__", "globals()['{name}'] = {frame}"),
-        ("__annotations__", "globals()['{name}'] = {frame}"),
+        ("__prices__", "{name} = {value}"),
+        ("__builtins__", "{name} = {value}"),
+        ("__builtins__", "globals()['{name}'] = {value}"),
+        ("__annotations__", "globals()['{name}'] = {value}"),
     ],
     ids=["dunder", "builtins", "builtins_dynamic", "annotations_dynamic"],
 )
-def test_a_dunder_named_dataset_is_a_write(name: str, store: str, earlier: bool) -> None:
-    ex = make()
-    if earlier:
-        ex.execute("x: int = 1")  # the interpreter adds `__builtins__` and `__annotations__`
-    result = ex.execute(store.format(name=name, frame="pl.DataFrame({'a': [1]})"))
-    assert (result.writes, result.defines) == ([name], [])
+def test_a_store_to_a_dunder_name_binds_it(name: str, store: str, value: str, kind: str) -> None:
+    result = make().execute(store.format(name=name, value=value))
+    assert (result.writes, result.defines) == (
+        [name] if kind == "writes" else [],
+        [name] if kind == "defines" else [],
+    )
 
 
 def test_an_effect_on_an_object_whose_class_attribute_raises_is_a_define() -> None:
