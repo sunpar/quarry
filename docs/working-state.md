@@ -1,22 +1,19 @@
 # Working state
 
-Checkpoint as of 2026-10-17, with PRs #26 and #27 open. This page records
-current work and verification. The [docs index](README.md) describes the
-permanent context and [open-items.md](open-items.md) holds unresolved work.
+Checkpoint as of 2026-10-17, with PR #26 open. This page records current work
+and verification. The [docs index](README.md) describes the permanent context
+and [open-items.md](open-items.md) holds unresolved work.
 
 ## Current work
 
-Two independent PRs are open on main `c37524b`, each with CI Auto-fix on. Hosted
-CI runs only on demand.
-
-### PR #26: recipe input lineage
-
 [PR #26](https://github.com/sunpar/quarry/pull/26), "Keep steps that bind recipe
-inputs", is open from branch `claude/token-usage-cleanup-c8c59f`. It fixes the
-first known problem in the backlog and the priority-1 gap in the workflow
-assessment. A saved recipe used to drop the step that bound a parameter, import
-or lambda a later step read, and fresh replay failed with `NameError`. A later
-`symbols.append(...)` or `params.update(...)` step was dropped the same way.
+inputs", is open on main `3572008` from branch
+`claude/token-usage-cleanup-c8c59f`, with CI Auto-fix on. Hosted CI runs only on
+demand. It fixes the first known problem in the backlog and the priority-1 gap
+in the workflow assessment. A saved recipe used to drop the step that bound a
+parameter, import or lambda a later step read, and fresh replay failed with
+`NameError`. A later `symbols.append(...)` or `params.update(...)` step was
+dropped the same way.
 
 - `defines` now lists every non-dataset name a step binds, and later loads of
   those names are reads. Module-level method calls whose result is dropped bind
@@ -32,38 +29,33 @@ with tests in the second commit, plus a freed weak reference that matched `None`
 and the missing method-call rule. The prompt-step fold still counts a failed
 call's bindings, by choice; the fold decision records why.
 
-GitHub's Claude review found nothing blocking. GitHub Codex raised three
-findings on `8a65aba`. Commit `00a0a26` fixes two: dunder dataset names lost
-their writes, and the module check asked a proxy's raising `__class__`. The
-third, a change through an alias, is recorded as a blind spot. All three threads
-are answered and resolved, and a Codex re-review is requested.
+GitHub Codex raised four findings. Commits `00a0a26` and `de8f6d3` fix three:
+dunder dataset names lost their writes, the module check asked a proxy's raising
+`__class__`, and explicit stores to `__builtins__` or `__annotations__` were
+dropped. The fourth, a change through an alias, is recorded as a blind spot.
+Claude's re-review found nothing blocking; `e8c4b11` documents the two limits it
+raised. Codex found nothing on `e8c4b11`.
 
 `make check` on `8a65aba` passed with 1,257 Python tests (3 skipped), 270
 frontend and 25 gate/transport tests in 78.28 s on macOS arm64. Hosted Linux
 [run 39044174936](https://github.com/sunpar/quarry/actions/runs/39044174936)
-passed on `135c818`. The pre-push check on `00a0a26` passed 1,259 Python tests
-with 3 skipped and 270 frontend tests.
-
-### PR #27: table rows during refetch
-
-[PR #27](https://github.com/sunpar/quarry/pull/27), "Keep table rows visible
-while a changed query loads", is open from branch `claude/table-row-retention`.
-Both table built-ins now keep their last answer under a "Loading" status line
-while a changed sort or filter loads, and the AG Grid table stays mounted. The
-decision is in [decisions](context/decisions.md), next to the other table
-decisions. Its browser assertion fails against the old components.
-
-`make check` on `cf3e01f` passed with 1,238 Python tests (3 skipped), 272
-frontend and 25 gate/transport tests in 77.92 s. The PR wrapper re-verified it.
-`@codex review` and `@claude review` are requested.
+passed on `135c818`. The pre-push check on `e8c4b11` passed 1,260 Python tests
+with 3 skipped.
 
 Running `uv run` in a fresh worktree installs Quarry into `.venv`, and
 `make check` then stops at its dependency check; rerun `make deps` to recover.
 
-## Main as of `c37524b`
+## Main as of `3572008`
 
-PRs #18–#25 are merged. Their combined head `4bbbeb4` passed full gates on Mac
-and hosted Ubuntu with 1,238 Python, 270 frontend and 25 gate/transport tests
+[PR #27](https://github.com/sunpar/quarry/pull/27) merged as `3572008`. Both
+table built-ins keep their last answer under a "Loading" status line while a
+changed sort or filter loads, and the AG Grid table stays mounted. `make check`
+on `cf3e01f` passed with 1,238 Python tests (3 skipped), 272 frontend and 25
+gate/transport tests; Codex and Claude found nothing to fix at `d62a299`.
+
+PRs #18–#25 merged before it. Their combined head `4bbbeb4` passed full gates on
+Mac and hosted Ubuntu with 1,238 Python, 270 frontend and 25 gate/transport
+tests
 ([run 38664668771](https://github.com/sunpar/quarry/actions/runs/38664668771)).
 Each source PR completed its saved review workflow at its original head, but the
 combined head received no further review round. PRs #19–#23 exhausted their
@@ -120,8 +112,7 @@ warnings remain.
 
 ## Next actions
 
-1. Address bot review findings on PRs #26 and #27 until `@codex` and `@claude`
-   are clean, then merge each once CI is green.
+1. Merge PR #26 once `@claude` is clean on its head and hosted CI is green.
 2. Select the next item from [open-items.md](open-items.md): the remaining
    correctness issues come first.
 3. Decide workflow parameter contracts, metric validation and branching replay

@@ -233,9 +233,6 @@ one up when a researcher needs it.
   `'infinity'` in TIMESTAMP_S and TIMESTAMP_NS columns.
 - Pre-aggregate relation pivots by index and pivot columns in SQL, because the
   pivot now pulls every filtered row into polars.
-- Keep previous rows visible in both tables while a new sort or filter query
-  refetches. Both tables now record filters and sort in server-side query specs;
-  refreshes of the same spec already retain rows.
 - Restore the last snapshot's state on mount: a reload resets a view to
   `initial_state` even when `view.snapshots` has later state.
 - Make `npm run dev` views work inside the null-origin frame: Vite's dev CORS

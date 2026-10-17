@@ -1315,6 +1315,16 @@ them.
   the live schema loses its column, and shows "Showing the first N rows." when a
   page is full; the plan's "N of M rows" would repeat the page size, since
   `row_count` counts the rows returned.
+- **Both tables keep their last answer while a changed query loads**: a new sort
+  or filter is a new spec, which `useQuery` reports as loading, so each table
+  shows its last successful result under a "Loading" status line until the
+  answer lands, then the new rows or the error. The AG Grid table stays mounted
+  rather than being rebuilt. Before, both tables replaced the grid with
+  "Loading" on every change. Each table keeps the result itself, as the
+  built-ins inline their column helpers: `useQuery`'s contract is fixed, and a
+  chart drawing old rows under newly chosen columns could mislead or fail. Cost:
+  after a failed query, the next changed query shows the last successful rows,
+  not the error, while it loads.
 - **OHLC reads times and prices as the time series does**: naive ISO datetimes
   are UTC, Decimal strings become numbers, a candle whose time or any price is
   not finite is dropped, and rows on the same second keep the last, because

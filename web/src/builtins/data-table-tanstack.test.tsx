@@ -105,6 +105,20 @@ describe("data-table-tanstack built-in", () => {
     expect(screen.getByText("Showing the first 500 rows.")).toBeTruthy();
   });
 
+  it("keeps the previous rows while a changed query loads, then shows its error", () => {
+    query.mockReturnValue(prices);
+    const { rerender } = render(<DataTableTanstack datasets={["df"]} />);
+    // A new sort or filter is a new spec, which starts out loading.
+    query.mockReturnValue({ status: "loading" });
+    rerender(<DataTableTanstack datasets={["df"]} />);
+    expect(screen.getByText("1.5")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("Loading");
+    query.mockReturnValue({ status: "error", message: "unknown column" });
+    rerender(<DataTableTanstack datasets={["df"]} />);
+    expect(screen.getByText("unknown column")).toBeTruthy();
+    expect(screen.queryByText("1.5")).toBeNull();
+  });
+
   it("shows query errors in place", () => {
     query.mockReturnValue({ status: "error", message: "unknown column" });
     render(<DataTableTanstack datasets={["df"]} />);

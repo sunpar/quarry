@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { AgGridReact } from "ag-grid-react";
 import {
   AllCommunityModule,
@@ -41,10 +41,15 @@ export default function DataTable({ datasets }: Props) {
     ...(filters.length === 0 ? {} : { filters }),
     ...(sort === null ? {} : { sort: [{ col: sort.col, desc: sort.desc }] }),
   });
+  // A new sort or filter is a new query, which starts out loading: the last answer stays on
+  // screen until it lands.
+  const [kept, setKept] = useState<typeof result | null>(null);
+  if (result.status === "success" && result !== kept) setKept(result);
+  const shown = result.status === "loading" && kept !== null ? kept : result;
 
   const columnDefs = useMemo<ColDef[]>(() => {
-    if (result.status !== "success") return [];
-    return result.schema.map((column) => ({
+    if (shown.status !== "success") return [];
+    return shown.schema.map((column) => ({
       field: column.name,
       headerName: column.name,
       sortable: true,
@@ -57,7 +62,7 @@ export default function DataTable({ datasets }: Props) {
         ? "numericColumn"
         : undefined,
     }));
-  }, [result, sort]);
+  }, [shown, sort]);
 
   const onSortChanged = (event: SortChangedEvent) => {
     const sorted = event.api
@@ -73,29 +78,37 @@ export default function DataTable({ datasets }: Props) {
   return (
     <div className="flex h-full flex-col">
       <TableFilters
-        schema={live ?? (result.status === "success" ? result.schema : null)}
+        schema={live ?? (shown.status === "success" ? shown.schema : null)}
         filters={filters}
         onChange={setFilters}
         sort={sort}
         onClearSort={() => setSort(null)}
       />
-      {result.status === "loading" ? (
+      {shown.status === "loading" ? (
         <p className="p-4 text-sm text-muted-foreground">Loading</p>
-      ) : result.status === "error" ? (
+      ) : shown.status === "error" ? (
         <pre className="p-4 font-mono text-sm text-destructive">
-          {result.message}
+          {shown.message}
         </pre>
       ) : (
         <>
-          {(result.truncated || result.rows.length >= limit) && (
-            <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
-              Showing the first {result.rows.length.toLocaleString()} rows.
+          {shown !== result && (
+            <p
+              role="status"
+              className="border-b border-border px-3 py-1 text-sm text-muted-foreground"
+            >
+              Loading
             </p>
           )}
-          <div className="min-h-0 flex-1">
+          {(shown.truncated || shown.rows.length >= limit) && (
+            <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
+              Showing the first {shown.rows.length.toLocaleString()} rows.
+            </p>
+          )}
+          <div className="min-h-0 flex-1" aria-busy={shown !== result}>
             <AgGridReact
               theme={theme}
-              rowData={result.rows}
+              rowData={shown.rows}
               columnDefs={columnDefs}
               onSortChanged={onSortChanged}
               suppressMultiSort
