@@ -17,12 +17,17 @@ vi.mock("@quarry/hooks", () => ({
 }));
 // The grid itself is AG Grid's to test; jsdom has no layout, so stub it and check the contract.
 const gridProps = vi.fn();
-vi.mock("ag-grid-react", () => ({
-  AgGridReact: (props: object) => {
-    gridProps(props);
-    return <div data-testid="grid" />;
-  },
-}));
+const gridMounts = vi.fn();
+vi.mock("ag-grid-react", async () => {
+  const { useEffect } = await import("react");
+  return {
+    AgGridReact: (props: object) => {
+      gridProps(props);
+      useEffect(() => gridMounts(), []);
+      return <div data-testid="grid" />;
+    },
+  };
+});
 vi.mock("ag-grid-community", () => ({
   AllCommunityModule: {},
   ModuleRegistry: { registerModules: () => undefined },
@@ -94,6 +99,29 @@ describe("data-table built-in", () => {
     expect(
       screen.getByRole("button", { name: "Clear sort (gone)" }),
     ).toBeTruthy();
+  });
+
+  it("keeps the grid and its rows while a changed query loads", () => {
+    const rows = [{ a: 1 }];
+    query.mockReturnValue({
+      status: "success",
+      rows,
+      schema: [{ name: "a", dtype: "Int64" }],
+      rowCount: 1,
+      truncated: false,
+      arrow: null,
+    });
+    gridMounts.mockClear();
+    const { rerender } = render(<DataTable datasets={["df"]} />);
+    // A new sort or filter is a new spec, which starts out loading.
+    query.mockReturnValue({ status: "loading" });
+    rerender(<DataTable datasets={["df"]} />);
+    expect(screen.getByRole("status").textContent).toBe("Loading");
+    expect(gridProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({ rowData: rows }),
+    );
+    // The same grid stays mounted rather than being rebuilt.
+    expect(gridMounts).toHaveBeenCalledTimes(1);
   });
 
   it("shows query errors in place", () => {
