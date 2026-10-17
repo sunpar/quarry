@@ -52,6 +52,9 @@ from quarry.query.sql_target import (
 
 TAIL_BYTES: Final = 4096
 _NOTHING_STORED: Final = CodeNames(frozenset(), frozenset(), frozenset())
+# Names the interpreter adds to a step's namespace: `exec` adds `__builtins__`, and a module-level
+# annotation `__annotations__`.
+_INTERPRETER_NAMES: Final = frozenset({"__builtins__", "__annotations__"})
 
 Status = Literal["ok", "error", "interrupted"]
 # Whether a namespace value is still the object a name was bound to when the check was made.
@@ -480,9 +483,8 @@ def _bound(
     return {
         name
         for name, value in namespace.items()
-        # The interpreter's own names: `exec` adds `__builtins__`, an annotation `__annotations__`.
         if isinstance(name, str)
-        and not (name.startswith("__") and name.endswith("__"))
+        and name not in _INTERPRETER_NAMES
         and (
             name in stored.stores
             or name not in before
@@ -490,7 +492,8 @@ def _bound(
             or (
                 name in stored.effects
                 and not is_dataset(value)
-                and not isinstance(value, ModuleType)
+                # Not `isinstance`, which asks the object's own `__class__`, and that can raise.
+                and not issubclass(type(value), ModuleType)
             )
         )
     }

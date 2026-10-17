@@ -257,8 +257,9 @@ them.
   notebook's display line, and a module because `json.dump(...)` would make
   every later use of `json` depend on that step. Cost: a dataset's in-place
   `df.extend(other)` statement is not a write, a mutating call whose result is
-  used (`x = lst.pop()`) is missed, and a `_conn.execute(...)` statement makes
-  each later step that uses `_conn` depend on it.
+  used (`x = lst.pop()`) is missed, a call through an alias binds only the
+  alias, and a `_conn.execute(...)` statement makes each later step that uses
+  `_conn` depend on it.
 - **Identity through weak references**: rebinding is detected against
   `weakref.ref` snapshots taken before the step, falling back to `id()` only for
   types that refuse weak references. Plain `id()` missed a write when a freed

@@ -533,6 +533,21 @@ def test_interpreter_names_are_not_defines() -> None:
     assert make().execute("x: int = 1").defines == ["x"]  # not `__annotations__`
 
 
+def test_a_dunder_named_dataset_is_a_write() -> None:
+    result = make().execute("__prices__ = pl.DataFrame({'a': [1]})")
+    assert (result.writes, result.defines) == (["__prices__"], [])
+
+
+def test_an_effect_on_an_object_whose_class_attribute_raises_is_a_define() -> None:
+    ex = make()
+    ex.execute(
+        "class Proxy:\n    @property\n    def __class__(self):\n        raise RuntimeError\n"
+        "    def touch(self):\n        pass\np = Proxy()"
+    )
+    result = ex.execute("p.touch()")
+    assert (result.status, result.defines) == ("ok", ["p"])
+
+
 def test_a_failed_step_defines_only_what_it_certainly_bound() -> None:
     ex = make()
     ex.execute("params = {'scale': 1}\nkept = [1]")

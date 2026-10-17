@@ -61,9 +61,13 @@ Decisions already made are in [decisions.md](context/decisions.md).
   data. In-place mutation inside a function, such as a helper that sets
   `df.columns` or `params["k"]`, is invisible, and so is a mutating method whose
   result is used (`x = lst.pop()`) or that a statement calls on a dataset
-  (`df.extend(other)`). A literal reading `FROM RECENT` is not matched to
-  dataset `recent`, though DuckDB's catalog ignores case. Silent: a saved recipe
-  can miss a source step.
+  (`df.extend(other)`). A change through an alias binds only the alias: after
+  `symbols = params["symbols"]`, a later `symbols.append("B")` is not a producer
+  of `params`, so a dataset built from `params` replays the list without `"B"`,
+  and validation, which compares schema and row count, can pass it. Catching it
+  needs tracking which objects each name reaches. A literal reading
+  `FROM RECENT` is not matched to dataset `recent`, though DuckDB's catalog
+  ignores case. Silent: a saved recipe can miss a source step.
 - **Lineage approximations**: a failed step's in-place mutation is not a write.
   A successful step's store that never ran is a write or define, but the step
   then also reads the name, so the step that bound it before stays in the
