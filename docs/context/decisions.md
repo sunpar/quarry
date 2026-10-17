@@ -242,27 +242,77 @@ them.
   only their free names as reads, never stores, and a `del` of a plain name is
   neither. A false write of a common name like `df` would put wrong steps into
   saved recipes.
-- **Syntactic stores count as writes**: a successful step writes every dataset
-  name it stores, plus names newly bound or rebound to another object. polars
-  in-place methods return the same object (`df.extend(...) is df`, probed), so
-  identity alone misses `df = df.extend(other)`. Kept after review; cost: a
-  store that never ran, as in `if x is None: x = ...`, reports a false write.
-- **Failed steps report only identity changes**: on error or interrupt the store
-  term is dropped, because a store may not have run. Kept after review; cost: a
-  failed step's in-place mutation is not a write.
+- **Syntactic stores count as bindings**: a successful step binds every name it
+  stores, plus names newly bound or rebound to another object; the datasets
+  among them are its writes. polars in-place methods return the same object
+  (`df.extend(...) is df`, probed), so identity alone misses
+  `df = df.extend(other)`, and `params["k"] = 2` changes a dict in place. A store
+  that leaves a name holding the same module binds nothing, so a repeated
+  `import polars as pl` neither defines the preloaded `pl` nor makes later uses
+  of it depend on that step. Kept after review; cost: a store inside a block
+  that never ran, as in `if flag: x = ...`, reports a false binding. When the
+  name still holds the object it held before and was a dataset or an earlier
+  define, the step also reads it, so the step that made that object stays in
+  the recipe: the false binding only adds steps. A statement directly in the
+  module body has run once the step succeeds, so its store does not read.
+- **A load after the step's own binding is not a read**: once a statement
+  directly in the module body binds a name, a later load of it in the step,
+  as `df.select(cols)` after `cols = [...]`, sees that binding, so it does not
+  read what an earlier step bound. Without this, each step that rebound and used
+  a common name, such as `cols`, `n = 1` or `import json`, read the previous
+  one, and a recipe replayed most of the session; main already chained `df`
+  this way. Stores in blocks, loop targets included, may not have run, and a
+  load before the store or in the same statement (`n = n + 1`) still reads.
+  Cost: a loop variable ending on the same cached integer, as
+  `for i in range(3)` does, still chains steps.
+- **Failed steps report only identity changes**: when the step's own code raises
+  or is interrupted, the store term is dropped from writes and defines, because
+  a store may not have run. Kept after review; cost: a failed step's in-place
+  mutation is not a binding, even through a method called for its effect.
+- **A method called for its effect binds its object**: a statement at module
+  level, or in a class body there, which runs with its definition, that calls a
+  method and drops the result, as `params.update(...)`, `symbols.append(...)` or
+  `_conn.register(...)` do, binds the name the call hangs off, unless that name
+  holds a dataset or a module, or the class body binds that name itself. A dropped result means the call ran for its
+  effect, and without it a recipe replayed the list from before the `append`. A
+  dataset is left out because `df.head()` is a notebook's display line, and a
+  module because `json.dump(...)` would make every later use of `json` depend on
+  that step. Cost: a dataset's in-place `df.extend(other)` statement is not a
+  write, a mutating call whose result is used (`x = lst.pop()`) is missed, a
+  call through an alias binds only the alias, and a `_conn.execute(...)`,
+  `log.info(...)` or `loaders.prices()` statement makes each later step that
+  uses that object depend on it.
 - **Identity through weak references**: rebinding is detected against
   `weakref.ref` snapshots taken before the step, falling back to `id()` only for
   types that refuse weak references. Plain `id()` missed a write when a freed
   object's address was reused, which a reviewer reproduced deterministically.
+  Dicts, lists, numbers and strings refuse weak references, so a define of one
+  rests on its store; identity only adds a binding it shows changed, and an
+  unchanged object it misreads only adds a read.
 - **Class-body reads stay over-reported**: every name a class body loads counts
   as a read, even one the body binds first. An extra read only adds a dependency
   to a recipe, never drops one, while exact handling needs execution-order
   analysis. Kept after review.
-- **`defines` are names the step bound**: a function or class name counts only
-  when the step newly bound or rebound it, so a `def` that never ran is not a
-  define. A helper is forgotten once its name is rebound or deleted, so later
-  reads are not credited to it. A function name the step then binds to a
-  dataset, as `df = df()` does, is a write only.
+- **`defines` are every other name the step bound**: helpers, imports, lambdas
+  and parameters such as `params = {...}`, so a recipe keeps the step that bound
+  a name a later step reads. With only `def` and `class` names, a result reading
+  `params["scale"]` saved without the step that bound `params`, and fresh replay
+  failed with `NameError`. A `def` or `class` is not a syntactic store, since
+  one that ran makes an object no name held before the step: one that never ran
+  is not a define, and its body is not recorded beside `fetch = original`, while
+  another store to that name, such as `make.factor = 2`, still counts. A name is
+  forgotten once it is deleted or holds another object without a step binding
+  it. A helper's body is forgotten once its name holds another object, unless
+  the step defined it anew, so a store that leaves the helper in place, such as
+  `get_data.label = ...`, keeps what a call reads, and a name bound to a helper,
+  as `fetch = get_data` binds it, reads what the helper reads, as does an
+  instance of a helper class for its methods. A function name the step then
+  binds to a dataset, as `df = df()` does, is a write only. A name the kernel
+  preloads, such as `pl`, is read only after a step rebinds it. The model's
+  `run_python` result leaves `defines` out, since a star import lists every
+  name it binds. Cost: lineage follows names, not objects, so
+  data reached through a container, bound method, closure or alias can replay
+  stale where it used to fail with `NameError`; see the open items.
 - **A helper reads where it is called**: a step that names a helper defined by
   an earlier step also reads what the helper's body reads when called: its free
   names, the tables in its SQL literals, and the same for each helper it calls.
@@ -540,9 +590,11 @@ them.
   the previous writer or null.
 - **Prompt-step lineage is a fold**: `step_lineage` combines the `ExecResult` of
   each `run_python` call. Reads are names a call read before an earlier call in
-  the step wrote them, writes and defines are unions, and each dataset's
-  metadata comes from the last call that wrote it. A call that reads and rebinds
-  a name keeps its read.
+  the step wrote or defined them, writes and defines are unions, and each
+  dataset's metadata comes from the last call that wrote it. A call that reads
+  and rebinds a name keeps its read. A failed call's bindings count too, though
+  its code stays out of recipes, so a later call reading what it bound fails
+  validation rather than replaying an older value from an earlier step.
 - **Stop reasons**: Anthropic's `model_context_window_exceeded` and OpenAI's
   `length` end the step as `max_tokens`, and OpenAI's `content_filter` as a
   refusal. The OpenAI adapter checks for truncation before it parses tool

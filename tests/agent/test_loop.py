@@ -220,7 +220,7 @@ def test_cancel_during_the_last_allowed_tool_call_is_not_the_cap(
 
 
 def test_step_lineage_self_rebinding_keeps_read_edge() -> None:
-    def res(reads: list[str], writes: list[str]) -> ExecResult:
+    def res(reads: list[str], writes: list[str], defines: list[str] | None = None) -> ExecResult:
         return ExecResult(
             status="ok",
             stdout_tail="",
@@ -228,7 +228,7 @@ def test_step_lineage_self_rebinding_keeps_read_edge() -> None:
             error=None,
             reads=reads,
             writes=writes,
-            defines=[],
+            defines=defines or [],
             datasets=[],
             duration_ms=0,
         )
@@ -237,6 +237,9 @@ def test_step_lineage_self_rebinding_keeps_read_edge() -> None:
     assert one.reads == ["df"] and one.writes == ["df"]
     two = step_lineage([res([], ["tmp"]), res(["tmp", "prices"], ["out"])])
     assert two.reads == ["prices"] and two.writes == ["out", "tmp"]
+    # A name an earlier call defined comes from this step, not from an earlier one.
+    three = step_lineage([res([], [], ["params"]), res(["params", "prices"], ["out"])])
+    assert three.reads == ["prices"] and three.defines == ["params"]
 
 
 def test_view_is_captured(kernel: KernelClient, tmp_path: Path) -> None:

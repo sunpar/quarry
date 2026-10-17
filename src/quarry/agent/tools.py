@@ -194,7 +194,8 @@ class ToolExecutor:
         result = self._kernel.execute(args.code)
         failed = result.status != "ok"
         self.runs.append((args.code, result))
-        content = result.model_dump(by_alias=True, mode="json")
+        # Every name the code bound, a star import's included: lineage, not news to the model.
+        content = result.model_dump(by_alias=True, mode="json", exclude={"defines"})
         return ToolResult(call_id=call.id, content=json.dumps(content), is_error=failed)
 
     def _describe(self, call: ToolCall, args: _Describe) -> ToolResult:

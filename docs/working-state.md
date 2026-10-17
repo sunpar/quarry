@@ -1,97 +1,99 @@
 # Working state
 
-Checkpoint as of 2026-10-15 01:37 UTC, after the PR #18–#23 integration. This
-page records current work and verification. The [docs index](README.md)
-describes the permanent context and [open-items.md](open-items.md) holds
-unresolved work.
+Checkpoint as of 2026-10-17, with PR #26 open. This page records current work
+and verification. The [docs index](README.md) describes the permanent context
+and [open-items.md](open-items.md) holds unresolved work.
 
-## Integration status
+## Current work
 
-All six requested PRs report merged. Final integration main is `c8a6f44`; its
-files exactly match verified shared head `4bbbeb4`. Docker #24 and the
-recall-test fix #25 are included. The primary checkout tracks current main.
+[PR #26](https://github.com/sunpar/quarry/pull/26), "Keep steps that bind recipe
+inputs", is open on main `3572008` from branch
+`claude/token-usage-cleanup-c8c59f`, with CI Auto-fix on. Hosted CI runs only on
+demand. It fixes the first known problem in the backlog and the priority-1 gap
+in the workflow assessment. A saved recipe used to drop the step that bound a
+parameter, import or lambda a later step read, and fresh replay failed with
+`NameError`. A later `symbols.append(...)` or `params.update(...)` step was
+dropped the same way.
 
-| PR                                              | Result                                                                                                |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| [#18](https://github.com/sunpar/quarry/pull/18) | Reproducible notebook exports with runtime-schema rendering and allowlisted runtime versions          |
-| [#19](https://github.com/sunpar/quarry/pull/19) | Saved server-side table filters and sort                                                              |
-| [#20](https://github.com/sunpar/quarry/pull/20) | Frozen, script-free HTML reports and private atomic export writes                                     |
-| [#21](https://github.com/sunpar/quarry/pull/21) | One mount owner, reliable history-restore delivery and in-flight query reuse                          |
-| [#22](https://github.com/sunpar/quarry/pull/22) | Bounded full-range line reduction with required null-gap endpoints; insufficient budgets are rejected |
-| [#23](https://github.com/sunpar/quarry/pull/23) | Coordinated working state, backlog and assessment records                                             |
+- `defines` now lists every non-dataset name a step binds, and later loads of
+  those names are reads. Module-level method calls whose result is dropped bind
+  their object, unless it holds a dataset or a module. The rules and their costs
+  are in [decisions](context/decisions.md#lineage), and spec §6 is amended.
+- A store inside a block that left a known name holding the same object also
+  reads it, so a store that never ran keeps the earlier producer. A load after
+  a module-body store of the same name is not a read, so steps that rebind
+  `cols` or `import json` no longer chain into each other's recipes.
+- What lineage still misses is in the open items' lineage blind spots, including
+  a change made through an alias.
 
-The export conflict retains runtime-schema rendering, protected helper bindings,
-and the configured point budget. Appended export tests and feature-owned backlog
-edits were reconciled. The shared candidate retains all original source heads
-and the Docker changes. GitHub used squash merges, so main contains the combined
-files rather than the original commit ancestry; the source branches remain
-available.
+Local Claude and Codex reviews of the first commit found two regressions, fixed
+with tests in the second commit, plus a freed weak reference that matched `None`
+and the missing method-call rule. The prompt-step fold still counts a failed
+call's bindings, by choice; the fold decision records why.
 
-[Docker PR #24](https://github.com/sunpar/quarry/pull/24) merged separately as
-`3d9ab20`. [Recall-test PR #25](https://github.com/sunpar/quarry/pull/25) is a
-separate task, merged as `663c9ff`. Its one-line wait synchronizes Recall with
-completed new-session selection. Its author ran source-only reviews, as
-requested in that task; the fresh combined checks include the merged test.
+Over eleven review rounds GitHub Codex raised fifteen findings, and later
+commits fix thirteen:
 
-## Verification and review
+- dunder dataset names lost their writes;
+- the module check asked a proxy's raising `__class__`;
+- stores to `__builtins__` or `__annotations__` were dropped. The executor now
+  adds `__builtins__` before the first step, as `exec` would, and
+  `__annotations__` is an ordinary name, so no special case remains;
+- a `def` that never ran hid another store to its name, then replaced the
+  helper's recorded body;
+- a name bound to a helper, as `fetch = get_data`, or an instance of a helper
+  class did not read what the helper reads;
+- export ordering stopped seeing a recipe's `def` names;
+- method calls and attribute stores in a class body, which runs with its
+  definition, were not counted.
 
-The combined head `4bbbeb4` passed fresh full gates on Mac and hosted Ubuntu:
-1,238 Python tests, 270 frontend tests and 25 gate/transport tests, plus lint,
-formatting, types, build and offline wheel/sdist checks. Each environment had
-three expected skips. Python took 71.37 seconds on Mac and 76.94 seconds on
-Linux; the normal Mac outgoing gate and push took 111.24 seconds.
-[Hosted run 38664668771](https://github.com/sunpar/quarry/actions/runs/38664668771)
-records the exact Linux head. The final merged files match this tested tree.
+The later rounds found members of one family, objects reached through another
+name, so the open items now record that family as one known problem, along with
+a step reading later annotations. Claude's re-review found nothing blocking;
+`e8c4b11` documents the two limits it raised.
 
-The earlier combined hosted run at `8c1b0d1` failed an unchanged browser test,
-`test_refused_import_offers_fix`, before the session view rendered: 1,237 Python
-tests passed and three skipped. Six focused repeats passed after a fresh asset
-build. No application change or test relaxation was made for that timeout. The
-failed run and its logs remain in the integration ledger.
+The local Opus review on `45920cc` raised fourteen findings. Its main one was a
+regression: recipes replayed most of a session, since a step that rebound and
+used `cols`, `n = 1` or `import json` read the previous step's binding. The
+next commit fixes that, a class body's own name counted as the module's, and
+the star-import `defines` sent to the model. The rest are names-not-objects or
+effect-detection limits, now in the open items.
 
-The staged commit smoke runs 24 Node gate tests, 154 Python tests and 41
-frontend tests. Normal hooks verify the staged snapshot independently of
-unstaged edits. The final commit timing is recorded in the integration ledger.
+`make check` on `8a65aba` passed with 1,257 Python tests (3 skipped), 270
+frontend and 25 gate/transport tests in 78.28 s on macOS arm64. Hosted Linux
+[run 39044174936](https://github.com/sunpar/quarry/actions/runs/39044174936)
+passed on `135c818`. The pre-push check on `e8c4b11` passed 1,260 Python tests
+with 3 skipped.
 
-Each source PR completed its saved review workflow at its original delivery
-head. The later combined and history heads did not receive another review round.
-PR #18 received a clean Codex review at its original `7c59864` head; that review
-does not cover the later combined head. PRs #19–#23 exhausted their GitHub bot
-budgets without a clean verdict. All known findings were addressed and inline
-threads resolved; the capped review rotation ended without a clean verdict.
-Local Astra reviews completed, while Opus and Muse were unavailable because of
-subscription limits. GitHub Claude failed before producing substantive reviews.
-No review budgets were reset.
+Running `uv run` in a fresh worktree installs Quarry into `.venv`, and
+`make check` then stops at its dependency check; rerun `make deps` to recover.
 
-The merges occurred concurrently before the controller issued its final merge
-command. PRs #20–#22 merged at 01:33:51–01:34:40 UTC, before the controller's
-01:35:36 silence deadline. The controller issued no merge command and verified
-the resulting main afterward. These merges do not establish a clean combined
-review.
+## Main as of `3572008`
+
+[PR #27](https://github.com/sunpar/quarry/pull/27) merged as `3572008`. Both
+table built-ins keep their last answer under a "Loading" status line while a
+changed sort or filter loads, and the AG Grid table stays mounted. `make check`
+on `cf3e01f` passed with 1,238 Python tests (3 skipped), 272 frontend and 25
+gate/transport tests; Codex and Claude found nothing to fix at `d62a299`.
+
+PRs #18–#25 merged before it. Their combined head `4bbbeb4` passed full gates on
+Mac and hosted Ubuntu with 1,238 Python, 270 frontend and 25 gate/transport
+tests
+([run 38664668771](https://github.com/sunpar/quarry/actions/runs/38664668771)).
+Each source PR completed its saved review workflow at its original head, but the
+combined head received no further review round. PRs #19–#23 exhausted their
+GitHub bot budgets without a clean verdict after all known findings were
+addressed.
 
 ## Remaining work
 
 The validated inventory preserves 266 stable IDs: 16 merged records and 250 open
-records. The open work comprises 151 independent local follow-ups, 41 research
-opportunities, 29 decisions or current limits, 17 external/platform checks, ten
-intentional design deferrals and two optional maintenance choices. All 114
-original backlog bullets and ten supplemental entries retain their source
-mappings. No implemented-but-unmerged records remain.
-
-The backlog also removes the completed notebook-route query and default-output
-test gaps. CLI project-subcommand and filesystem-write-failure coverage remain
-open. The backlog removes the resolved schema-free notebook rendering, duplicate
-mount, truncated long-series and CLI export-permissions problems. PR #27 keeps
-table rows visible while a changed sort or filter query loads. Completed-result
-query caching remains open; the implementation reuses only concurrent requests.
-Restoring the latest saved snapshot automatically on mount remains deferred; the
-history-restore fix covers scrubber selections.
-
-The workflow assessment prioritizes scalar and dictionary dependency capture
-before reusable parameter contracts. Metric definitions and content validation
-still need product decisions. The branching assessment found prefix replay with
-current inputs feasible; immutable historical inputs and side-effect behavior
-remain undecided. These assessments do not implement workflows or branching.
+records. PR #26 implements the module-binding dependency record. The workflow
+assessment's next step after it, reusable parameter contracts, needs a product
+decision on which repeated workflow takes replacement inputs. Metric definitions
+and content validation also need product decisions. The branching assessment
+found prefix replay with current inputs feasible; immutable historical inputs
+and side-effect behavior remain undecided.
 
 Local evidence lives under `/Users/sunpar/Documents/Codex/2026-10-14/`:
 
@@ -133,10 +135,9 @@ warnings remain.
 
 ## Next actions
 
-1. Select follow-up work from the validated inventory and preserve its stable
-   source identities when priorities or implementations change.
-2. Prioritize scalar dependency capture and the remaining correctness issues in
-   [open-items.md](open-items.md).
+1. Merge PR #26 once `@claude` is clean on its head and hosted CI is green.
+2. Select the next item from [open-items.md](open-items.md): the remaining
+   correctness issues come first.
 3. Decide workflow parameter contracts, metric validation and branching replay
    semantics before implementing those features.
 4. Retain native-x86 and live-integration limits until their own checks run.

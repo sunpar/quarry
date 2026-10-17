@@ -178,9 +178,10 @@ def _recipe_order(names: list[str], recipes: list[str]) -> list[tuple[int, list[
 
 def _stores(recipe: str) -> frozenset[str]:
     try:
-        return analyze(recipe).stores
+        names = analyze(recipe)
     except SyntaxError:  # a recipe that does not parse constrains no other
         return frozenset()
+    return names.stores | names.defines
 
 
 def _reachable(edges: list[set[int]], start: int) -> set[int]:
