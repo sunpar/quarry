@@ -29,7 +29,8 @@ with tests in the second commit, plus a freed weak reference that matched `None`
 and the missing method-call rule. The prompt-step fold still counts a failed
 call's bindings, by choice; the fold decision records why.
 
-GitHub Codex raised fifteen findings, and later commits fix thirteen:
+Over eleven review rounds GitHub Codex raised fifteen findings, and later
+commits fix thirteen:
 
 - dunder dataset names lost their writes;
 - the module check asked a proxy's raising `__class__`;
@@ -44,9 +45,10 @@ GitHub Codex raised fifteen findings, and later commits fix thirteen:
 - method calls and attribute stores in a class body, which runs with its
   definition, were not counted.
 
-A change through an alias and a step reading later annotations are recorded as
-blind spots. Claude's re-review found nothing blocking; `e8c4b11` documents the
-two limits it raised.
+The later rounds found members of one family, objects reached through another
+name, so the open items now record that family as one known problem, along with
+a step reading later annotations. Claude's re-review found nothing blocking;
+`e8c4b11` documents the two limits it raised.
 
 `make check` on `8a65aba` passed with 1,257 Python tests (3 skipped), 270
 frontend and 25 gate/transport tests in 78.28 s on macOS arm64. Hosted Linux

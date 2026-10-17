@@ -220,8 +220,9 @@ class Executor:
         }
         self._defined.update({name: _identity_check(self._ns[name]) for name in defines})
         if names is not None:
-            # A def that ran made an object no name held before the step. One under `if False:`
-            # left its name alone, or to an assignment such as `fetch = original`.
+            # A def that ran made a new object. One under `if False:` left its name holding a
+            # helper it already held, or one an assignment such as `fetch = original` copied.
+            # Helpers' tests are weak references, which a new object at a reused address fails.
             self._helper_needs.update(
                 {
                     n: (
@@ -229,7 +230,7 @@ class Executor:
                         names.helper_sql.get(n, frozenset()),
                     )
                     for n in defines
-                    if n in names.defines and not any(same(self._ns[n]) for same in before.values())
+                    if n in names.defines and not any(same(self._ns[n]) for same, _ in helpers)
                 }
             )
         # A name bound to a helper's object, as `alias = helper` binds it, reads what its body

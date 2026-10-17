@@ -5,6 +5,16 @@ Decisions already made are in [decisions.md](context/decisions.md).
 
 ## Known problems
 
+- **Lineage follows names, not objects**: what a helper's body reads follows the
+  helper's name, a name bound to the helper and instances of a helper class, but
+  not an object reached through a container, a bound method or a closure. A
+  change made through an alias binds only the alias: after
+  `symbols = params["symbols"]`, a later `symbols.append("B")` is not a producer
+  of `params`. Before recipe input lineage, such a recipe lacked the binding
+  step and replay failed with `NameError`. Now it keeps that step, so replay can
+  rebuild data from before a later step changed it, and validation, which
+  compares schema and row count, can pass it. Catching it needs tracking which
+  objects each name reaches. Silent.
 - **`in` on zoned columns of frame-backed relations**: an `in` filter with two
   or more items on a tz-aware column of a relation over an in-memory frame needs
   `pytz`. DuckDB imports it for the scan, and Quarry does not depend on it.
@@ -61,16 +71,12 @@ Decisions already made are in [decisions.md](context/decisions.md).
   data. In-place mutation inside a function, such as a helper that sets
   `df.columns` or `params["k"]`, is invisible, and so is a mutating method whose
   result is used (`x = lst.pop()`) or that a statement calls on a dataset
-  (`df.extend(other)`). A change through an alias binds only the alias: after
-  `symbols = params["symbols"]`, a later `symbols.append("B")` is not a producer
-  of `params`, so a dataset built from `params` replays the list without `"B"`,
-  and validation, which compares schema and row count, can pass it. Catching it
-  needs tracking which objects each name reaches. A literal reading
-  `FROM RECENT` is not matched to dataset `recent`, though DuckDB's catalog
-  ignores case. A step that reads `__annotations__` depends on the step that
-  created it, not on later steps that annotated, since counting those would
-  chain every annotated step to every earlier one. Silent: a saved recipe can
-  miss a source step.
+  (`df.extend(other)`). Changes through aliases are under the entry above. A
+  literal reading `FROM RECENT` is not matched to dataset `recent`, though
+  DuckDB's catalog ignores case. A step that reads `__annotations__` depends on
+  the step that created it, not on later steps that annotated, since counting
+  those would chain every annotated step to every earlier one. Silent: a saved
+  recipe can miss a source step.
 - **Lineage approximations**: a failed step's in-place mutation is not a write.
   A successful step's store that never ran is a write or define, but the step
   then also reads the name, so the step that bound it before stays in the

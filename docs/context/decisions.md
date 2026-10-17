@@ -287,7 +287,9 @@ them.
   instance of a helper class for its methods. A function name the step then
   binds to a dataset, as `df = df()` does, is a write only. A name the kernel
   preloads, such as `pl`, is read only after a step rebinds it. Cost: a star
-  import lists every name it binds.
+  import lists every name it binds, and lineage follows names, not objects, so
+  data reached through a container, bound method, closure or alias can replay
+  stale where it used to fail with `NameError`; see the open items.
 - **A helper reads where it is called**: a step that names a helper defined by
   an earlier step also reads what the helper's body reads when called: its free
   names, the tables in its SQL literals, and the same for each helper it calls.
