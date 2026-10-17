@@ -5,7 +5,7 @@ from collections.abc import Callable
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, Route, expect
 
 from quarry.agent.types import AssistantTurn, ToolCall
 from tests.e2e.conftest import RunningServer
@@ -77,6 +77,24 @@ def test_table_filters_sort_history_and_executed_to_code(
     open_session(page, server, component)
     frame = page.frame_locator("iframe[title='View for step 1']")
     expect(frame.get_by_text("1.5", exact=True)).to_be_visible(timeout=30_000)
+    # A changed sort keeps the current rows on screen until its query answers.
+    held: list[Route] = []
+
+    def hold(route: Route) -> None:
+        held.append(route)
+
+    page.route("**/query", hold)
+    with page.expect_response(
+        lambda r: r.url.endswith("/snapshots") and r.request.method == "POST"
+    ):
+        frame.get_by_role("columnheader", name=re.compile(r"^symbol")).click()
+    expect(frame.get_by_text("Loading", exact=True)).to_be_visible()
+    expect(frame.get_by_text("1.5", exact=True)).to_be_visible()
+    assert held
+    for route in held:
+        route.continue_()
+    page.unroute("**/query")
+    expect(frame.get_by_text("Loading", exact=True)).to_have_count(0)
     # First save a numeric predicate, then a second snapshot with server-side sort.
     frame.get_by_label("Filter column").select_option("price")
     frame.get_by_label("Filter operator").select_option("ge")
