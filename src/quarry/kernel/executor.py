@@ -523,8 +523,9 @@ def _base_tables(tree: object) -> set[str]:
 def _identity_check(obj: object) -> _IsSame:
     """A test for "is this still `obj`" that holds no strong reference to it.
 
-    An id can be reused by a new object once `obj` is freed, which a weak reference cannot match;
-    holding `obj` itself would keep every replaced dataset in memory until the step ends.
+    An id can be reused by a new object once `obj` is freed, which a weak reference cannot match,
+    so the id fallback for types without weak references can mistake a new object for `obj`.
+    Holding `obj` itself would keep every replaced dataset in memory until the step ends.
     """
     try:
         ref = weakref.ref(obj)

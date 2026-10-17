@@ -247,7 +247,7 @@ them.
 - **Failed steps report only identity changes**: when the step's own code raises
   or is interrupted, the store term is dropped from writes and defines, because
   a store may not have run. Kept after review; cost: a failed step's in-place
-  mutation is not a binding.
+  mutation is not a binding, even through a method called for its effect.
 - **A method called for its effect binds its object**: a module-level statement
   that calls a method and drops the result, as `params.update(...)`,
   `symbols.append(...)` or `_conn.register(...)` do, binds the name the call
