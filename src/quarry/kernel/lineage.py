@@ -6,9 +6,11 @@ class-level names are looked up at run time and can fall through to the module. 
 `except ... as name` handler binds in its enclosing scope, but `name` there is the exception, so
 loading it is not a read. Assigning to or deleting an attribute or subscript in module scope
 or a class body there (`df.x = ...`, `del df[k]`) changes the object its root name holds, so it
-stores that name too. A statement there that calls a method and drops its result
-(`params.update(...)`) runs it for its effect, which may change the object the root name holds:
-that name is an effect. A class body runs with its definition; a function's body runs later.
+stores that name too, unless the class body binds that name itself. A statement there that calls
+a method and drops its result (`params.update(...)`) runs it for its effect, which may change the
+object the root name holds: that name is an effect. A class body runs with its definition; a
+function's body runs later. A statement directly in the module body that binds a name has run
+once the step finishes, so a load after it sees the step's own binding and is not a load.
 """
 
 from __future__ import annotations
@@ -35,6 +37,9 @@ class CodeNames:
     helper_loads: Mapping[str, frozenset[str]] = field(default_factory=dict)
     helper_sql: Mapping[str, frozenset[str]] = field(default_factory=dict)
     effects: frozenset[str] = frozenset()
+    # Stores by a statement directly in the module body, outside any block: run once the step
+    # finishes.
+    certain: frozenset[str] = frozenset()
 
 
 def analyze(code: str) -> CodeNames:
@@ -43,18 +48,55 @@ def analyze(code: str) -> CodeNames:
     `ast.parse` errors propagate unchanged: SyntaxError, or RecursionError or MemoryError for code
     nested deeper than CPython itself can parse. The walk has no depth limit of its own.
     """
+    tree = ast.parse(code)
     visitor = _ScopeVisitor()
-    visitor.walk(ast.parse(code))
+    visitor.walk(tree)
     module = visitor.module
+    for scope, root, into in visitor.changes:
+        # A class body's own name, as `d` in `d = {}` then `d["k"] = 1` there, is not the module's.
+        if scope.kind == "module" or root not in scope.bound - scope.declared:
+            into.add(root)
+    certain = _certain_stores(tree)
+    loads = {
+        n
+        for n in module.loads
+        if n not in certain or any(site < certain[n] for site in visitor.load_sites[n])
+    }
     return CodeNames(
         frozenset(module.bound),
-        frozenset(module.loads),
+        frozenset(loads),
         frozenset(visitor.defines),
         frozenset(visitor.sql_literals),
         visitor.helper_loads(),
         {name: frozenset(sql) for name, sql in visitor.helper_sql.items()},
         frozenset(visitor.effects),
+        frozenset(certain),
     )
+
+
+def _certain_stores(tree: ast.Module) -> dict[str, tuple[int, int]]:
+    """Each name a statement directly in the module body binds, with where the first such
+    statement ends. A load before that, as in `n = n + 1`, still reads an earlier step's `n`."""
+    certain: dict[str, tuple[int, int]] = {}
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Import | ast.ImportFrom):
+            names = [a.asname or a.name.split(".")[0] for a in stmt.names if a.name != "*"]
+        elif isinstance(stmt, ast.Assign | ast.AugAssign) or (
+            isinstance(stmt, ast.AnnAssign) and stmt.value is not None
+        ):
+            targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+            names = [
+                n.id
+                for target in targets
+                for n in ast.walk(target)
+                if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)
+            ]
+        else:
+            continue
+        end = (stmt.end_lineno or stmt.lineno, stmt.end_col_offset or 0)
+        for name in names:
+            certain.setdefault(name, end)
+    return certain
 
 
 def dataset_reads(names: CodeNames, before: set[str], defined_earlier: set[str]) -> list[str]:
@@ -103,6 +145,11 @@ class _ScopeVisitor(ast.NodeVisitor):
         self.defines: set[str] = set()
         self.sql_literals: set[str] = set()
         self.effects: set[str] = set()
+        # Roots that an attribute or subscript store (into the module's `bound`) or an effect (into
+        # `effects`) changes where the step runs, kept until each class body's names are known.
+        self.changes: list[tuple[_Scope, str, set[str]]] = []
+        # Where each name is loaded, in any scope, as (line, column).
+        self.load_sites: dict[str, list[tuple[int, int]]] = {}
         # Each module-level function and class. A name defined twice, as in both branches of an
         # `if`, reads what each definition reads, since either may be the one that ran.
         self.helpers: list[tuple[str, _Scope]] = []
@@ -128,7 +175,7 @@ class _ScopeVisitor(ast.NodeVisitor):
         if isinstance(node.ctx, ast.Store):
             self._scope.bound.add(node.id)
         elif isinstance(node.ctx, ast.Load):
-            self._scope.loads.add(node.id)
+            self._load(node)
         # A `del` target leaves the namespace: it is neither read nor written.
 
     def visit_Attribute(self, node: ast.Attribute | ast.Subscript) -> None:
@@ -139,7 +186,7 @@ class _ScopeVisitor(ast.NodeVisitor):
         if isinstance(node.ctx, ast.Store | ast.Del) and self._runs_with_step():
             root = _root_name(node)
             if root is not None:
-                self.module.bound.add(root)
+                self.changes.append((self._scope, root, self.module.bound))
         self.generic_visit(node)
 
     visit_Subscript = visit_Attribute
@@ -153,7 +200,7 @@ class _ScopeVisitor(ast.NodeVisitor):
         ):
             root = _root_name(call.func)
             if root is not None:
-                self.effects.add(root)
+                self.changes.append((self._scope, root, self.effects))
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
@@ -195,8 +242,12 @@ class _ScopeVisitor(ast.NodeVisitor):
 
     def visit_AugAssign(self, node: ast.AugAssign) -> None:
         if isinstance(node.target, ast.Name):
-            self._scope.loads.add(node.target.id)  # `c += 1` reads c before rebinding it
+            self._load(node.target)  # `c += 1` reads c before rebinding it
         self.generic_visit(node)
+
+    def _load(self, node: ast.Name) -> None:
+        self._scope.loads.add(node.id)
+        self.load_sites.setdefault(node.id, []).append((node.lineno, node.col_offset))
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if (

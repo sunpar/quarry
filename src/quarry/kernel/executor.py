@@ -169,9 +169,9 @@ class Executor:
         # Whatever the step ends as, it may have changed any dataset, even in place
         # (`df.extend(...)`); the writes below are described after it, so they are current.
         self._described.clear()
-        datasets_before = dataset_names(self._ns)
         # Step code can add a non-str key (`globals()[1] = 1`), which no step can reference.
         before = {n: _identity_check(v) for n, v in self._ns.items() if isinstance(n, str)}
+        datasets_before = {n for n in before if is_dataset(self._ns[n])}
         out, err = _TailWriter(self._tail), _TailWriter(self._tail)
         status, error, names = self._exec(code, out, err)
         # On error or interrupt a store in the code may never have run, so only the namespace
@@ -199,10 +199,13 @@ class Executor:
             loaded = dataset_reads(names, datasets_before, set(self._defined))
             called, called_sql = self._called(names.loads)
             known = datasets_before | set(self._defined)
-            # A store that left its name holding the same object may never have run, as in
-            # `if flag: start = ...`, so the step that bound the object stays a dependency.
+            # A store inside a block that left its name holding the same object may never have
+            # run, as in `if flag: start = ...`, so the step that bound the object stays a
+            # dependency.
             kept = {
-                n for n in stored.stores if n in before and n in self._ns and before[n](self._ns[n])
+                n
+                for n in stored.stores - stored.certain
+                if n in before and n in self._ns and before[n](self._ns[n])
             }
             sql = self._sql_table_reads(names.sql_literals | called_sql, datasets_before)
             reads = sorted({*loaded, *((called | kept) & known), *sql})
@@ -223,6 +226,7 @@ class Executor:
             # A def that ran made a new object. One under `if False:` left its name holding a
             # helper it already held, or one an assignment such as `fetch = original` copied.
             # Helpers' tests are weak references, which a new object at a reused address fails.
+            # Beside any other new value, as `fetch = 5`, the dead body's reads still count.
             self._helper_needs.update(
                 {
                     n: (
@@ -488,22 +492,21 @@ class _TailWriter(io.TextIOBase):
 def _bound(
     stored: CodeNames, before: Mapping[str, _IsSame], namespace: Mapping[str, object]
 ) -> set[str]:
-    """Names the code stored, newly bound (`import *`), or rebound to another object (a helper's
-    `global`), and the effects it called on objects other than datasets and modules. A dataset's
-    `df.head()` is a notebook's display line, and a module's functions rarely change it."""
+    """Names the code newly bound (`import *`) or rebound to another object (a helper's `global`),
+    and those it stored or called effects on, unless they hold the same module as before. A
+    dataset's `df.head()` is a notebook's display line, not an effect. A repeated `import json`
+    binds the module it found, and a module's functions rarely change it."""
     return {
         name
         for name, value in namespace.items()
         if isinstance(name, str)
         and (
-            name in stored.stores
-            or name not in before
+            name not in before
             or not before[name](value)
             or (
-                name in stored.effects
-                and not is_dataset(value)
                 # Not `isinstance`, which asks the object's `__class__`, which can raise.
-                and not issubclass(type(value), ModuleType)
+                not issubclass(type(value), ModuleType)
+                and (name in stored.stores or (name in stored.effects and not is_dataset(value)))
             )
         )
     }

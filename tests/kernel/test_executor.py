@@ -439,6 +439,26 @@ def test_a_star_import_defines_the_names_it_binds() -> None:
     assert ex.execute("out = pl.DataFrame({'a': [pi]})").reads == ["pi"]
 
 
+@pytest.mark.parametrize(
+    "code",
+    [
+        "import json\nout = json.dumps(1)",
+        "n = 1\nout = n",
+        "cols = ['a']\nout = cols",
+        "df = pl.DataFrame({'a': [1]})\nout = df.head()",
+    ],
+    ids=["import", "constant", "value", "dataset"],
+)
+def test_a_load_after_the_steps_own_binding_does_not_read_the_earlier_one(code: str) -> None:
+    ex = make()
+    ex.execute(code)
+    assert ex.execute(code).reads == []
+
+
+def test_importing_the_module_a_name_holds_binds_nothing() -> None:
+    assert make().execute("import polars as pl").defines == []
+
+
 def test_preloads_are_not_reads() -> None:
     # In the namespace without a step binding them, as the kernel's `pl` and loaders are.
     ex = Executor({"pl": pl, "start": "2024-01-02"}, conn=duckdb.connect(), row_cap=3)

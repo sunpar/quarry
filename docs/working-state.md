@@ -19,8 +19,10 @@ dropped the same way.
   those names are reads. Module-level method calls whose result is dropped bind
   their object, unless it holds a dataset or a module. The rules and their costs
   are in [decisions](context/decisions.md#lineage), and spec §6 is amended.
-- A store that left a known name holding the same object also reads it, so a
-  store that never ran keeps the earlier producer.
+- A store inside a block that left a known name holding the same object also
+  reads it, so a store that never ran keeps the earlier producer. A load after
+  a module-body store of the same name is not a read, so steps that rebind
+  `cols` or `import json` no longer chain into each other's recipes.
 - What lineage still misses is in the open items' lineage blind spots, including
   a change made through an alias.
 
@@ -49,6 +51,13 @@ The later rounds found members of one family, objects reached through another
 name, so the open items now record that family as one known problem, along with
 a step reading later annotations. Claude's re-review found nothing blocking;
 `e8c4b11` documents the two limits it raised.
+
+The local Opus review on `45920cc` raised fourteen findings. Its main one was a
+regression: recipes replayed most of a session, since a step that rebound and
+used `cols`, `n = 1` or `import json` read the previous step's binding. The
+next commit fixes that, a class body's own name counted as the module's, and
+the star-import `defines` sent to the model. The rest are names-not-objects or
+effect-detection limits, now in the open items.
 
 `make check` on `8a65aba` passed with 1,257 Python tests (3 skipped), 270
 frontend and 25 gate/transport tests in 78.28 s on macOS arm64. Hosted Linux

@@ -357,8 +357,9 @@ module level only: names in `Store` context (candidate bindings), names in
 function and class definitions, and the roots of method calls whose result a
 statement drops, such as `params.update(...)` (effects). After executing, it
 diffs the namespace: names that are newly bound or that hold another object
-than before. Together with the candidate bindings, and the effects on names
-that hold neither a dataset nor a module, these are the step's bound names.
+than before. Together with the candidate bindings and effects, on names that
+do not hold the same module as before (effects also skip datasets), these are
+the step's bound names.
 When the code raises or is interrupted, only the namespace diff counts, since
 a store may never have run.
 
@@ -367,8 +368,10 @@ a store may never have run.
   as `params = {...}`. A `def` or `class` is not a candidate binding: one that
   ran made a new object, and one that never ran left its name alone.
 - `reads` = candidate reads that were datasets before execution or match an
-  earlier step's `defines`. A candidate binding of such a name that still
-  holds the same object is a read too, since its store may never have run.
+  earlier step's `defines`. A load after a statement directly in the module
+  body binds the name is not a candidate read, since it sees the step's own
+  binding. A candidate binding inside a block of such a name that still holds
+  the same object is a read too, since its store may never have run.
 
 Reads of earlier `defines` are what make a helper or a parameter bound in
 step 3 and used in step 7 appear in step 7's lineage. The server stores

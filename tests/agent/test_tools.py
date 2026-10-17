@@ -52,6 +52,7 @@ def test_run_python_success_and_failure(kernel: KernelClient, tmp_path: Path) ->
     assert ok.is_error is False
     body = json.loads(ok.content)
     assert body["writes"] == ["df"]
+    assert "defines" not in body
     bad = ex.run(ToolCall(id="2", name="run_python", input={"code": "1/0"}))
     assert bad.is_error is True
     assert "ZeroDivisionError" in bad.content

@@ -314,3 +314,27 @@ def test_effects_are_module_level_method_calls_whose_result_is_dropped() -> None
 def test_a_class_body_change_is_a_module_store() -> None:
     names = analyze("class C:\n    params['n'] = 2\n    def m(self):\n        df.x = 1\n")
     assert names.stores == {"params"}
+
+
+def test_a_change_to_a_class_bodys_own_name_is_not_a_module_store() -> None:
+    names = analyze("class C:\n    d = {}\n    d['k'] = 1\n    items = []\n    items.append(1)\n")
+    assert names.stores == set()
+    assert names.effects == set()
+
+
+@pytest.mark.parametrize(
+    ("code", "loaded"),
+    [
+        ("v = ['a']\nx = v", False),
+        ("import v\nx = v.f()", False),
+        ("v = []\nv += ['a']", False),
+        ("v = v + 1", True),
+        ("x = v\nv = ['a']\ny = v", True),
+        ("if flag:\n    v = ['a']\nx = v", True),
+        ("for v in range(2):\n    pass\nx = v", True),
+    ],
+    ids=["after", "import", "augmented", "same_statement", "before", "in_block", "loop"],
+)
+def test_a_load_after_a_module_body_store_is_not_a_load(code: str, loaded: bool) -> None:
+    # Once a statement directly in the module body binds `v`, later code sees that binding.
+    assert ("v" in analyze(code).loads) is loaded

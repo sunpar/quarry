@@ -10,7 +10,9 @@ Decisions already made are in [decisions.md](context/decisions.md).
   not an object reached through a container, a bound method or a closure. A
   change made through an alias binds only the alias: after
   `symbols = params["symbols"]`, a later `symbols.append("B")` is not a producer
-  of `params`. Before recipe input lineage, such a recipe lacked the binding
+  of `params`, and an instance of a subclass reads what its own class's methods
+  read, not inherited ones. Before recipe input lineage, such a recipe lacked
+  the binding
   step and replay failed with `NameError`. Now it keeps that step, so replay can
   rebuild data from before a later step changed it, and validation, which
   compares schema and row count, can pass it. Catching it needs tracking which
@@ -70,20 +72,27 @@ Decisions already made are in [decisions.md](context/decisions.md).
   not where it is called, so a call after its data was rebound recreates the old
   data. In-place mutation inside a function, such as a helper that sets
   `df.columns` or `params["k"]`, is invisible, and so is a mutating method whose
-  result is used (`x = lst.pop()`) or that a statement calls on a dataset
-  (`df.extend(other)`). Changes through aliases are under the entry above. A
+  result is used (`x = lst.pop()`), that runs inside an expression such as a
+  comprehension kept for its effects, or that a statement calls on a dataset
+  (`df.extend(other)`) or a module (`random.seed(0)`, so replay draws unseeded
+  values). Changes through aliases are under the entry above. A
   literal reading `FROM RECENT` is not matched to dataset `recent`, though
   DuckDB's catalog ignores case. A step that reads `__annotations__` depends on
   the step that created it, not on later steps that annotated, since counting
-  those would chain every annotated step to every earlier one. Silent: a saved
-  recipe can miss a source step.
+  those would chain every annotated step to every earlier one; Python 3.14, which
+  `requires-python` allows but CI does not run, binds `__annotate__` instead.
+  Silent: a saved recipe can miss a source step.
 - **Lineage approximations**: a failed step's in-place mutation is not a write.
   A successful step's store that never ran is a write or define, but the step
   then also reads the name, so the step that bound it before stays in the
   recipe. Class bodies report every name they load as a read, and a SQL
   literal's CTE named like a dataset (`WITH df AS (...) SELECT * FROM df`) reads
-  that dataset, since DuckDB's parser does not resolve CTEs. The last three only
-  add steps to a recipe. Silent; see [decisions](context/decisions.md#lineage).
+  that dataset, since DuckDB's parser does not resolve CTEs. A loop variable
+  that ends on the same cached integer, a statement calling a method on a
+  logger or `loaders`, and a dead `def` beside another value for its name (whose
+  body's reads still count) chain steps too, and a docstring or warning binds
+  `__doc__` or `__warningregistry__`. All but the first only add steps to a
+  recipe. Silent; see [decisions](context/decisions.md#lineage).
 - **Interrupts stop only the kernel's DuckDB connection**: DuckDB workers for a
   relation on a researcher's own `duckdb.connect()` can keep running after an
   interrupt. Silent: they hold CPU and delay that connection's next query.
