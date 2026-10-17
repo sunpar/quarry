@@ -12,7 +12,7 @@ import uuid
 import weakref
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from types import FrameType
+from types import FrameType, ModuleType
 from typing import Final, Literal
 
 import duckdb
@@ -112,7 +112,7 @@ class Executor:
         self._conn = conn
         self._row_cap = row_cap
         self._tail = tail_bytes
-        # Each helper an earlier step defined, with a test that its name still holds it.
+        # Each name an earlier step defined, with a test that it still holds what was bound.
         self._defined: dict[str, _IsSame] = {}
         # What each helper in `_defined` reads when called: its body's free names, SQL literals.
         self._helper_needs: dict[str, tuple[frozenset[str], frozenset[str]]] = {}
@@ -475,14 +475,24 @@ def _bound(
     stored: CodeNames, before: Mapping[str, _IsSame], namespace: Mapping[str, object]
 ) -> set[str]:
     """Names the code stored, newly bound (`import *`), or rebound to another object (a helper's
-    `global`)."""
+    `global`), and the effects it called on objects other than datasets and modules. A dataset's
+    `df.head()` is a notebook's display line, and a module's functions rarely change it."""
     return {
         name
         for name, value in namespace.items()
-        # `exec` adds `__builtins__` on the first step; step code never binds it.
+        # The interpreter's own names: `exec` adds `__builtins__`, an annotation `__annotations__`.
         if isinstance(name, str)
-        and name != "__builtins__"
-        and (name in stored.stores or name not in before or not before[name](value))
+        and not (name.startswith("__") and name.endswith("__"))
+        and (
+            name in stored.stores
+            or name not in before
+            or not before[name](value)
+            or (
+                name in stored.effects
+                and not is_dataset(value)
+                and not isinstance(value, ModuleType)
+            )
+        )
     }
 
 
@@ -513,7 +523,8 @@ def _identity_check(obj: object) -> _IsSame:
     except TypeError:  # the type refuses weak references: an id is the best that is left
         ident = id(obj)
         return lambda current: id(current) == ident
-    return lambda current: ref() is current
+    # Once `obj` is freed, the reference returns None, which is not `obj` even when bound now.
+    return lambda current: current is not None and ref() is current
 
 
 def _run_query(

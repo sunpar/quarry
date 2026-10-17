@@ -59,15 +59,17 @@ Decisions already made are in [decisions.md](context/decisions.md).
   `.query(...)` add no reads. A lambda's body is read where the lambda is bound,
   not where it is called, so a call after its data was rebound recreates the old
   data. In-place mutation inside a function, such as a helper that sets
-  `df.columns` or `params["k"]`, is invisible. A literal reading `FROM RECENT`
-  is not matched to dataset `recent`, though DuckDB's catalog ignores case.
-  Silent: a saved recipe can miss a source step.
+  `df.columns` or `params["k"]`, is invisible, and so is a mutating method whose
+  result is used (`x = lst.pop()`) or that a statement calls on a dataset
+  (`df.extend(other)`). A literal reading `FROM RECENT` is not matched to
+  dataset `recent`, though DuckDB's catalog ignores case. Silent: a saved recipe
+  can miss a source step.
 - **Lineage approximations**: a failed step's in-place mutation is not a write.
   A successful step's store that never ran is a write or define, but the step
   then also reads the name, so the step that bound it before stays in the
   recipe. Class bodies report every name they load as a read, and a SQL
   literal's CTE named like a dataset (`WITH df AS (...) SELECT * FROM df`) reads
-  that dataset, since DuckDB's parser does not resolve CTEs. These three only
+  that dataset, since DuckDB's parser does not resolve CTEs. The last three only
   add steps to a recipe. Silent; see [decisions](context/decisions.md#lineage).
 - **Interrupts stop only the kernel's DuckDB connection**: DuckDB workers for a
   relation on a researcher's own `duckdb.connect()` can keep running after an

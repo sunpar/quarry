@@ -502,6 +502,37 @@ def test_a_dataset_changed_in_place_is_a_write_beside_a_def_that_never_ran() -> 
     assert (changed.writes, changed.defines) == (["df"], [])
 
 
+@pytest.mark.parametrize(
+    "call", ["symbols.append('B')", "params['nested'].append('B')"], ids=["plain", "nested"]
+)
+def test_a_method_called_for_its_effect_defines_its_object(call: str) -> None:
+    ex = make()
+    ex.execute("symbols = ['A']\nparams = {'nested': []}")
+    root = call.split(".")[0].split("[")[0]
+    assert ex.execute(call).defines == [root]
+
+
+def test_methods_of_datasets_and_modules_called_for_effect_bind_nothing() -> None:
+    ex = make()
+    ex.execute("import math as m\ndf = pl.DataFrame({'a': [1]})")
+    # A notebook-style `df.head()` displays; `m.sqrt` is a module function.
+    shown = ex.execute("df.head()\nm.sqrt(2)")
+    assert (shown.writes, shown.defines) == ([], [])
+
+
+def test_a_helper_rebound_to_none_is_forgotten() -> None:
+    ex = make()
+    ex.execute("def get_data():\n    return prices\n")
+    # The freed helper's weak reference returns None, which must not match the new None.
+    assert ex.execute("get_data = None").reads == []
+    ex.execute("prices = pl.DataFrame({'a': [1]})")
+    assert ex.execute("out = get_data").reads == ["get_data"]
+
+
+def test_interpreter_names_are_not_defines() -> None:
+    assert make().execute("x: int = 1").defines == ["x"]  # not `__annotations__`
+
+
 def test_a_failed_step_defines_only_what_it_certainly_bound() -> None:
     ex = make()
     ex.execute("params = {'scale': 1}\nkept = [1]")
@@ -1139,6 +1170,7 @@ def test_sql_join_names_both_tables(sql: str) -> None:
     conn = duckdb.connect()
     ex = make(conn)
     ex.execute("a = pl.DataFrame({'k': [1], 't': [1]})\nb = pl.DataFrame({'k': [1], 't': [0]})")
-    ex.execute("_conn.register('a', a)\n_conn.register('b', b)")
+    registered = ex.execute("_conn.register('a', a)\n_conn.register('b', b)")
+    assert registered.defines == ["_conn"]  # the registrations changed the connection
     result = ex.execute(f"j = _conn.sql({sql!r}).pl()")
-    assert result.status == "ok" and result.reads == ["a", "b"]
+    assert result.status == "ok" and result.reads == ["_conn", "a", "b"]

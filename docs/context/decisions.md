@@ -244,9 +244,21 @@ them.
   a false binding. When the name still holds the object it held before and was a
   dataset or an earlier define, the step also reads it, so the step that made
   that object stays in the recipe: the false binding only adds steps.
-- **Failed steps report only identity changes**: on error or interrupt the store
-  term is dropped from writes and defines, because a store may not have run.
-  Kept after review; cost: a failed step's in-place mutation is not a binding.
+- **Failed steps report only identity changes**: when the step's own code raises
+  or is interrupted, the store term is dropped from writes and defines, because
+  a store may not have run. Kept after review; cost: a failed step's in-place
+  mutation is not a binding.
+- **A method called for its effect binds its object**: a module-level statement
+  that calls a method and drops the result, as `params.update(...)`,
+  `symbols.append(...)` or `_conn.register(...)` do, binds the name the call
+  hangs off, unless that name holds a dataset or a module. A dropped result
+  means the call ran for its effect, and without it a recipe replayed the list
+  from before the `append`. A dataset is left out because `df.head()` is a
+  notebook's display line, and a module because `json.dump(...)` would make
+  every later use of `json` depend on that step. Cost: a dataset's in-place
+  `df.extend(other)` statement is not a write, a mutating call whose result is
+  used (`x = lst.pop()`) is missed, and a `_conn.execute(...)` statement makes
+  each later step that uses `_conn` depend on it.
 - **Identity through weak references**: rebinding is detected against
   `weakref.ref` snapshots taken before the step, falling back to `id()` only for
   types that refuse weak references. Plain `id()` missed a write when a freed
@@ -550,7 +562,9 @@ them.
   each `run_python` call. Reads are names a call read before an earlier call in
   the step wrote or defined them, writes and defines are unions, and each
   dataset's metadata comes from the last call that wrote it. A call that reads
-  and rebinds a name keeps its read.
+  and rebinds a name keeps its read. A failed call's bindings count too, though
+  its code stays out of recipes, so a later call reading what it bound fails
+  validation rather than replaying an older value from an earlier step.
 - **Stop reasons**: Anthropic's `model_context_window_exceeded` and OpenAI's
   `length` end the step as `max_tokens`, and OpenAI's `content_filter` as a
   refusal. The OpenAI adapter checks for truncation before it parses tool

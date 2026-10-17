@@ -293,3 +293,15 @@ def test_deleting_an_attribute_or_item_at_module_level_is_a_store() -> None:
     names = analyze("del df['col']\ndel obj.attr\ndel gone")
     assert names.stores == {"df", "obj"}
     assert {"df", "obj"} <= names.loads and "gone" not in names.loads
+
+
+def test_effects_are_module_level_method_calls_whose_result_is_dropped() -> None:
+    code = (
+        "params.update(a=1)\n"
+        "cfg['k'].append(1)\n"
+        "x = lst.pop()\n"  # the result is used
+        "print(params)\n"  # not a method
+        "make().close()\n"  # hangs off no name
+        "def f():\n    other.append(1)\n"
+    )
+    assert analyze(code).effects == {"params", "cfg"}

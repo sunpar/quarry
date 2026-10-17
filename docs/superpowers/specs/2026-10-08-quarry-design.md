@@ -353,10 +353,14 @@ cancels the step and kills the kernel first, and saves the step as interrupted.
 
 Before executing, the kernel parses the code with `ast` and collects, at
 module level only: names in `Store` context (candidate bindings), names in
-`Load` context including the root of attribute chains (candidate reads), and
-function and class definitions. After executing, it diffs the namespace: names
-that are newly bound or that hold another object than before. Together these
-are the step's bound names.
+`Load` context including the root of attribute chains (candidate reads),
+function and class definitions, and the roots of method calls whose result a
+statement drops, such as `params.update(...)` (effects). After executing, it
+diffs the namespace: names that are newly bound or that hold another object
+than before. Together with the candidate bindings, and the effects on names
+that hold neither a dataset nor a module, these are the step's bound names.
+When the code raises or is interrupted, only the namespace diff counts, since
+a store may never have run.
 
 - `writes` = bound names that are now dataset objects.
 - `defines` = every other bound name: helpers, imports, and parameters such
@@ -367,8 +371,9 @@ are the step's bound names.
   holds the same object is a read too, since its store may never have run.
 
 Reads of earlier `defines` are what make a helper or a parameter bound in
-step 3 and used in step 7 appear in step 7's lineage. The server stores reads
-and writes on the step; the dependency graph is derived, not stored.
+step 3 and used in step 7 appear in step 7's lineage. The server stores
+reads, writes and defines on the step; the dependency graph is derived, not
+stored.
 
 ### Resource limits
 

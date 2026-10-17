@@ -6,6 +6,8 @@ class-level names are looked up at run time and can fall through to the module. 
 `except ... as name` handler binds in its enclosing scope, but `name` there is the exception, so
 loading it is not a read. Assigning to or deleting an attribute or subscript in module scope
 (`df.x = ...`, `del df[k]`) changes the object its root name holds, so it stores that name too.
+A module-level statement that calls a method and drops its result (`params.update(...)`) runs it
+for its effect, which may change the object the root name holds: that name is an effect.
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ class CodeNames:
     # class's methods, since its own body runs with the definition.
     helper_loads: Mapping[str, frozenset[str]] = field(default_factory=dict)
     helper_sql: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    effects: frozenset[str] = frozenset()
 
 
 def analyze(code: str) -> CodeNames:
@@ -49,6 +52,7 @@ def analyze(code: str) -> CodeNames:
         frozenset(visitor.sql_literals),
         visitor.helper_loads(),
         {name: frozenset(sql) for name, sql in visitor.helper_sql.items()},
+        frozenset(visitor.effects),
     )
 
 
@@ -97,6 +101,7 @@ class _ScopeVisitor(ast.NodeVisitor):
         self.module = _Scope("module")
         self.defines: set[str] = set()
         self.sql_literals: set[str] = set()
+        self.effects: set[str] = set()
         # Each module-level function and class. A name defined twice, as in both branches of an
         # `if`, reads what each definition reads, since either may be the one that ran.
         self.helpers: list[tuple[str, _Scope]] = []
@@ -137,6 +142,18 @@ class _ScopeVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     visit_Subscript = visit_Attribute
+
+    def visit_Expr(self, node: ast.Expr) -> None:
+        call = node.value
+        if (
+            self._scope.kind == "module"
+            and isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+        ):
+            root = _root_name(call.func)
+            if root is not None:
+                self.effects.add(root)
+        self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
         if node.args and _is_sql_call(node.func):
