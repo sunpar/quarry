@@ -17,7 +17,7 @@ import pytest
 
 from quarry.kernel.datasets import Column
 from quarry.kernel.executor import Executor
-from quarry.projects.export import dataset_script, notebook, notebook_json
+from quarry.projects.export import _recipe_order, dataset_script, notebook, notebook_json
 from quarry.projects.models import SavedDatasetMeta, SavedViewMeta
 from quarry.projects.store import ProjectStore
 from quarry.query import Json, QuerySpec
@@ -446,6 +446,11 @@ def test_a_recipe_runs_before_the_saved_dataset_it_rebinds(tmp_path: Path) -> No
     assert isinstance(prices, pl.DataFrame) and prices.height == 1
     assert isinstance(returns, pl.DataFrame) and returns["px"].to_list() == [10.0, 20.0]
     assert isinstance(result, pl.DataFrame) and result.height == 1
+
+
+def test_a_recipe_whose_def_rebinds_a_saved_dataset_runs_first() -> None:
+    recipes = ["prices = 1\n", "def prices():\n    return 2\n\nreturns = prices()\n"]
+    assert _recipe_order(["prices", "returns"], recipes) == [(1, []), (0, [])]
 
 
 def test_recipes_in_a_cycle_keep_saved_order_and_say_what_they_rebind(tmp_path: Path) -> None:
