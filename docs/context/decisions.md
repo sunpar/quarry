@@ -276,16 +276,18 @@ them.
   a name a later step reads. With only `def` and `class` names, a result reading
   `params["scale"]` saved without the step that bound `params`, and fresh replay
   failed with `NameError`. A `def` or `class` is not a syntactic store, since
-  one that ran makes a new object: one that never ran is not a define, while
+  one that ran makes an object no name held before the step: one that never ran
+  is not a define, and its body is not recorded beside `fetch = original`, while
   another store to that name, such as `make.factor = 2`, still counts. A name is
   forgotten once it is deleted or holds another object without a step binding
   it. A helper's body is forgotten once its name holds another object, unless
   the step defined it anew, so a store that leaves the helper in place, such as
   `get_data.label = ...`, keeps what a call reads, and a name bound to a helper,
-  as `fetch = get_data` binds it, reads what the helper reads. A function name
-  the step then binds to a dataset, as `df = df()` does, is a write only. A name
-  the kernel preloads, such as `pl`, is read only after a step rebinds it. Cost:
-  a star import lists every name it binds.
+  as `fetch = get_data` binds it, reads what the helper reads, as does an
+  instance of a helper class for its methods. A function name the step then
+  binds to a dataset, as `df = df()` does, is a write only. A name the kernel
+  preloads, such as `pl`, is read only after a step rebinds it. Cost: a star
+  import lists every name it binds.
 - **A helper reads where it is called**: a step that names a helper defined by
   an earlier step also reads what the helper's body reads when called: its free
   names, the tables in its SQL literals, and the same for each helper it calls.

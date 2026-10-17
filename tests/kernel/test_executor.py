@@ -549,7 +549,13 @@ def test_the_first_annotation_defines_annotations() -> None:
 
 
 @pytest.mark.parametrize(
-    "copy", ["fetch = get_data", "fetch = get_data\nget_data = None"], ids=["copy", "copy_rebind"]
+    "copy",
+    [
+        "fetch = get_data",
+        "fetch = get_data\nget_data = None",
+        "if False:\n    def fetch():\n        return other\nfetch = get_data",
+    ],
+    ids=["copy", "copy_rebind", "beside_dead_def"],
 )
 def test_a_name_bound_to_a_helper_reads_what_the_helper_reads(copy: str) -> None:
     ex = make()
@@ -557,6 +563,14 @@ def test_a_name_bound_to_a_helper_reads_what_the_helper_reads(copy: str) -> None
     ex.execute(copy)
     ex.execute("prices = pl.DataFrame({'a': [1]})")
     assert ex.execute("out = fetch()").reads == ["fetch", "prices"]
+
+
+def test_an_instance_of_a_helper_class_reads_what_its_methods_read() -> None:
+    ex = make()
+    ex.execute("class Worker:\n    def make(self):\n        return prices\n")
+    ex.execute("prices = pl.DataFrame({'a': [1]})\nworker = Worker()")
+    ex.execute("prices = pl.DataFrame({'a': [2]})")
+    assert ex.execute("out = worker.make()").reads == ["prices", "worker"]
 
 
 @pytest.mark.parametrize(

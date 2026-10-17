@@ -29,7 +29,7 @@ with tests in the second commit, plus a freed weak reference that matched `None`
 and the missing method-call rule. The prompt-step fold still counts a failed
 call's bindings, by choice; the fold decision records why.
 
-GitHub Codex raised twelve findings, and later commits fix ten:
+GitHub Codex raised fifteen findings, and later commits fix thirteen:
 
 - dunder dataset names lost their writes;
 - the module check asked a proxy's raising `__class__`;
@@ -38,8 +38,9 @@ GitHub Codex raised twelve findings, and later commits fix ten:
   `__annotations__` is an ordinary name, so no special case remains;
 - a `def` that never ran hid another store to its name, then replaced the
   helper's recorded body;
-- a name bound to a helper, as `fetch = get_data`, did not read what the helper
-  reads;
+- a name bound to a helper, as `fetch = get_data`, or an instance of a helper
+  class did not read what the helper reads;
+- export ordering stopped seeing a recipe's `def` names;
 - method calls and attribute stores in a class body, which runs with its
   definition, were not counted.
 

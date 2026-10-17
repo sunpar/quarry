@@ -220,7 +220,8 @@ class Executor:
         }
         self._defined.update({name: _identity_check(self._ns[name]) for name in defines})
         if names is not None:
-            # A def that ran made a new object; one under `if False:` left the helper as it was.
+            # A def that ran made an object no name held before the step. One under `if False:`
+            # left its name alone, or to an assignment such as `fetch = original`.
             self._helper_needs.update(
                 {
                     n: (
@@ -228,14 +229,20 @@ class Executor:
                         names.helper_sql.get(n, frozenset()),
                     )
                     for n in defines
-                    if n in names.defines and not (n in before and before[n](self._ns[n]))
+                    if n in names.defines and not any(same(self._ns[n]) for same in before.values())
                 }
             )
         # A name bound to a helper's object, as `alias = helper` binds it, reads what its body
-        # reads, even when the step also rebinds `helper`. A def that ran comes last and wins.
+        # reads, even when the step also rebinds `helper`, and an instance of a helper class
+        # reads what its methods read. A def that ran comes last and wins.
         helpers += [(self._defined[n], needs) for n, needs in self._helper_needs.items()]
         self._helper_needs.update(
-            {n: needs for same, needs in helpers for n in defines if same(self._ns[n])}
+            {
+                n: needs
+                for same, needs in helpers
+                for n in defines
+                if same(self._ns[n]) or same(type(self._ns[n]))
+            }
         )
         return ExecResult(
             status=status,
