@@ -82,10 +82,12 @@ The backlog also removes the completed notebook-route query and default-output
 test gaps. CLI project-subcommand and filesystem-write-failure coverage remain
 open. The backlog removes the resolved schema-free notebook rendering, duplicate
 mount, truncated long-series and CLI export-permissions problems. PR #27 keeps
-table rows visible while a changed sort or filter query loads. Completed-result
-query caching remains open; the implementation reuses only concurrent requests.
-Restoring the latest saved snapshot automatically on mount remains deferred; the
-history-restore fix covers scrubber selections.
+table rows visible while a changed sort or filter query loads. PR #29 rejects
+nested filter items and repeated pivot index columns and names a pivot value
+that clashes with an index column; aggregate type errors still surface raw.
+Completed-result query caching remains open; the implementation reuses only
+concurrent requests. Restoring the latest saved snapshot automatically on mount
+remains deferred; the history-restore fix covers scrubber selections.
 
 The workflow assessment prioritizes scalar and dictionary dependency capture
 before reusable parameter contracts. Metric definitions and content validation

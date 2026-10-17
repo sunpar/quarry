@@ -255,10 +255,8 @@ def quote_literal(value: Json) -> str:
             return repr(value)
         case str():
             return "'" + value.replace("'", "''") + "'"
-        case list():
-            return "[" + ", ".join(quote_literal(v) for v in value) + "]"
-        case dict():
-            raise TypeError("dict literals are not supported in filters")
+        case _:  # a filter's value, or each of its items, is a scalar
+            raise TypeError(f"cannot render a {type(value).__name__} as a SQL literal")
 
 
 def _as_list(value: Json) -> list[Json]:

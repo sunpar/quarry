@@ -48,16 +48,22 @@ them.
 - **Filter values are checked by shape**: comparisons need a scalar, `contains`
   and `starts_with` a string, and `in` or `not_in` a non-empty list without
   nulls. SQL `NOT IN (1, NULL)` is never true, while polars ignores the null.
-  Non-finite floats are rejected at any depth, since JSON cannot carry them.
+  List items must be scalars: a nested list or object passed validation, then
+  failed in either engine with an error that named neither the filter nor the
+  column. Non-finite floats are rejected, since JSON cannot carry them.
+- **A pivot value named like an index column is a query error**: polars raised
+  `DuplicateError` for a pivot whose `columns` held a value such as `ticker`
+  beside index column `ticker`, and the message named neither column. The query
+  error names the pivoted column and the index columns.
 - **No empty lists**: `select`, `group_by` and `Pivot.index` need at least one
   entry, so global aggregates are out of scope. Empty lists caused DuckDB parser
   errors and differences between targets. Cost: a client omits a key rather than
   sending `[]`.
 - **Output names are unique, ignoring case**: a spec is rejected when its group
-  keys and aggregate names repeat a name, or when `select` does. polars raises
-  on a duplicate, DuckDB renames it or returns it twice, and DuckDB identifiers
-  ignore case. Cost: a polars frame cannot select two names that differ only in
-  case.
+  keys and aggregate names repeat a name, or when `select` or a pivot's index
+  does. polars raises on a duplicate or keeps one copy of a repeated pivot
+  index, DuckDB renames it or returns it twice, and DuckDB identifiers ignore
+  case. Cost: a polars frame cannot select two names that differ only in case.
 - **`Pivot.agg` takes every aggregate**: `std` is allowed, as spec §5 says. The
   plan narrowed the list only because polars string pivot aggregates lacked
   `std`, and `pl.element()` expressions close that gap.
