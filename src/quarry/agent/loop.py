@@ -135,17 +135,17 @@ class Lineage(BaseModel):
 
 
 def step_lineage(results: list[ExecResult]) -> Lineage:
-    written_so_far: set[str] = set()
+    bound_so_far: set[str] = set()
     reads: set[str] = set()
     writes: set[str] = set()
     defines: set[str] = set()
     latest: dict[str, DatasetMeta] = {}
     for r in results:
-        reads |= {n for n in r.reads if n not in written_so_far}
+        reads |= {n for n in r.reads if n not in bound_so_far}
         writes |= set(r.writes)
         defines |= set(r.defines)
         latest.update({m.name: m for m in r.datasets})
-        written_so_far |= set(r.writes)
+        bound_so_far |= {*r.writes, *r.defines}
     return Lineage(
         reads=sorted(reads),
         writes=sorted(writes),

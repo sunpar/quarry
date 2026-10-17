@@ -52,13 +52,8 @@ def analyze(code: str) -> CodeNames:
     )
 
 
-def dataset_writes(names: CodeNames, before: set[str], after: set[str]) -> list[str]:
-    """Datasets the code stored, plus new ones it bound invisibly (star import, `global`)."""
-    return sorted(n for n in after if n in names.stores or n not in before)
-
-
 def dataset_reads(names: CodeNames, before: set[str], defined_earlier: set[str]) -> list[str]:
-    """Loaded names that were datasets before the step or helpers defined by earlier steps."""
+    """Loaded names that were datasets before the step or that earlier steps defined."""
     return sorted(n for n in names.loads if n in before or n in defined_earlier)
 
 

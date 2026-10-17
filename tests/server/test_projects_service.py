@@ -157,7 +157,8 @@ def test_unreproducible_recipe_saved_unvalidated(tmp_path: Path) -> None:
     sessions.shutdown()
 
 
-def test_save_without_a_provider_skips_the_tidy(tmp_path: Path) -> None:
+def without_provider(tmp_path: Path) -> tuple[SessionService, ProjectService]:
+    """Services whose saves skip the tidy and validate the raw recipe."""
     sessions, _ = build(tmp_path, FakeProvider([]))
 
     def no_key(_cfg: QuarryConfig) -> Provider:
@@ -169,6 +170,11 @@ def test_save_without_a_provider_skips_the_tidy(tmp_path: Path) -> None:
         sessions=sessions,
         runtime_factory=lambda cfg: ApiRuntime(no_key(cfg)),
     )
+    return sessions, projects
+
+
+def test_save_without_a_provider_skips_the_tidy(tmp_path: Path) -> None:
+    sessions, projects = without_provider(tmp_path)
     sid = sessions.create("t").id
     sessions.start_manual(sid, PRICES)
     wait_idle(sessions, sid)
@@ -179,6 +185,33 @@ def test_save_without_a_provider_skips_the_tidy(tmp_path: Path) -> None:
     assert meta.validated and meta.validation_error is None
     base = tmp_path / "projects" / slug / "datasets" / "prices"
     assert (base / "recipe.py").read_text() == (base / "recipe.raw.py").read_text()
+    sessions.shutdown()
+
+
+def test_a_saved_recipe_keeps_the_steps_that_bound_its_inputs(tmp_path: Path) -> None:
+    sessions, projects = without_provider(tmp_path)
+    sid = sessions.create("t").id
+    for code in [
+        "import math",
+        "params = {'n': 2}",
+        "unrelated = 1",
+        "params['n'] += 1",
+        "prices = pl.DataFrame({'px': [math.pi] * params['n']})",
+    ]:
+        sessions.start_manual(sid, code)
+        wait_idle(sessions, sid)
+    slug = projects.create("p", "").slug
+    meta = projects.save_dataset(
+        slug, SaveDatasetRequest(session_id=sid, dataset="prices", mode="live")
+    )
+    assert meta.validated and meta.validation_error is None and meta.rows == 3
+    raw = (tmp_path / "projects" / slug / "datasets" / "prices" / "recipe.raw.py").read_text()
+    assert [line for line in raw.splitlines() if line.startswith("# step")] == [
+        "# step 1: manual",
+        "# step 2: manual",
+        "# step 4: manual",
+        "# step 5: manual",
+    ]
     sessions.shutdown()
 
 

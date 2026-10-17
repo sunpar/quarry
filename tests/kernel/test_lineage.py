@@ -1,6 +1,6 @@
 import pytest
 
-from quarry.kernel.lineage import analyze, dataset_reads, dataset_writes
+from quarry.kernel.lineage import analyze, dataset_reads
 
 
 def test_simple_assignment() -> None:
@@ -56,17 +56,6 @@ def test_syntax_error_propagates() -> None:
         analyze("def (:")
 
 
-def test_dataset_writes_only_counts_dataset_objects() -> None:
-    names = analyze("returns = None\nprices = load()")
-    writes = dataset_writes(names, before={"returns"}, after={"prices"})
-    assert writes == ["prices"]
-
-
-def test_dataset_writes_includes_rebound_existing_dataset() -> None:
-    names = analyze("returns = returns.head(10)")
-    assert dataset_writes(names, before={"returns"}, after={"returns"}) == ["returns"]
-
-
 def test_dataset_reads() -> None:
     names = analyze("out = clean(returns, other)")
     reads = dataset_reads(names, before={"returns", "unused"}, defined_earlier={"clean"})
@@ -100,7 +89,6 @@ def test_walrus_in_comprehension_binds_module_scope() -> None:
 def test_del_is_neither_read_nor_write() -> None:
     names = analyze("del returns")
     assert "returns" not in names.stores | names.loads
-    assert dataset_writes(names, before={"returns"}, after=set()) == []
 
 
 def test_nested_function_locals_are_not_free() -> None:

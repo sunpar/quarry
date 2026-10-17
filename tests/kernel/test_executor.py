@@ -265,12 +265,13 @@ def test_helper_defined_earlier_counts_as_read() -> None:
     assert result.reads == ["clean", "returns"]
 
 
-def test_helper_rebound_to_a_value_is_not_read_later() -> None:
+def test_helper_rebound_to_a_value_is_read_as_the_value() -> None:
     ex = make()
-    ex.execute("def scale(x):\n    return x * 2\n")
-    ex.execute("df = pl.DataFrame({'a': [1]})")
-    ex.execute("scale = 3")
-    assert ex.execute("ds = df.select(pl.lit(scale))").reads == ["df"]
+    ex.execute("def scale(x):\n    return prices * x\n")
+    ex.execute("df = pl.DataFrame({'a': [1]})\nprices = pl.DataFrame({'a': [2]})")
+    assert ex.execute("scale = 3").defines == ["scale"]
+    # The step that bound 3 is the dependency; the helper's body no longer runs.
+    assert ex.execute("ds = df.select(pl.lit(scale))").reads == ["df", "scale"]
 
 
 def test_deleted_helper_is_forgotten() -> None:
@@ -416,6 +417,98 @@ def test_def_that_never_runs_does_not_define_an_existing_name() -> None:
     result = ex.execute("if False:\n    def f():\n        return 2\n")
     assert result.status == "ok"
     assert result.defines == []
+
+
+def test_a_dictionary_binding_is_a_define_that_later_loads_read() -> None:
+    ex = make()
+    defined = ex.execute("params = {'symbols': ['AAA'], 'scale': 2}")
+    assert (defined.writes, defined.defines) == ([], ["params"])
+    used = ex.execute("out = pl.DataFrame({'ticker': params['symbols']})")
+    assert (used.reads, used.writes) == (["params"], ["out"])
+
+
+def test_imports_and_lambdas_are_defines_that_later_loads_read() -> None:
+    ex = make()
+    assert ex.execute("import math as m\nscale = lambda x: x * m.pi").defines == ["m", "scale"]
+    assert ex.execute("out = pl.DataFrame({'a': [scale(1)]})").reads == ["scale"]
+
+
+def test_a_star_import_defines_the_names_it_binds() -> None:
+    ex = make()
+    assert {"pi", "sqrt"} <= set(ex.execute("from math import *").defines)
+    assert ex.execute("out = pl.DataFrame({'a': [pi]})").reads == ["pi"]
+
+
+def test_preloads_are_not_reads() -> None:
+    # In the namespace without a step binding them, as the kernel's `pl` and loaders are.
+    ex = Executor({"pl": pl, "start": "2024-01-02"}, conn=duckdb.connect(), row_cap=3)
+    assert ex.execute("out = pl.DataFrame({'d': [start]})").reads == []
+
+
+def test_a_helper_reads_the_bindings_its_body_reads_when_called() -> None:
+    ex = make()
+    ex.execute("def scaled(df):\n    return df * params['scale']\n")
+    ex.execute("params = {'scale': 2}")
+    assert ex.execute("out = scaled(pl.DataFrame({'a': [1]}))").reads == ["params", "scaled"]
+
+
+def test_changing_a_binding_in_place_defines_and_reads_it() -> None:
+    ex = make()
+    ex.execute("params = {'scale': 1}")
+    changed = ex.execute("params['scale'] = 2")
+    assert (changed.reads, changed.defines) == (["params"], ["params"])
+
+
+def test_rebinding_a_name_to_a_new_object_does_not_read_it() -> None:
+    ex = make()
+    ex.execute("params = {'scale': 1}")
+    rebound = ex.execute("params = {'scale': 2}")
+    assert (rebound.reads, rebound.defines) == ([], ["params"])
+
+
+@pytest.mark.parametrize(
+    ("first", "kind"),
+    [("start = ['2024-01-02']", "defines"), ("start = pl.DataFrame({'a': [1]})", "writes")],
+    ids=["binding", "dataset"],
+)
+def test_a_store_that_never_ran_keeps_the_earlier_producer(first: str, kind: str) -> None:
+    ex = make()
+    ex.execute(f"{first}\nflag = False")
+    kept = ex.execute("if flag:\n    start = ['2025-01-02']\n")
+    # The store may have run, so the step counts as binding `start`, but `start` still holds
+    # what the earlier step bound: that step stays a dependency.
+    assert getattr(kept, kind) == ["start"]
+    assert kept.reads == ["flag", "start"]
+
+
+@pytest.mark.parametrize(
+    "store",
+    ["if False:\n    get_data = None\n", "get_data = get_data", "get_data.label = 'report'"],
+    ids=["never_ran", "same_object", "attribute"],
+)
+def test_a_store_that_keeps_a_helper_keeps_what_its_body_reads(store: str) -> None:
+    ex = make()
+    ex.execute("def get_data():\n    return prices\n")
+    assert ex.execute(store).defines == ["get_data"]
+    ex.execute("prices = pl.DataFrame({'a': [1]})")
+    assert ex.execute("out = get_data()").reads == ["get_data", "prices"]
+
+
+def test_a_dataset_changed_in_place_is_a_write_beside_a_def_that_never_ran() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': [1]})\nother = pl.DataFrame({'a': [2]})")
+    # `extend` returns the same frame, so only the store says `df` changed.
+    changed = ex.execute("if False:\n    def df():\n        return 1\ndf = df.extend(other)")
+    assert (changed.writes, changed.defines) == (["df"], [])
+
+
+def test_a_failed_step_defines_only_what_it_certainly_bound() -> None:
+    ex = make()
+    ex.execute("params = {'scale': 1}\nkept = [1]")
+    failed = ex.execute("made = 1\nparams = {'scale': 2}\n1 / 0\nkept = [2]")
+    # `params` holds another object and `made` is new; `kept`'s store never ran.
+    assert failed.status == "error"
+    assert failed.defines == ["made", "params"]
 
 
 def test_describe_failure_after_exec_is_structured_error() -> None:
