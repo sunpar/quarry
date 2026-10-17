@@ -1,6 +1,6 @@
 import pytest
 
-from quarry.kernel.lineage import analyze, dataset_reads, dataset_writes
+from quarry.kernel.lineage import analyze, dataset_reads
 
 
 def test_simple_assignment() -> None:
@@ -56,17 +56,6 @@ def test_syntax_error_propagates() -> None:
         analyze("def (:")
 
 
-def test_dataset_writes_only_counts_dataset_objects() -> None:
-    names = analyze("returns = None\nprices = load()")
-    writes = dataset_writes(names, before={"returns"}, after={"prices"})
-    assert writes == ["prices"]
-
-
-def test_dataset_writes_includes_rebound_existing_dataset() -> None:
-    names = analyze("returns = returns.head(10)")
-    assert dataset_writes(names, before={"returns"}, after={"returns"}) == ["returns"]
-
-
 def test_dataset_reads() -> None:
     names = analyze("out = clean(returns, other)")
     reads = dataset_reads(names, before={"returns", "unused"}, defined_earlier={"clean"})
@@ -100,7 +89,6 @@ def test_walrus_in_comprehension_binds_module_scope() -> None:
 def test_del_is_neither_read_nor_write() -> None:
     names = analyze("del returns")
     assert "returns" not in names.stores | names.loads
-    assert dataset_writes(names, before={"returns"}, after=set()) == []
 
 
 def test_nested_function_locals_are_not_free() -> None:
@@ -158,7 +146,7 @@ def test_module_level_except_handler_body_still_binds_and_reads_at_module_level(
         "    n: int = 0\n"
     )
     names = analyze(code)
-    assert names.stores == {"df", "retry", "n"}
+    assert names.stores == {"df", "n"}
     assert names.defines == {"retry"}
     assert names.loads == {"load", "errors", "fallback", "prices", "int"}
 
@@ -201,10 +189,11 @@ def test_definition_time_expressions_are_loads() -> None:
     assert "x" in analyze("class C:\n    x = x\n").loads  # the class body reads the module's x
 
 
-def test_definitions_are_module_scope_bindings() -> None:
+def test_definitions_are_module_scope_defines_not_stores() -> None:
+    # A def that ran makes a new object; one that never ran leaves its name alone.
     names = analyze("if ok:\n    def helper():\n        pass\n")
     assert names.defines == {"helper"}
-    assert "helper" in names.stores
+    assert "helper" not in names.stores
 
     names = analyze("def outer():\n    def inner():\n        pass\n    return inner\n")
     assert names.defines == {"outer"}
@@ -282,7 +271,8 @@ def test_attribute_and_subscript_mutation_at_module_level_is_a_store() -> None:
 
 def test_mutation_inside_a_function_is_not_a_module_store() -> None:
     names = analyze("def f():\n    df.columns = ['a']\n")
-    assert names.stores == {"f"}
+    assert not names.stores
+    assert names.defines == {"f"}
     assert "df" in names.loads  # the function reads the module-level df
 
 
@@ -305,3 +295,46 @@ def test_deleting_an_attribute_or_item_at_module_level_is_a_store() -> None:
     names = analyze("del df['col']\ndel obj.attr\ndel gone")
     assert names.stores == {"df", "obj"}
     assert {"df", "obj"} <= names.loads and "gone" not in names.loads
+
+
+def test_effects_are_module_level_method_calls_whose_result_is_dropped() -> None:
+    code = (
+        "params.update(a=1)\n"
+        "cfg['k'].append(1)\n"
+        "x = lst.pop()\n"  # the result is used
+        "print(params)\n"  # not a method
+        "make().close()\n"  # hangs off no name
+        "def f():\n    other.append(1)\n"
+        "class C:\n    opts.update(n=2)\n"  # a class body runs with its definition
+        "    def m(self):\n        later.append(1)\n"
+    )
+    assert analyze(code).effects == {"params", "cfg", "opts"}
+
+
+def test_a_class_body_change_is_a_module_store() -> None:
+    names = analyze("class C:\n    params['n'] = 2\n    def m(self):\n        df.x = 1\n")
+    assert names.stores == {"params"}
+
+
+def test_a_change_to_a_class_bodys_own_name_is_not_a_module_store() -> None:
+    names = analyze("class C:\n    d = {}\n    d['k'] = 1\n    items = []\n    items.append(1)\n")
+    assert names.stores == set()
+    assert names.effects == set()
+
+
+@pytest.mark.parametrize(
+    ("code", "loaded"),
+    [
+        ("v = ['a']\nx = v", False),
+        ("import v\nx = v.f()", False),
+        ("v = []\nv += ['a']", False),
+        ("v = v + 1", True),
+        ("x = v\nv = ['a']\ny = v", True),
+        ("if flag:\n    v = ['a']\nx = v", True),
+        ("for v in range(2):\n    pass\nx = v", True),
+    ],
+    ids=["after", "import", "augmented", "same_statement", "before", "in_block", "loop"],
+)
+def test_a_load_after_a_module_body_store_is_not_a_load(code: str, loaded: bool) -> None:
+    # Once a statement directly in the module body binds `v`, later code sees that binding.
+    assert ("v" in analyze(code).loads) is loaded

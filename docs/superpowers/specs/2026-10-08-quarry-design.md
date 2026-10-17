@@ -162,9 +162,9 @@ Step {
   status: "running" | "ok" | "error" | "interrupted",
   error: { type, message, traceback } | null,
   stdout_tail, stderr_tail,  // last 4 KB each
-  reads: string[],           // dataset names read (lineage)
+  reads: string[],           // datasets and earlier defines read (lineage)
   writes: string[],          // dataset names written (lineage)
-  defines: string[],         // functions/classes defined at top level
+  defines: string[],         // other names bound at top level (lineage)
   datasets: DatasetMeta[],   // metadata for everything in `writes`
   view: View | null,
   transcript: Message[] | null,   // agent messages and tool calls, for "show reasoning"
@@ -352,20 +352,31 @@ cancels the step and kills the kernel first, and saves the step as interrupted.
 ### Lineage capture
 
 Before executing, the kernel parses the code with `ast` and collects, at
-module level only: names in `Store` context (candidate writes), names in
-`Load` context including the root of attribute chains (candidate reads), and
-function and class definitions (defines). After executing, it diffs the
-namespace: objects of the three dataset types that are newly bound or whose
-`id()` changed.
+module level only: names in `Store` context (candidate bindings), names in
+`Load` context including the root of attribute chains (candidate reads),
+function and class definitions, and the roots of method calls whose result a
+statement drops, such as `params.update(...)` (effects). After executing, it
+diffs the namespace: names that are newly bound or that hold another object
+than before. Together with the candidate bindings and effects, on names that
+do not hold the same module as before (effects also skip datasets), these are
+the step's bound names.
+When the code raises or is interrupted, only the namespace diff counts, since
+a store may never have run.
 
-- `writes` = candidate writes that are now dataset objects.
-- `reads` = candidate reads that were datasets before execution, plus
-  candidate reads that match an earlier step's `defines`.
-- `defines` = top-level function and class names.
+- `writes` = bound names that are now dataset objects.
+- `defines` = every other bound name: helpers, imports, and parameters such
+  as `params = {...}`. A `def` or `class` is not a candidate binding: one that
+  ran made a new object, and one that never ran left its name alone.
+- `reads` = candidate reads that were datasets before execution or match an
+  earlier step's `defines`. A load after a statement directly in the module
+  body binds the name is not a candidate read, since it sees the step's own
+  binding. A candidate binding inside a block of such a name that still holds
+  the same object is a read too, since its store may never have run.
 
-Reads of defined functions are what make a helper defined in step 3 and used
-in step 7 appear in step 7's lineage. The server stores reads and writes on
-the step; the dependency graph is derived, not stored.
+Reads of earlier `defines` are what make a helper or a parameter bound in
+step 3 and used in step 7 appear in step 7's lineage. The server stores
+reads, writes and defines on the step; the dependency graph is derived, not
+stored.
 
 ### Resource limits
 
