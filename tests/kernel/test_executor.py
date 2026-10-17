@@ -541,8 +541,19 @@ def test_a_helper_rebound_to_none_is_forgotten() -> None:
     assert ex.execute("out = get_data").reads == ["get_data"]
 
 
-def test_interpreter_names_are_not_defines() -> None:
-    assert make().execute("x: int = 1").defines == ["x"]  # not `__annotations__`
+def test_the_first_annotation_defines_annotations() -> None:
+    ex = make()
+    # The interpreter creates `__annotations__` for the first; later ones fill it in place.
+    assert ex.execute("x: int = 1").defines == ["__annotations__", "x"]
+    assert ex.execute("y: int = 2").defines == ["y"]
+
+
+def test_a_name_bound_to_a_helper_reads_what_the_helper_reads() -> None:
+    ex = make()
+    ex.execute("def get_data():\n    return prices\n")
+    ex.execute("fetch = get_data")
+    ex.execute("prices = pl.DataFrame({'a': [1]})")
+    assert ex.execute("out = fetch()").reads == ["fetch", "prices"]
 
 
 @pytest.mark.parametrize(

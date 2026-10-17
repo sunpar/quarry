@@ -248,18 +248,18 @@ them.
   or is interrupted, the store term is dropped from writes and defines, because
   a store may not have run. Kept after review; cost: a failed step's in-place
   mutation is not a binding, even through a method called for its effect.
-- **A method called for its effect binds its object**: a module-level statement
-  that calls a method and drops the result, as `params.update(...)`,
-  `symbols.append(...)` or `_conn.register(...)` do, binds the name the call
-  hangs off, unless that name holds a dataset or a module. A dropped result
-  means the call ran for its effect, and without it a recipe replayed the list
-  from before the `append`. A dataset is left out because `df.head()` is a
-  notebook's display line, and a module because `json.dump(...)` would make
-  every later use of `json` depend on that step. Cost: a dataset's in-place
-  `df.extend(other)` statement is not a write, a mutating call whose result is
-  used (`x = lst.pop()`) is missed, a call through an alias binds only the
-  alias, and a `_conn.execute(...)` statement makes each later step that uses
-  `_conn` depend on it.
+- **A method called for its effect binds its object**: a statement at module
+  level, or in a class body there, which runs with its definition, that calls a
+  method and drops the result, as `params.update(...)`, `symbols.append(...)` or
+  `_conn.register(...)` do, binds the name the call hangs off, unless that name
+  holds a dataset or a module. A dropped result means the call ran for its
+  effect, and without it a recipe replayed the list from before the `append`. A
+  dataset is left out because `df.head()` is a notebook's display line, and a
+  module because `json.dump(...)` would make every later use of `json` depend on
+  that step. Cost: a dataset's in-place `df.extend(other)` statement is not a
+  write, a mutating call whose result is used (`x = lst.pop()`) is missed, a
+  call through an alias binds only the alias, and a `_conn.execute(...)`
+  statement makes each later step that uses `_conn` depend on it.
 - **Identity through weak references**: rebinding is detected against
   `weakref.ref` snapshots taken before the step, falling back to `id()` only for
   types that refuse weak references. Plain `id()` missed a write when a freed
@@ -281,10 +281,11 @@ them.
   forgotten once it is deleted or holds another object without a step binding
   it. A helper's body is forgotten once its name holds another object, unless
   the step defined it anew, so a store that leaves the helper in place, such as
-  `get_data.label = ...`, keeps what a call reads. A function name the step then
-  binds to a dataset, as `df = df()` does, is a write only. A name the kernel
-  preloads, such as `pl`, is read only after a step rebinds it. Cost: a star
-  import lists every name it binds.
+  `get_data.label = ...`, keeps what a call reads, and a name bound to a helper,
+  as `fetch = get_data` binds it, reads what the helper reads. A function name
+  the step then binds to a dataset, as `df = df()` does, is a write only. A name
+  the kernel preloads, such as `pl`, is read only after a step rebinds it. Cost:
+  a star import lists every name it binds.
 - **A helper reads where it is called**: a step that names a helper defined by
   an earlier step also reads what the helper's body reads when called: its free
   names, the tables in its SQL literals, and the same for each helper it calls.

@@ -29,17 +29,21 @@ with tests in the second commit, plus a freed weak reference that matched `None`
 and the missing method-call rule. The prompt-step fold still counts a failed
 call's bindings, by choice; the fold decision records why.
 
-GitHub Codex raised nine findings, and later commits fix seven:
+GitHub Codex raised twelve findings, and later commits fix ten:
 
 - dunder dataset names lost their writes;
 - the module check asked a proxy's raising `__class__`;
 - stores to `__builtins__` or `__annotations__` were dropped. The executor now
-  adds both names before the first step, as `exec` would, so no special case
-  remains;
+  adds `__builtins__` before the first step, as `exec` would, and
+  `__annotations__` is an ordinary name, so no special case remains;
 - a `def` that never ran hid another store to its name, then replaced the
-  helper's recorded body.
+  helper's recorded body;
+- a name bound to a helper, as `fetch = get_data`, did not read what the helper
+  reads;
+- method calls and attribute stores in a class body, which runs with its
+  definition, were not counted.
 
-A change through an alias and a step reading `__annotations__` are recorded as
+A change through an alias and a step reading later annotations are recorded as
 blind spots. Claude's re-review found nothing blocking; `e8c4b11` documents the
 two limits it raised.
 

@@ -305,5 +305,12 @@ def test_effects_are_module_level_method_calls_whose_result_is_dropped() -> None
         "print(params)\n"  # not a method
         "make().close()\n"  # hangs off no name
         "def f():\n    other.append(1)\n"
+        "class C:\n    opts.update(n=2)\n"  # a class body runs with its definition
+        "    def m(self):\n        later.append(1)\n"
     )
-    assert analyze(code).effects == {"params", "cfg"}
+    assert analyze(code).effects == {"params", "cfg", "opts"}
+
+
+def test_a_class_body_change_is_a_module_store() -> None:
+    names = analyze("class C:\n    params['n'] = 2\n    def m(self):\n        df.x = 1\n")
+    assert names.stores == {"params"}

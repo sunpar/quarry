@@ -109,10 +109,8 @@ class Executor:
         tail_bytes: int = TAIL_BYTES,
     ) -> None:
         """`conn` is the namespace's DuckDB connection, which an interrupt also stops."""
-        # The names `exec` and a module-level annotation would add on the first step, added now
-        # so that only a step's own code ever binds them.
+        # `exec` adds this before the first step's code runs, so only a step's own code binds it.
         namespace.setdefault("__builtins__", builtins.__dict__)
-        namespace.setdefault("__annotations__", {})
         self._ns = namespace
         self._conn = conn
         self._row_cap = row_cap
@@ -231,6 +229,11 @@ class Executor:
                     if n in names.defines and not (n in before and before[n](self._ns[n]))
                 }
             )
+        # A name bound to a helper, as `alias = helper` binds it, reads what the helper reads.
+        by_object = {id(self._ns[n]): needs for n, needs in self._helper_needs.items()}
+        self._helper_needs.update(
+            {n: by_object[id(self._ns[n])] for n in defines if id(self._ns[n]) in by_object}
+        )
         return ExecResult(
             status=status,
             stdout_tail=out.getvalue(),

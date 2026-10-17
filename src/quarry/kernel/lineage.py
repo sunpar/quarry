@@ -5,9 +5,10 @@ contribute only their free names as loads. A class body contributes every name i
 class-level names are looked up at run time and can fall through to the module. The body of an
 `except ... as name` handler binds in its enclosing scope, but `name` there is the exception, so
 loading it is not a read. Assigning to or deleting an attribute or subscript in module scope
-(`df.x = ...`, `del df[k]`) changes the object its root name holds, so it stores that name too.
-A module-level statement that calls a method and drops its result (`params.update(...)`) runs it
-for its effect, which may change the object the root name holds: that name is an effect.
+or a class body there (`df.x = ...`, `del df[k]`) changes the object its root name holds, so it
+stores that name too. A statement there that calls a method and drops its result
+(`params.update(...)`) runs it for its effect, which may change the object the root name holds:
+that name is an effect. A class body runs with its definition; a function's body runs later.
 """
 
 from __future__ import annotations
@@ -135,10 +136,10 @@ class _ScopeVisitor(ast.NodeVisitor):
         # handler sees every form: plain, augmented, annotated, unpacked, `for`, `with`, `del`.
         # At module level `df.columns = ...` or `del df["c"]` changes the object `df` holds, a
         # store of `df`; in a function `df` stays a free name the function reads.
-        if isinstance(node.ctx, ast.Store | ast.Del) and self._scope.kind == "module":
+        if isinstance(node.ctx, ast.Store | ast.Del) and self._runs_with_step():
             root = _root_name(node)
             if root is not None:
-                self._scope.bound.add(root)
+                self.module.bound.add(root)
         self.generic_visit(node)
 
     visit_Subscript = visit_Attribute
@@ -146,7 +147,7 @@ class _ScopeVisitor(ast.NodeVisitor):
     def visit_Expr(self, node: ast.Expr) -> None:
         call = node.value
         if (
-            self._scope.kind == "module"
+            self._runs_with_step()
             and isinstance(call, ast.Call)
             and isinstance(call.func, ast.Attribute)
         ):
@@ -164,6 +165,14 @@ class _ScopeVisitor(ast.NodeVisitor):
                 if helper is not None:
                     self.helper_sql.setdefault(helper, set()).add(first.value)
         self.generic_visit(node)
+
+    def _runs_with_step(self) -> bool:
+        """Whether the walk's current point runs when the step does: module code, or the body of
+        a class defined there, which runs with its definition. A function's body runs later."""
+        scope = self._scope
+        while scope.kind == "class" and scope.parent is not None:
+            scope = scope.parent
+        return scope.kind == "module"
 
     def _helper_around(self) -> str | None:
         """The module-level helper whose call runs the walk's current point: any point in a
