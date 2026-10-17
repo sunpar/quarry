@@ -5,7 +5,10 @@ contribute only their free names as loads. A class body contributes every name i
 class-level names are looked up at run time and can fall through to the module. The body of an
 `except ... as name` handler binds in its enclosing scope, but `name` there is the exception, so
 loading it is not a read. Assigning to or deleting an attribute or subscript in module scope
-(`df.x = ...`, `del df[k]`) changes the object its root name holds, so it stores that name too.
+or a class body there (`df.x = ...`, `del df[k]`) changes the object its root name holds, so it
+stores that name too. A statement there that calls a method and drops its result
+(`params.update(...)`) runs it for its effect, which may change the object the root name holds:
+that name is an effect. A class body runs with its definition; a function's body runs later.
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ class CodeNames:
     # class's methods, since its own body runs with the definition.
     helper_loads: Mapping[str, frozenset[str]] = field(default_factory=dict)
     helper_sql: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    effects: frozenset[str] = frozenset()
 
 
 def analyze(code: str) -> CodeNames:
@@ -49,16 +53,12 @@ def analyze(code: str) -> CodeNames:
         frozenset(visitor.sql_literals),
         visitor.helper_loads(),
         {name: frozenset(sql) for name, sql in visitor.helper_sql.items()},
+        frozenset(visitor.effects),
     )
 
 
-def dataset_writes(names: CodeNames, before: set[str], after: set[str]) -> list[str]:
-    """Datasets the code stored, plus new ones it bound invisibly (star import, `global`)."""
-    return sorted(n for n in after if n in names.stores or n not in before)
-
-
 def dataset_reads(names: CodeNames, before: set[str], defined_earlier: set[str]) -> list[str]:
-    """Loaded names that were datasets before the step or helpers defined by earlier steps."""
+    """Loaded names that were datasets before the step or that earlier steps defined."""
     return sorted(n for n in names.loads if n in before or n in defined_earlier)
 
 
@@ -102,6 +102,7 @@ class _ScopeVisitor(ast.NodeVisitor):
         self.module = _Scope("module")
         self.defines: set[str] = set()
         self.sql_literals: set[str] = set()
+        self.effects: set[str] = set()
         # Each module-level function and class. A name defined twice, as in both branches of an
         # `if`, reads what each definition reads, since either may be the one that ran.
         self.helpers: list[tuple[str, _Scope]] = []
@@ -135,13 +136,25 @@ class _ScopeVisitor(ast.NodeVisitor):
         # handler sees every form: plain, augmented, annotated, unpacked, `for`, `with`, `del`.
         # At module level `df.columns = ...` or `del df["c"]` changes the object `df` holds, a
         # store of `df`; in a function `df` stays a free name the function reads.
-        if isinstance(node.ctx, ast.Store | ast.Del) and self._scope.kind == "module":
+        if isinstance(node.ctx, ast.Store | ast.Del) and self._runs_with_step():
             root = _root_name(node)
             if root is not None:
-                self._scope.bound.add(root)
+                self.module.bound.add(root)
         self.generic_visit(node)
 
     visit_Subscript = visit_Attribute
+
+    def visit_Expr(self, node: ast.Expr) -> None:
+        call = node.value
+        if (
+            self._runs_with_step()
+            and isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+        ):
+            root = _root_name(call.func)
+            if root is not None:
+                self.effects.add(root)
+        self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
         if node.args and _is_sql_call(node.func):
@@ -152,6 +165,14 @@ class _ScopeVisitor(ast.NodeVisitor):
                 if helper is not None:
                     self.helper_sql.setdefault(helper, set()).add(first.value)
         self.generic_visit(node)
+
+    def _runs_with_step(self) -> bool:
+        """Whether the walk's current point runs when the step does: module code, or the body of
+        a class defined there, which runs with its definition. A function's body runs later."""
+        scope = self._scope
+        while scope.kind == "class" and scope.parent is not None:
+            scope = scope.parent
+        return scope.kind == "module"
 
     def _helper_around(self) -> str | None:
         """The module-level helper whose call runs the walk's current point: any point in a
@@ -280,9 +301,12 @@ class _ScopeVisitor(ast.NodeVisitor):
             self.helpers.append((name, scope))
 
     def _define(self, name: str) -> None:
+        # Not a module store: a def or class makes a new object whenever it runs, which the
+        # executor sees, while one that never ran, as under `if False:`, leaves the name alone.
         if self._scope.kind == "module":
             self.defines.add(name)
-        self._scope.bound.add(name)
+        else:
+            self._scope.bound.add(name)
 
     def _visit_scope(
         self, kind: _ScopeKind, body: Iterable[ast.AST], bound: Iterable[str] = ()

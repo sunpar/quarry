@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import builtins
 import contextlib
 import io
 import json
@@ -12,7 +13,7 @@ import uuid
 import weakref
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from types import FrameType
+from types import FrameType, ModuleType
 from typing import Final, Literal
 
 import duckdb
@@ -37,7 +38,7 @@ from quarry.kernel.datasets import (
     undescribed,
 )
 from quarry.kernel.datasets import describe as describe_dataset
-from quarry.kernel.lineage import CodeNames, analyze, dataset_reads, dataset_writes
+from quarry.kernel.lineage import CodeNames, analyze, dataset_reads
 from quarry.query.columns import check_columns, check_line_axes
 from quarry.query.polars_target import to_polars
 from quarry.query.source_target import imported_names, result_names, to_source
@@ -108,11 +109,13 @@ class Executor:
         tail_bytes: int = TAIL_BYTES,
     ) -> None:
         """`conn` is the namespace's DuckDB connection, which an interrupt also stops."""
+        # `exec` adds this before the first step's code runs, so only a step's own code binds it.
+        namespace.setdefault("__builtins__", builtins.__dict__)
         self._ns = namespace
         self._conn = conn
         self._row_cap = row_cap
         self._tail = tail_bytes
-        # Each helper an earlier step defined, with a test that its name still holds it.
+        # Each name an earlier step defined, with a test that it still holds what was bound.
         self._defined: dict[str, _IsSame] = {}
         # What each helper in `_defined` reads when called: its body's free names, SQL literals.
         self._helper_needs: dict[str, tuple[frozenset[str], frozenset[str]]] = {}
@@ -166,13 +169,16 @@ class Executor:
         # Whatever the step ends as, it may have changed any dataset, even in place
         # (`df.extend(...)`); the writes below are described after it, so they are current.
         self._described.clear()
-        before = {name: _identity_check(self._ns[name]) for name in dataset_names(self._ns)}
+        datasets_before = dataset_names(self._ns)
+        # Step code can add a non-str key (`globals()[1] = 1`), which no step can reference.
+        before = {n: _identity_check(v) for n, v in self._ns.items() if isinstance(n, str)}
         out, err = _TailWriter(self._tail), _TailWriter(self._tail)
-        status, error, names, prior = self._exec(code, out, err)
+        status, error, names = self._exec(code, out, err)
         # On error or interrupt a store in the code may never have run, so only the namespace
         # itself can say what changed.
         stored = names if names is not None and status == "ok" else _NOTHING_STORED
-        writes = _written(stored, before, self._ns)
+        bound = _bound(stored, before, self._ns)
+        writes = sorted(n for n in bound if is_dataset(self._ns[n]))
         described = [self._describe_write(name) for name in writes]
         self._described.update({meta.name: meta for meta, _ in described if meta.error is None})
         describe_errors = [e for _, e in described if e is not None]
@@ -182,30 +188,37 @@ class Executor:
             status, error = "interrupted", None
         elif status == "ok" and describe_errors:
             status, error = "error", describe_errors[0]
-        defines: list[str] = []
+        # Every other name the step bound. A function name the step then bound to a dataset, as
+        # `df = df()` does, is a write.
+        defines = sorted(n for n in bound if n not in writes)
         reads: list[str] = []
         if names is not None:
-            # A function name the step then bound to a dataset, as `df = df()` does, is a write.
-            defines = [n for n in _newly_bound(names.defines, prior, self._ns) if n not in writes]
-            # Helpers as they were when the step started, as `before` is for datasets. A helper
-            # reads its globals when called, so the step calling it reads them too.
-            loaded = dataset_reads(names, set(before), set(self._defined))
+            # Names earlier steps defined, as they were when the step started, as
+            # `datasets_before` is for datasets. A helper reads its globals when called, so the
+            # step calling it reads them too.
+            loaded = dataset_reads(names, datasets_before, set(self._defined))
             called, called_sql = self._called(names.loads)
-            known = set(before) | set(self._defined)
-            sql = self._sql_table_reads(names.sql_literals | called_sql, set(before))
-            reads = sorted({*loaded, *(called & known), *sql})
-        # A name rebound to anything else, or deleted, no longer holds the helper a later
-        # step would read.
+            known = datasets_before | set(self._defined)
+            # A store that left its name holding the same object may never have run, as in
+            # `if flag: start = ...`, so the step that bound the object stays a dependency.
+            kept = {
+                n for n in stored.stores if n in before and n in self._ns and before[n](self._ns[n])
+            }
+            sql = self._sql_table_reads(names.sql_literals | called_sql, datasets_before)
+            reads = sorted({*loaded, *((called | kept) & known), *sql})
+        # A name rebound or deleted no longer holds what its step bound, and a helper's body no
+        # longer runs unless this step defined it anew.
         self._defined = {
             name: same
             for name, same in self._defined.items()
             if name in self._ns and same(self._ns[name])
         }
-        self._defined.update({name: _identity_check(self._ns[name]) for name in defines})
         self._helper_needs = {
             n: needs for n, needs in self._helper_needs.items() if n in self._defined
         }
+        self._defined.update({name: _identity_check(self._ns[name]) for name in defines})
         if names is not None:
+            # A def that ran made a new object; one under `if False:` left the helper as it was.
             self._helper_needs.update(
                 {
                     n: (
@@ -213,8 +226,14 @@ class Executor:
                         names.helper_sql.get(n, frozenset()),
                     )
                     for n in defines
+                    if n in names.defines and not (n in before and before[n](self._ns[n]))
                 }
             )
+        # A name bound to a helper, as `alias = helper` binds it, reads what the helper reads.
+        by_object = {id(self._ns[n]): needs for n, needs in self._helper_needs.items()}
+        self._helper_needs.update(
+            {n: by_object[id(self._ns[n])] for n in defines if id(self._ns[n]) in by_object}
+        )
         return ExecResult(
             status=status,
             stdout_tail=out.getvalue(),
@@ -325,15 +344,12 @@ class Executor:
 
     def _exec(
         self, code: str, out: _TailWriter, err: _TailWriter
-    ) -> tuple[Status, ExecError | None, CodeNames | None, dict[str, _IsSame]]:
-        """Run `code`; also its names, once it parses, and what the names it defines held."""
+    ) -> tuple[Status, ExecError | None, CodeNames | None]:
+        """Run `code`; also its names, once it parses."""
         names: CodeNames | None = None
-        prior: dict[str, _IsSame] = {}
         try:
             names = analyze(code)
             compiled = compile(code, "<step>", "exec")
-            # A def that never ran leaves its name as it was, which only identity can tell.
-            prior = {n: _identity_check(self._ns[n]) for n in names.defines if n in self._ns}
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 self._running = True
                 try:
@@ -342,11 +358,11 @@ class Executor:
                 finally:
                     self._running = False
         except KeyboardInterrupt:
-            return "interrupted", None, names, prior
+            return "interrupted", None, names
         # SystemExit included: a step calling exit() must not end the kernel.
         except BaseException as exc:
-            return "error", ExecError.from_exception(exc), names, prior
-        return "ok", None, names, prior
+            return "error", ExecError.from_exception(exc), names
+        return "ok", None, names
 
     def _called(self, loads: frozenset[str]) -> tuple[frozenset[str], frozenset[str]]:
         """The names and SQL literals that the helpers in `loads` read when called, through
@@ -458,13 +474,28 @@ class _TailWriter(io.TextIOBase):
         return text[max(len(text) - self._limit, 0) :]
 
 
-def _written(
+def _bound(
     stored: CodeNames, before: Mapping[str, _IsSame], namespace: Mapping[str, object]
-) -> list[str]:
-    """Datasets the code stored, newly bound, or rebound to another object (a helper's `global`)."""
-    after = dataset_names(namespace)
-    rebound = {name for name in after & before.keys() if not before[name](namespace[name])}
-    return sorted({*dataset_writes(stored, set(before), after), *rebound})
+) -> set[str]:
+    """Names the code stored, newly bound (`import *`), or rebound to another object (a helper's
+    `global`), and the effects it called on objects other than datasets and modules. A dataset's
+    `df.head()` is a notebook's display line, and a module's functions rarely change it."""
+    return {
+        name
+        for name, value in namespace.items()
+        if isinstance(name, str)
+        and (
+            name in stored.stores
+            or name not in before
+            or not before[name](value)
+            or (
+                name in stored.effects
+                and not is_dataset(value)
+                # Not `isinstance`, which asks the object's `__class__`, which can raise.
+                and not issubclass(type(value), ModuleType)
+            )
+        )
+    }
 
 
 def _base_tables(tree: object) -> set[str]:
@@ -483,27 +514,20 @@ def _base_tables(tree: object) -> set[str]:
     return found
 
 
-def _newly_bound(
-    names: frozenset[str], prior: Mapping[str, _IsSame], namespace: Mapping[str, object]
-) -> list[str]:
-    """`names` the step bound: new to the namespace, or holding another object than before."""
-    return sorted(
-        n for n in names if n in namespace and not (n in prior and prior[n](namespace[n]))
-    )
-
-
 def _identity_check(obj: object) -> _IsSame:
     """A test for "is this still `obj`" that holds no strong reference to it.
 
-    An id can be reused by a new object once `obj` is freed, which a weak reference cannot match;
-    holding `obj` itself would keep every replaced dataset in memory until the step ends.
+    An id can be reused by a new object once `obj` is freed, which a weak reference cannot match,
+    so the id fallback for types without weak references can mistake a new object for `obj`.
+    Holding `obj` itself would keep every replaced dataset in memory until the step ends.
     """
     try:
         ref = weakref.ref(obj)
     except TypeError:  # the type refuses weak references: an id is the best that is left
         ident = id(obj)
         return lambda current: id(current) == ident
-    return lambda current: ref() is current
+    # Once `obj` is freed, the reference returns None, which is not `obj` even when bound now.
+    return lambda current: current is not None and ref() is current
 
 
 def _run_query(
