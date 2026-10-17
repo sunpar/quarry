@@ -282,7 +282,9 @@ AggFn = "sum" | "mean" | "min" | "max" | "count" | "median" | "std" | "first" | 
 ```
 
 Evaluation order is fixed: filters, then group-by with aggs or pivot (never
-both), then sort, then offset and limit, then select. A spec with both
+both), then sort, then offset and limit, then select. Grouped and pivoted rows
+sort by `sort`, then by each group key or pivot index column it leaves out,
+ascending with nulls first, so paging through them is stable. A spec with both
 `group_by` and `pivot` is rejected. `first` and `last` need a row order, which
 a DuckDB relation does not have, so specs on relation-backed datasets reject
 them.

@@ -17,6 +17,13 @@ them.
   sorts, so the SQL target emits `NULLS FIRST`. A probe showed DuckDB sorts
   nulls last by default and polars first. Cost if wrong: nulls show at the top
   of sorted views.
+- **Grouped rows follow their keys**: after `sort`, group-by and pivot output
+  sorts by each group key or pivot index column the sort leaves out, ascending
+  with nulls first, on every target and in generated code. Neither target fixes
+  the order of grouped rows, so it changed between runs and targets, and offset
+  paging skipped or repeated groups. The order covers output rows only:
+  ungrouped rows keep their source's order, and relations still reject `first`
+  and `last`. Cost: one more sort, over the groups.
 - **Exact integer sums**: the polars target sums integer columns of up to 64
   bits as `Decimal(38, 0)`, matching DuckDB's HUGEINT sums. polars sums Int64 in
   Int64 and wraps silently on overflow; 128-bit integers, which can exceed the
