@@ -142,6 +142,18 @@ class QuerySpec(BaseModel):
             }
         )
 
+    @property
+    def row_order(self) -> list[Sort]:
+        """`sort`, then each group or pivot index column it leaves out, ascending.
+
+        Grouped and pivoted rows come out in no fixed order, which changes between runs and
+        targets, so offset paging would skip or repeat groups. The keys are unique per output
+        row, so they fix it. Ungrouped rows keep whatever order their source gives.
+        """
+        keys = self.group_by or (self.pivot.index if self.pivot is not None else [])
+        named = {s.col for s in self.sort}
+        return [*self.sort, *(Sort(col=k) for k in keys if k not in named)]
+
     @model_validator(mode="after")
     def _check_shape(self) -> QuerySpec:
         if self.line_reduce is not None:

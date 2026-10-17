@@ -79,8 +79,8 @@ def to_polars(
         lf = _pivot(lf, spec.pivot, schema[spec.pivot.values], spec.dataset)
         # Pivot output columns come from the data, so they can only be checked now.
         check_output_columns(spec, set(lf.collect_schema().names()))
-    if spec.sort:
-        lf = lf.sort([s.col for s in spec.sort], descending=[s.desc for s in spec.sort])
+    if order := spec.row_order:
+        lf = lf.sort([s.col for s in order], descending=[s.desc for s in order])
     if spec.limit is not None or spec.offset:
         lf = lf.slice(spec.offset, spec.limit)
     if spec.select is not None:

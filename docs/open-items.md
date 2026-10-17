@@ -53,9 +53,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **Raw aggregate errors**: an aggregate the column's type cannot take, such as
   `sum` over strings, surfaces as the engine's own error with its query plan,
   for group-by and pivot alike. Fails loudly.
-- **Unsorted group-by and pivot rows have no fixed order**: without a `sort`,
-  row order can change between runs and between targets. Silent; paging with
-  offsets would skip or repeat groups.
 - **Relation intervals sort and filter as text**: INTERVAL columns of relations
   are projected as VARCHAR, so `9 days` sorts after `100 days`. Silent.
 - **Odd temporal values**: DuckDB `'infinity'` in a TIMESTAMP_S or TIMESTAMP_NS
