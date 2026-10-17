@@ -206,6 +206,8 @@ class Executor:
             }
             sql = self._sql_table_reads(names.sql_literals | called_sql, datasets_before)
             reads = sorted({*loaded, *((called | kept) & known), *sql})
+        # Each helper's body reads, with a test for its object, before rebinding prunes its name.
+        helpers = [(self._defined[n], needs) for n, needs in self._helper_needs.items()]
         # A name rebound or deleted no longer holds what its step bound, and a helper's body no
         # longer runs unless this step defined it anew.
         self._defined = {
@@ -229,10 +231,11 @@ class Executor:
                     if n in names.defines and not (n in before and before[n](self._ns[n]))
                 }
             )
-        # A name bound to a helper, as `alias = helper` binds it, reads what the helper reads.
-        by_object = {id(self._ns[n]): needs for n, needs in self._helper_needs.items()}
+        # A name bound to a helper's object, as `alias = helper` binds it, reads what its body
+        # reads, even when the step also rebinds `helper`. A def that ran comes last and wins.
+        helpers += [(self._defined[n], needs) for n, needs in self._helper_needs.items()]
         self._helper_needs.update(
-            {n: by_object[id(self._ns[n])] for n in defines if id(self._ns[n]) in by_object}
+            {n: needs for same, needs in helpers for n in defines if same(self._ns[n])}
         )
         return ExecResult(
             status=status,

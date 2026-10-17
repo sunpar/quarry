@@ -548,10 +548,13 @@ def test_the_first_annotation_defines_annotations() -> None:
     assert ex.execute("y: int = 2").defines == ["y"]
 
 
-def test_a_name_bound_to_a_helper_reads_what_the_helper_reads() -> None:
+@pytest.mark.parametrize(
+    "copy", ["fetch = get_data", "fetch = get_data\nget_data = None"], ids=["copy", "copy_rebind"]
+)
+def test_a_name_bound_to_a_helper_reads_what_the_helper_reads(copy: str) -> None:
     ex = make()
     ex.execute("def get_data():\n    return prices\n")
-    ex.execute("fetch = get_data")
+    ex.execute(copy)
     ex.execute("prices = pl.DataFrame({'a': [1]})")
     assert ex.execute("out = fetch()").reads == ["fetch", "prices"]
 
