@@ -89,10 +89,10 @@ def test_grouped_rows_follow_their_keys_on_every_target(
     conn = utc_connection()
     conn.register("t", frame)
     results: dict[str, pl.DataFrame] = {
-        "polars": to_polars(spec, frame).collect(),
-        "sql": conn.sql(to_sql(spec, "t")).pl(),
+        "to_polars": to_polars(spec, frame).collect(),
+        "to_sql": conn.sql(to_sql(spec, "t")).pl(),
         **{
-            b: execute(to_source(spec, b, schema=frame.schema), {"t": bind(frame, b)})
+            f"source {b}": execute(to_source(spec, b, schema=frame.schema), {"t": bind(frame, b)})
             for b in BACKINGS
         },
     }
