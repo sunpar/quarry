@@ -484,16 +484,21 @@ def _bound(
         name
         for name, value in namespace.items()
         if isinstance(name, str)
-        and name not in _INTERPRETER_NAMES
         and (
             name in stored.stores
-            or name not in before
-            or not before[name](value)
+            # The interpreter binds these itself; only a store in the code counts for them.
             or (
-                name in stored.effects
-                and not is_dataset(value)
-                # Not `isinstance`, which asks the object's own `__class__`, and that can raise.
-                and not issubclass(type(value), ModuleType)
+                name not in _INTERPRETER_NAMES
+                and (
+                    name not in before
+                    or not before[name](value)
+                    or (
+                        name in stored.effects
+                        and not is_dataset(value)
+                        # Not `isinstance`, which asks the object's `__class__`, which can raise.
+                        and not issubclass(type(value), ModuleType)
+                    )
+                )
             )
         )
     }

@@ -533,9 +533,10 @@ def test_interpreter_names_are_not_defines() -> None:
     assert make().execute("x: int = 1").defines == ["x"]  # not `__annotations__`
 
 
-def test_a_dunder_named_dataset_is_a_write() -> None:
-    result = make().execute("__prices__ = pl.DataFrame({'a': [1]})")
-    assert (result.writes, result.defines) == (["__prices__"], [])
+@pytest.mark.parametrize("name", ["__prices__", "__builtins__"])
+def test_a_dunder_named_dataset_is_a_write(name: str) -> None:
+    result = make().execute(f"{name} = pl.DataFrame({{'a': [1]}})")
+    assert (result.writes, result.defines) == ([name], [])
 
 
 def test_an_effect_on_an_object_whose_class_attribute_raises_is_a_define() -> None:
