@@ -66,6 +66,8 @@ class Filter(BaseModel):
             raise ValueError(f"{op} requires a scalar value")
         if op in TEXT_OPS and not isinstance(value, str):
             raise ValueError(f"{op} requires a string value")
+        if isinstance(value, list) and any(isinstance(item, list | dict) for item in value):
+            raise ValueError(f"{op} requires scalar items")
         if _has_non_finite(value):
             # JSON has no inf or nan: sent to the kernel, the spec would carry null instead.
             raise ValueError(f"{op} requires finite numbers")
@@ -181,6 +183,8 @@ class QuerySpec(BaseModel):
             _require_unique([*self.group_by, *(a.name for a in self.aggs)], "output column")
         if self.select is not None:
             _require_unique(self.select, "select column")
+        if self.pivot is not None:  # polars keeps one copy of a repeated index; DuckDB renames it
+            _require_unique(self.pivot.index, "pivot index column")
         return self
 
 
@@ -188,8 +192,6 @@ def _has_non_finite(value: Json) -> bool:
     match value:
         case list():
             return any(_has_non_finite(item) for item in value)
-        case dict():
-            return any(_has_non_finite(item) for item in value.values())
         case float():
             return not math.isfinite(value)
         case _:

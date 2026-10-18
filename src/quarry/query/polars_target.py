@@ -11,7 +11,7 @@ import duckdb
 import polars as pl
 
 from quarry.query.columns import check_columns, check_line_axes, check_output_columns
-from quarry.query.spec import Agg, AggFn, Filter, Json, Pivot, QuerySpec
+from quarry.query.spec import Agg, AggFn, Filter, Json, Pivot, QueryError, QuerySpec
 from quarry.query.sql_target import LINE_CONNECTION_CONFIG, line_sql, quote_ident
 
 CompareOp = Literal["eq", "ne", "lt", "le", "gt", "ge", "in", "not_in", "between"]
@@ -76,7 +76,7 @@ def to_polars(
     if spec.group_by is not None:
         lf = lf.group_by(spec.group_by).agg([agg_expr(a, schema[a.col]) for a in spec.aggs])
     elif spec.pivot is not None:
-        lf = _pivot(lf, spec.pivot, schema[spec.pivot.values])
+        lf = _pivot(lf, spec.pivot, schema[spec.pivot.values], spec.dataset)
         # Pivot output columns come from the data, so they can only be checked now.
         check_output_columns(spec, set(lf.collect_schema().names()))
     if order := spec.row_order:
@@ -221,17 +221,20 @@ def sums_as_decimal(dtype: pl.DataType) -> bool:
     return dtype in _UP_TO_64_BIT_INTEGERS
 
 
-def _pivot(lf: pl.LazyFrame, pivot: Pivot, dtype: pl.DataType) -> pl.LazyFrame:
+def _pivot(lf: pl.LazyFrame, pivot: Pivot, dtype: pl.DataType, dataset: str) -> pl.LazyFrame:
     # pivot is eager: without the select, every column of every filtered row is collected.
-    wide = (
-        lf.select(pivot.inputs)
-        .collect()
-        .pivot(
+    inputs = lf.select(pivot.inputs).collect()
+    try:
+        wide = inputs.pivot(
             on=pivot.columns,
             index=pivot.index,
             values=pivot.values,
             aggregate_function=_aggregate(pivot.agg, pl.element(), dtype),
             sort_columns=True,
         )
-    )
+    except pl.exceptions.DuplicateError as exc:
+        # The only repeat a pivot makes: a value of `columns` that names an index column.
+        index = ", ".join(repr(c) for c in pivot.index)
+        message = f"a value of pivot column {pivot.columns!r} is named like index column {index}"
+        raise QueryError(message, dataset=dataset) from exc
     return wide.lazy()

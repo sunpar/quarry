@@ -1,74 +1,48 @@
 # Working state
 
-Checkpoint as of 2026-10-17, with PR #26 open. This page records current work
-and verification. The [docs index](README.md) describes the permanent context
-and [open-items.md](open-items.md) holds unresolved work.
+Checkpoint as of 2026-10-17, after PRs #26, #28 and #29 merged. This page
+records current work and verification. The [docs index](README.md) describes the
+permanent context and [open-items.md](open-items.md) holds unresolved work.
 
-## Current work
+## Recent merges
 
-[PR #26](https://github.com/sunpar/quarry/pull/26), "Keep steps that bind recipe
-inputs", is open on main `3572008` from branch
-`claude/token-usage-cleanup-c8c59f`, with CI Auto-fix on. Hosted CI runs only on
-demand. It fixes the first known problem in the backlog and the priority-1 gap
-in the workflow assessment. A saved recipe used to drop the step that bound a
-parameter, import or lambda a later step read, and fresh replay failed with
-`NameError`. A later `symbols.append(...)` or `params.update(...)` step was
-dropped the same way.
+[PR #26](https://github.com/sunpar/quarry/pull/26) merged as `daead98`. A saved
+recipe now keeps every step that bound or changed an input it reads: `defines`
+lists every non-dataset name a step binds, later loads of those names are reads,
+and a statement that calls a method and drops the result binds its object. A
+load after the step's own module-body store of a name is not a read, so steps
+that reuse `cols` or `import json` stay out of each other's recipes. The rules
+and their costs are in [decisions](context/decisions.md#lineage), and spec §6 is
+amended. Lineage follows names, not objects; the open items record that as a
+known problem, beside the remaining blind spots.
 
-- `defines` now lists every non-dataset name a step binds, and later loads of
-  those names are reads. Module-level method calls whose result is dropped bind
-  their object, unless it holds a dataset or a module. The rules and their costs
-  are in [decisions](context/decisions.md#lineage), and spec §6 is amended.
-- A store inside a block that left a known name holding the same object also
-  reads it, so a store that never ran keeps the earlier producer. A load after
-  a module-body store of the same name is not a read, so steps that rebind
-  `cols` or `import json` no longer chain into each other's recipes.
-- What lineage still misses is in the open items' lineage blind spots, including
-  a change made through an alias.
+GitHub Codex raised fifteen findings on #26 over eleven rounds; thirteen are
+fixed and two documented, and Claude's last GitHub review was clean at
+`45920cc`. The local Opus review on `45920cc` raised fourteen: `a24281f` fixes
+its main one, recipes that replayed most of a session, plus three smaller ones,
+and documents the rest. Astra found nothing actionable, and Muse timed out at 20
+minutes. `make check` on `a24281f` passed with 1,287 Python tests (3 skipped)
+and 272 frontend tests, and hosted Linux
+[run 39065891972](https://github.com/sunpar/quarry/actions/runs/39065891972)
+passed on the same head.
 
-Local Claude and Codex reviews of the first commit found two regressions, fixed
-with tests in the second commit, plus a freed weak reference that matched `None`
-and the missing method-call rule. The prompt-step fold still counts a failed
-call's bindings, by choice; the fold decision records why.
+[PR #28](https://github.com/sunpar/quarry/pull/28) merged as `2514219`. Grouped
+and pivoted rows sort by `sort`, then by each group key or pivot index column it
+leaves out, on every target and in generated code, so paging through them is
+stable. Hosted
+[run 39070046585](https://github.com/sunpar/quarry/actions/runs/39070046585)
+passed on its merge with main.
 
-Over eleven review rounds GitHub Codex raised fifteen findings, and later
-commits fix thirteen:
-
-- dunder dataset names lost their writes;
-- the module check asked a proxy's raising `__class__`;
-- stores to `__builtins__` or `__annotations__` were dropped. The executor now
-  adds `__builtins__` before the first step, as `exec` would, and
-  `__annotations__` is an ordinary name, so no special case remains;
-- a `def` that never ran hid another store to its name, then replaced the
-  helper's recorded body;
-- a name bound to a helper, as `fetch = get_data`, or an instance of a helper
-  class did not read what the helper reads;
-- export ordering stopped seeing a recipe's `def` names;
-- method calls and attribute stores in a class body, which runs with its
-  definition, were not counted.
-
-The later rounds found members of one family, objects reached through another
-name, so the open items now record that family as one known problem, along with
-a step reading later annotations. Claude's re-review found nothing blocking;
-`e8c4b11` documents the two limits it raised.
-
-The local Opus review on `45920cc` raised fourteen findings. Its main one was a
-regression: recipes replayed most of a session, since a step that rebound and
-used `cols`, `n = 1` or `import json` read the previous step's binding. The
-next commit fixes that, a class body's own name counted as the module's, and
-the star-import `defines` sent to the model. The rest are names-not-objects or
-effect-detection limits, now in the open items.
-
-`make check` on `8a65aba` passed with 1,257 Python tests (3 skipped), 270
-frontend and 25 gate/transport tests in 78.28 s on macOS arm64. Hosted Linux
-[run 39044174936](https://github.com/sunpar/quarry/actions/runs/39044174936)
-passed on `135c818`. The pre-push check on `e8c4b11` passed 1,260 Python tests
-with 3 skipped.
+[PR #29](https://github.com/sunpar/quarry/pull/29) rejects nested filter items
+and repeated pivot index columns, and a pivot value named like an index column
+is now a query error; aggregate type errors still surface raw. Its pre-push gate
+on the merge with main passed 1,295 Python tests (3 skipped) and 272 frontend
+tests.
 
 Running `uv run` in a fresh worktree installs Quarry into `.venv`, and
 `make check` then stops at its dependency check; rerun `make deps` to recover.
 
-## Main as of `3572008`
+## Earlier merges
 
 [PR #27](https://github.com/sunpar/quarry/pull/27) merged as `3572008`. Both
 table built-ins keep their last answer under a "Loading" status line while a
@@ -88,7 +62,7 @@ addressed.
 ## Remaining work
 
 The validated inventory preserves 266 stable IDs: 16 merged records and 250 open
-records. PR #26 implements the module-binding dependency record. The workflow
+records. PR #26 implemented the module-binding dependency record. The workflow
 assessment's next step after it, reusable parameter contracts, needs a product
 decision on which repeated workflow takes replacement inputs. Metric definitions
 and content validation also need product decisions. The branching assessment
@@ -135,12 +109,11 @@ warnings remain.
 
 ## Next actions
 
-1. Merge PR #26 once `@claude` is clean on its head and hosted CI is green.
-2. Select the next item from [open-items.md](open-items.md): the remaining
+1. Select the next item from [open-items.md](open-items.md): the remaining
    correctness issues come first.
-3. Decide workflow parameter contracts, metric validation and branching replay
+2. Decide workflow parameter contracts, metric validation and branching replay
    semantics before implementing those features.
-4. Retain native-x86 and live-integration limits until their own checks run.
+3. Retain native-x86 and live-integration limits until their own checks run.
 
 To resume, fetch main and compare `git log` and `gh pr list` with this page.
 Update this checkpoint when repository state changes.

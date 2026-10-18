@@ -50,9 +50,9 @@ Decisions already made are in [decisions.md](context/decisions.md).
   relation but raises on a polars backing. A malformed ISO date raises a bare
   `ValueError` that does not name the column. Loud on polars backings; silent
   coercion on relations.
-- **Unchecked list items and pivot errors**: nested lists or objects inside
-  `in`, `not_in` and `between` values pass validation and fail in the engine.
-  Errors inside a pivot spec surface as raw polars errors. Both fail loudly.
+- **Raw aggregate errors**: an aggregate the column's type cannot take, such as
+  `sum` over strings, surfaces as the engine's own error with its query plan,
+  for group-by and pivot alike. Fails loudly.
 - **Relation intervals sort and filter as text**: INTERVAL columns of relations
   are projected as VARCHAR, so `9 days` sorts after `100 days`. Silent.
 - **Odd temporal values**: DuckDB `'infinity'` in a TIMESTAMP_S or TIMESTAMP_NS
