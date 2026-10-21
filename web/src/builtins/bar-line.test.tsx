@@ -176,4 +176,12 @@ describe("bar-line built-in", () => {
     render(<BarLine datasets={["trades"]} />);
     expect(screen.getByText("Showing the first 500 rows.")).toBeTruthy();
   });
+
+  it("keeps its pickers above a query error", () => {
+    query.mockReturnValue({ status: "error", message: "unknown column" });
+    render(<BarLine datasets={["trades"]} />);
+    for (const label of ["Chart", "Category", "Value", "Aggregate"])
+      expect(screen.getByLabelText(label)).toBeTruthy();
+    expect(screen.getByText("unknown column")).toBeTruthy();
+  });
 });

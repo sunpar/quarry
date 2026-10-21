@@ -75,14 +75,6 @@ export default function TimeSeries({ datasets }: Props) {
       </p>
     );
   }
-  if (result.status === "loading")
-    return <p className="p-4 text-sm text-muted-foreground">Loading</p>;
-  if (result.status === "error")
-    return (
-      <pre className="p-4 font-mono text-sm text-destructive">
-        {result.message}
-      </pre>
-    );
 
   return (
     <div className="flex h-full flex-col">
@@ -100,12 +92,21 @@ export default function TimeSeries({ datasets }: Props) {
           onChange={(v) => setChosen({ time, value: v })}
         />
       </div>
-      {(result.truncated || result.rows.length >= LIMIT) && (
-        <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
-          Showing the first {result.rows.length.toLocaleString()} rows.
-        </p>
+      {result.status === "success" &&
+        (result.truncated || result.rows.length >= LIMIT) && (
+          <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
+            Showing the first {result.rows.length.toLocaleString()} rows.
+          </p>
+        )}
+      {result.status === "loading" ? (
+        <p className="p-4 text-sm text-muted-foreground">Loading</p>
+      ) : result.status === "error" ? (
+        <pre className="p-4 font-mono text-sm text-destructive">
+          {result.message}
+        </pre>
+      ) : (
+        <div ref={container} className="min-h-0 flex-1" />
       )}
-      <div ref={container} className="min-h-0 flex-1" />
     </div>
   );
 }

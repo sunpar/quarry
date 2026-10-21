@@ -84,4 +84,12 @@ describe("time-series built-in", () => {
     // The server's row cap can sit below the chart's limit.
     expect(screen.getByText("Showing the first 7 rows.")).toBeTruthy();
   });
+
+  it("keeps its pickers above a query error", () => {
+    query.mockReturnValue({ status: "error", message: "unknown column" });
+    render(<TimeSeries datasets={["px"]} />);
+    expect(screen.getByLabelText("Time")).toBeTruthy();
+    expect(screen.getByLabelText("Value")).toBeTruthy();
+    expect(screen.getByText("unknown column")).toBeTruthy();
+  });
 });

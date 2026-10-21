@@ -160,10 +160,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   a peer connection's ICE traffic or a DNS prefetch, so a generated view can put
   rows in a STUN host name or a prefetched name despite the runtime CSP and the
   host's `frame-src 'self'`. Silent.
-- **A refused column choice hides the chart pickers**: every chart built-in
-  returns early on a query error, so when the kernel refuses a saved column
-  choice, the pickers that could change it are gone. Loud, and the view stays on
-  the error.
 - **The first browser test can time out on load**: in 1 of 5 local full runs,
   the session's first Playwright test waited 30 s for the "New session" button
   in `open_session` and failed, before any step ran; reruns passed. The cause is
@@ -221,9 +217,8 @@ Decisions already made are in [decisions.md](context/decisions.md).
   instead of the new view and posts it under the new mount, which brings back
   the host's "Fix this view". Loud.
 - **OHLC fails on a case-only name clash**: `Close` and `close` in one dataset
-  make its select fail, and the error hides the pickers. Loud. A table's saved
-  sort also goes out before the schema loads, so a sort on a dropped column
-  fails that first query.
+  make its select fail. Loud. A table's saved sort also goes out before the
+  schema loads, so a sort on a dropped column fails that first query.
 - **Picked snapshots are not what "To code" and "Save view" use**: after a pick
   in the scrubber, both use the newest snapshot. Silent.
 - **Snapshots can repeat**: switching a view A to B to A within one report

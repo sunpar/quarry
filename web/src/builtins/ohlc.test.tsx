@@ -212,9 +212,11 @@ describe("ohlc built-in", () => {
     ).toBeTruthy();
   });
 
-  it("shows query errors in place", () => {
+  it("shows query errors below its pickers", () => {
     query.mockReturnValue({ status: "error", message: "unknown column" });
     render(<Ohlc datasets={["bars"]} />);
+    for (const label of ["Time", "Open", "High", "Low", "Close"])
+      expect(screen.getByLabelText(label)).toBeTruthy();
     expect(screen.getByText("unknown column")).toBeTruthy();
   });
 });

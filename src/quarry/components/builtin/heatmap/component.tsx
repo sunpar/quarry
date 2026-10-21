@@ -98,22 +98,22 @@ export default function Heatmap({ datasets }: Props) {
       />
     </div>
   );
-  if (!ready)
+  if (!ready || result.status !== "success")
     return (
       <div className="flex h-full flex-col">
         {toolbar}
-        <p className="px-3 py-1 text-sm text-muted-foreground">
-          Pick a {row === null ? "row" : "column"} key.
-        </p>
+        {!ready ? (
+          <p className="px-3 py-1 text-sm text-muted-foreground">
+            Pick a {row === null ? "row" : "column"} key.
+          </p>
+        ) : result.status === "error" ? (
+          <pre className="p-4 font-mono text-sm text-destructive">
+            {result.message}
+          </pre>
+        ) : (
+          <p className="p-4 text-sm text-muted-foreground">Loading</p>
+        )}
       </div>
-    );
-  if (result.status === "loading")
-    return <p className="p-4 text-sm text-muted-foreground">Loading</p>;
-  if (result.status === "error")
-    return (
-      <pre className="p-4 font-mono text-sm text-destructive">
-        {result.message}
-      </pre>
     );
 
   // The pivoted frame is the row key plus one column per distinct `column` value. `cols`

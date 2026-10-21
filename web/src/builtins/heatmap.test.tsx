@@ -159,4 +159,12 @@ describe("heatmap built-in", () => {
     render(<Heatmap datasets={["rets"]} />);
     expect(screen.getByText("Showing the first 500 rows.")).toBeTruthy();
   });
+
+  it("keeps its pickers above a query error", () => {
+    query.mockReturnValue({ status: "error", message: "unknown column" });
+    render(<Heatmap datasets={["rets"]} />);
+    for (const label of ["Row", "Column", "Value", "Aggregate"])
+      expect(screen.getByLabelText(label)).toBeTruthy();
+    expect(screen.getByText("unknown column")).toBeTruthy();
+  });
 });

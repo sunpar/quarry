@@ -63,16 +63,13 @@ export default function Scatter({ datasets }: Props) {
         This dataset needs two numeric columns.
       </p>
     );
-  if (result.status === "loading")
-    return <p className="p-4 text-sm text-muted-foreground">Loading</p>;
-  if (result.status === "error")
-    return (
-      <pre className="p-4 font-mono text-sm text-destructive">
-        {result.message}
-      </pre>
-    );
 
-  const { traces, merged } = tracesFor(result.rows, x, y, color);
+  const { traces, merged } = tracesFor(
+    result.status === "success" ? result.rows : [],
+    x,
+    y,
+    color,
+  );
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap gap-3 border-b border-border px-3 py-1 text-sm">
@@ -95,31 +92,40 @@ export default function Scatter({ datasets }: Props) {
           onChange={(v) => setChosen({ x, y, color: v === "" ? null : v })}
         />
       </div>
-      {(result.truncated || result.rows.length >= LIMIT) && (
-        <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
-          Showing the first {result.rows.length.toLocaleString()} rows.
-        </p>
-      )}
+      {result.status === "success" &&
+        (result.truncated || result.rows.length >= LIMIT) && (
+          <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
+            Showing the first {result.rows.length.toLocaleString()} rows.
+          </p>
+        )}
       {merged && (
         <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
           Too many values in {color} to color by; showing one series.
         </p>
       )}
-      <div className="min-h-0 flex-1">
-        <Plot
-          data={traces}
-          layout={{
-            autosize: true,
-            margin: { t: 16, r: 16, b: 40, l: 48 },
-            xaxis: { title: { text: x } },
-            yaxis: { title: { text: y } },
-            font: { family: "IBM Plex Sans, sans-serif" },
-          }}
-          useResizeHandler
-          style={{ width: "100%", height: "100%" }}
-          config={{ displaylogo: false }}
-        />
-      </div>
+      {result.status === "loading" ? (
+        <p className="p-4 text-sm text-muted-foreground">Loading</p>
+      ) : result.status === "error" ? (
+        <pre className="p-4 font-mono text-sm text-destructive">
+          {result.message}
+        </pre>
+      ) : (
+        <div className="min-h-0 flex-1">
+          <Plot
+            data={traces}
+            layout={{
+              autosize: true,
+              margin: { t: 16, r: 16, b: 40, l: 48 },
+              xaxis: { title: { text: x } },
+              yaxis: { title: { text: y } },
+              font: { family: "IBM Plex Sans, sans-serif" },
+            }}
+            useResizeHandler
+            style={{ width: "100%", height: "100%" }}
+            config={{ displaylogo: false }}
+          />
+        </div>
+      )}
     </div>
   );
 }

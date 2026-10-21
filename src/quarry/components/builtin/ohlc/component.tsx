@@ -98,12 +98,6 @@ export default function Ohlc({ datasets }: Props) {
         This dataset needs a date column and open, high, low and close columns.
       </p>
     );
-  if (result.status === "error")
-    return (
-      <pre className="p-4 font-mono text-sm text-destructive">
-        {result.message}
-      </pre>
-    );
 
   return (
     <div className="flex h-full flex-col">
@@ -124,7 +118,13 @@ export default function Ohlc({ datasets }: Props) {
             Showing the first {result.rows.length.toLocaleString()} rows.
           </p>
         )}
-      <div ref={container} className="min-h-0 flex-1" />
+      {result.status === "error" ? (
+        <pre className="p-4 font-mono text-sm text-destructive">
+          {result.message}
+        </pre>
+      ) : (
+        <div ref={container} className="min-h-0 flex-1" />
+      )}
     </div>
   );
 }
