@@ -103,7 +103,7 @@ def test_between_requires_pair() -> None:
 
 
 def test_in_requires_list() -> None:
-    with pytest.raises(ValidationError, match="in requires a non-empty list value"):
+    with pytest.raises(ValidationError, match=r"\bin requires a non-empty list value"):
         Filter(col="x", op="in", value=1)
 
 
@@ -206,7 +206,7 @@ def test_list_ops_reject_null_items(op: FilterOp, value: Json) -> None:
     ids=["in", "not_in", "between"],
 )
 def test_list_values_reject_nested_items(op: FilterOp, value: Json) -> None:
-    with pytest.raises(ValidationError, match=f"{op} requires scalar items"):
+    with pytest.raises(ValidationError, match=rf"\b{op} requires scalar items"):
         Filter(col="x", op=op, value=value)
 
 

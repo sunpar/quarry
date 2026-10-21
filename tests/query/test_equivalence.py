@@ -110,8 +110,8 @@ INT_MAX: dict[pl.DataType, int] = {
 @pytest.mark.parametrize("dtype", INT_MAX, ids=str)
 @pytest.mark.parametrize("spec", INT_SUM_SPECS, ids=INT_SUM_IDS)
 def test_integer_sums_agree_exactly(spec: QuerySpec, dtype: pl.DataType) -> None:
-    # DuckDB sums every integer type as HUGEINT, which .pl() reads as Decimal(38, 0). An
-    # exact compare: assert_same_rows ignores dtypes and allows a float tolerance.
+    # DuckDB sums every integer type as HUGEINT, which .pl() reads as Decimal(38, 0). A direct
+    # compare, as assert_same_rows ignores dtypes: both sides must be Decimal(38, 0).
     top = INT_MAX[dtype]
     frame = overflowing(top, dtype)
     via_polars = to_polars(spec, frame).collect()

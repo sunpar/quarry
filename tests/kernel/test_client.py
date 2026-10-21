@@ -241,7 +241,7 @@ def test_kernel_crash_is_detected(kernel: KernelClient) -> None:
 
 def test_shutdown(kernel: KernelClient) -> None:
     kernel.shutdown()
-    assert kernel._process.wait(timeout=5) == 0
+    assert exits_soon(kernel.pid), f"kernel {kernel.pid} outlived shutdown()"
 
 
 def test_calls_after_shutdown_raise_kernel_dead(kernel: KernelClient) -> None:
