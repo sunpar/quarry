@@ -196,9 +196,10 @@ Decisions already made are in [decisions.md](context/decisions.md).
   missing `config`, so a snapshot from before the first layout keeps the later
   one. Changing the viewer's settings, theme or title also writes view state.
   Silent.
-- **A failed Perspective engine start sticks**: `ensureEngine` caches its
-  promise, so once the wasm fetch or the worker start fails, every pivot in that
-  frame fails until the frame reloads. Loud.
+- **A Perspective engine that never answers hangs the pivot**: a worker whose
+  script fails to run, or a server wasm that is not wasm, leaves
+  `perspective.worker` waiting with no error or timeout, so the start never
+  fails and is never retried. Silent: the pivot stays empty.
 - **Arrow bytes Perspective cannot read leave the pivot blank**: a corrupt
   Arrow stream that is still valid base64 decodes, so `client.table` rejects
   inside `PerspectiveViewer`'s load effect. The runtime reports the unhandled
