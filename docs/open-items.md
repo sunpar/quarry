@@ -160,12 +160,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   a peer connection's ICE traffic or a DNS prefetch, so a generated view can put
   rows in a STUN host name or a prefetched name despite the runtime CSP and the
   host's `frame-src 'self'`. Silent.
-- **Perspective dates outside years 1 to 9999**: a Date or Datetime filter term
-  beyond them maps to a `+010000-...` ISO string, which the kernel cannot parse,
-  so the pivot's probe query and "To code" fail. Loud.
-- **Perspective `in` items on integer columns**: the mapping reads items such as
-  `1e3` or `0x10` with JavaScript's `Number()` and the engine with `stoll`, so
-  the viewer and "To code" can filter different rows. Silent.
 - **A refused column choice hides the chart pickers**: every chart built-in
   returns early on a query error, so when the kernel refuses a saved column
   choice, the pickers that could change it are gone. Loud, and the view stays on
@@ -198,7 +192,15 @@ Decisions already made are in [decisions.md](context/decisions.md).
   toward `filter_op "or"`; a filter on a column the schema lacks reaches the
   kernel and fails with a `QueryError`; `in` items on a Decimal column are not
   coerced to Decimal; and sub-millisecond datetime comparisons can differ
-  between the viewer and the kernel. Mostly silent.
+  between the viewer and the kernel. The engine reads Float `in` items, and
+  those on UInt64 and 128-bit integer columns, which reach the viewer as
+  Float64, with `stod` where the mapping uses `Number()` (`0b101` and `0o17`
+  differ), compares Float32 `in` items as float32 where the kernel uses Float64,
+  and appears from its source to compare a boolean `in` item by pointer. A
+  Datetime term within a day of years 1 or 9999 on a zoned column, or outside
+  about 1677 to 2262 on a relation's nanosecond column, fails in the kernel, and
+  a negative epoch-millisecond Date term that is not a whole second can land a
+  day apart (the engine truncates, JavaScript floors). Mostly silent.
 - **Scrubbing can keep a later pivot layout**: `PerspectiveViewer` ignores a
   missing `config`, so a snapshot from before the first layout keeps the later
   one. Changing the viewer's settings, theme or title also writes view state.

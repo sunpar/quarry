@@ -18,7 +18,14 @@ const OPS: Record<string, Filter["op"]> = {
   "is not null": "not_null",
 };
 
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
+// The viewer gets Int8 to Int64 columns as integers and UInt8 to UInt32 as Int64. The engine
+// reads their items with `stoll`, or with `stoi` cast down to the width of an Int8 to Int32
+// column ("300" on Int8 becomes 44). Both agree with `Number()` only on plain decimal digits,
+// not on `1e3` or `0x10`, and skip only ASCII whitespace before them. UInt64 and 128-bit
+// columns reach it as Float64, whose items `stod` reads as `Number()` reads `1e3`.
+const INTEGER = /^[ \t\n\v\f\r]*[+-]?\d+\s*$/;
+const FLOAT_INT = /^(UInt64|U?Int128)$/;
+const INT_BITS: Record<string, number> = { Int8: 8, Int16: 16, Int32: 32 };
 
 /**
  * Perspective's filters as spec filters the kernel accepts and compares as Perspective
@@ -100,7 +107,15 @@ function coerceTerm(term: Term, dtype: string | undefined): Json | undefined {
   if (dtype === undefined) return term;
   if (/^(Int|UInt)/.test(dtype)) {
     const n = toNumber(term);
-    return Number.isInteger(n) ? n : undefined;
+    if (FLOAT_INT.test(dtype)) return Number.isInteger(n) ? n : undefined;
+    if (typeof term === "string" && !INTEGER.test(term)) return undefined;
+    const half = 2 ** ((INT_BITS[dtype] ?? 64) - 1);
+    // `Number()` rounds a string's digits beyond 2^53, which `stoll` reads exactly, while
+    // the kernel and the engine get a number term as one double. The engine narrows both
+    // kinds to the column's width.
+    const exact =
+      typeof term === "string" ? Number.isSafeInteger(n) : Number.isInteger(n);
+    return exact && n >= -half && n < half ? n : undefined;
   }
   if (/^(Float|Decimal)/.test(dtype)) {
     const n = toNumber(term);
@@ -118,15 +133,21 @@ function coerceTerm(term: Term, dtype: string | undefined): Json | undefined {
   // The engine reads milliseconds as their UTC calendar day (`gmtime`).
   if (dtype === "Date") {
     if (typeof term === "number") return utcIso(term)?.slice(0, 10);
-    return typeof term === "string" && DAY.test(term) ? term : undefined;
+    // Only a real day reads back as itself, not "2024-02-30" or "0000-01-01".
+    const day = utcIso(Date.parse(`${term}T00:00:00Z`))?.slice(0, 10);
+    return day === term ? day : undefined;
   }
   return term;
 }
 
-/** Naive datetime columns hold UTC wall clocks, and the kernel reads a naive string as UTC. */
+/**
+ * Naive datetime columns hold UTC wall clocks, and the kernel reads a naive string as UTC.
+ * Python's dates and datetimes hold only years 1 to 9999.
+ */
 function utcIso(ms: number): string | undefined {
   const time = new Date(ms);
-  return Number.isNaN(time.getTime()) ? undefined : time.toISOString();
+  const year = time.getUTCFullYear();
+  return year >= 1 && year <= 9999 ? time.toISOString() : undefined;
 }
 
 function toNumber(term: Exclude<Term, null>): number {
