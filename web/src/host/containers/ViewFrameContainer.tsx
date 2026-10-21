@@ -27,14 +27,15 @@ const withSnapshot =
   (stepId: string, snapshot: Snapshot) => (session: Session | undefined) =>
     session && {
       ...session,
-      steps: session.steps.map((s) =>
-        s.id === stepId && s.view
-          ? {
-              ...s,
-              view: { ...s.view, snapshots: [...s.view.snapshots, snapshot] },
-            }
-          : s,
-      ),
+      steps: session.steps.map((s) => {
+        if (s.id !== stepId || !s.view) return s;
+        // Mirrors the server's rule: a snapshot of the last state replaces it.
+        const kept = s.view.snapshots;
+        const repeats =
+          JSON.stringify(kept.at(-1)?.state) === JSON.stringify(snapshot.state);
+        const snapshots = [...(repeats ? kept.slice(0, -1) : kept), snapshot];
+        return { ...s, view: { ...s.view, snapshots } };
+      }),
     };
 
 export function ViewFrameContainer({
@@ -48,6 +49,10 @@ export function ViewFrameContainer({
   const api = useApi();
   const queryClient = useQueryClient();
   const [restoreState, setRestoreState] = useState<JsonObject | null>(null);
+  // Each report from the view drops the scrubber's pick: the view has left the picked state even
+  // when its report replaces the last snapshot and the count holds. A restore sends no report,
+  // and a refetch alone keeps the pick. A prop rather than a key, so the slider keeps its focus.
+  const [reports, setReports] = useState(0);
   const view = step.view;
   if (view === null) return null;
   return (
@@ -65,9 +70,10 @@ export function ViewFrameContainer({
         title={`View for step ${step.index + 1}`}
         disabled={running}
         onStateChanged={(state, queries) => {
+          setReports((n) => n + 1);
           void api
             .postSnapshot(sessionId, step.id, { state, queries })
-            // The scrubber reads snapshots from the session; append this one to it instead of
+            // The scrubber reads snapshots from the session; record this one there instead of
             // refetching the whole session. An uncached session stays uncached.
             .then(() =>
               queryClient.setQueryData(
@@ -84,7 +90,11 @@ export function ViewFrameContainer({
         onFix={(error) => onRepair({ step_id: step.id, error })}
       />
       <div className="flex items-center gap-4 empty:hidden">
-        <SnapshotScrubber snapshots={view.snapshots} onPick={setRestoreState} />
+        <SnapshotScrubber
+          snapshots={view.snapshots}
+          reports={reports}
+          onPick={setRestoreState}
+        />
         {actions !== undefined && <div className="ml-auto">{actions}</div>}
       </div>
     </div>

@@ -232,9 +232,10 @@ Decisions already made are in [decisions.md](context/decisions.md).
   the table built-ins already did this. Silent cost.
 - **Picked snapshots are not what "To code" and "Save view" use**: after a pick
   in the scrubber, both use the newest snapshot. Silent.
-- **Snapshots can repeat**: switching a view A to B to A within one report
-  window appends a duplicate snapshot, and an inline view that queries from
-  local state appends one per change. Silent cost toward the 500 cap.
+- **Snapshot reports are not ordered**: the server handles each report in a
+  thread pool, so when two reports of the same state race, the older one can
+  replace the newer, and "To code" and "Save view" use stale queries until the
+  next report. Silent.
 - **A busy session's component save shares a 409**: a busy session's 409 on
   `POST /components` shares its code with an existing id's, though its message
   says the session is busy. Giving it another code is a decision to make.

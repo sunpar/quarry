@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import json
 import logging
 import threading
 import time
@@ -170,7 +171,12 @@ class SessionService:
             step = self._finished_step(session_id, step_id)
             if step.view is None:
                 raise StepNotFound(step_id)
-            snapshots = [*step.view.snapshots, Snapshot(ts=now_iso(), state=state, queries=queries)]
+            kept = step.view.snapshots
+            # The last state reported again replaces its snapshot, new queries and all.
+            # Compared as JSON, since == takes True for 1.
+            if kept and json.dumps(kept[-1].state) == json.dumps(state):
+                kept = kept[:-1]
+            snapshots = [*kept, Snapshot(ts=now_iso(), state=state, queries=queries)]
             view = step.view.model_copy(update={"snapshots": snapshots[-MAX_SNAPSHOTS:]})
             self._store.update_step(session_id, step.model_copy(update={"view": view}))
             return len(view.snapshots)
