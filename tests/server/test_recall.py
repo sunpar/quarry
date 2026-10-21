@@ -9,6 +9,7 @@ from quarry.projects.recipe import scoped_recipe
 from tests.server.test_app import (
     PRICES,
     TIDY,
+    app_of,
     dataset_names,
     end,
     hang,
@@ -83,8 +84,7 @@ def test_recall_view_mounts_with_saved_state(tmp_path: Path) -> None:
 
 def test_failed_view_recall_has_no_view(tmp_path: Path) -> None:
     client, _ = saved_project(tmp_path, "pinned")
-    [rows] = tmp_path.rglob("data.parquet")
-    rows.unlink()
+    app_of(client).state.projects.store.parquet_path("p", "prices").unlink()
     sid = client.post("/sessions", json={}).json()["id"]
     client.post(f"/sessions/{sid}/recall", json={"project": "p", "kind": "view", "name": "table"})
     wait_idle(client, sid)
