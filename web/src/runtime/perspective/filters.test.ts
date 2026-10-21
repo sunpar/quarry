@@ -4,6 +4,9 @@ import { perspectiveToSpec } from "./toSpec";
 
 const schema: Column[] = [
   { name: "i", dtype: "Int64" },
+  { name: "i8", dtype: "Int8" },
+  { name: "i16", dtype: "Int16" },
+  { name: "i32", dtype: "Int32" },
   { name: "f", dtype: "Float64" },
   { name: "b", dtype: "Boolean" },
   { name: "s", dtype: "String" },
@@ -104,7 +107,8 @@ describe("perspectiveToSpec filters", () => {
       "t",
       {
         filter: [
-          ["i", "in", ["1", " 2"]],
+          ["i", "in", ["1", " 2", "+2", "9007199254740991"]],
+          ["i8", "in", ["127", "-128"]],
           ["f", "in", ["1.5"]],
           ["b", "in", ["true", "no"]],
           ["s", "in", ["1"]],
@@ -116,7 +120,8 @@ describe("perspectiveToSpec filters", () => {
       schema,
     );
     expect(spec.filters).toEqual([
-      { col: "i", op: "in", value: [1, 2] },
+      { col: "i", op: "in", value: [1, 2, 2, 9007199254740991] },
+      { col: "i8", op: "in", value: [127, -128] },
       { col: "f", op: "in", value: [1.5] },
       { col: "b", op: "in", value: [true, false] },
       { col: "s", op: "in", value: ["1"] },
@@ -129,15 +134,26 @@ describe("perspectiveToSpec filters", () => {
     ]);
   });
 
-  it.each(["1e3", "0x10", "12abc", "\u00a02"])(
-    "lists the integer item %j, which `stoll` and `Number()` read differently",
-    (item) => {
-      const { dropped } = perspectiveToSpec(
+  it.each([
+    ["i", "1e3"],
+    ["i", "0x10"],
+    ["i", "12abc"],
+    ["i", "\u00a02"],
+    ["i", "9007199254740993"],
+    ["i8", "300"],
+    ["i8", "-129"],
+    ["i16", "40000"],
+    ["i32", "3000000000"],
+  ])(
+    "lists the %s item %j, which the engine reads as another number",
+    (col, item) => {
+      const { spec, dropped } = perspectiveToSpec(
         "t",
-        { filter: [["i", "in", [item]]] },
+        { filter: [[col, "in", [item]]] },
         schema,
       );
-      expect(dropped).toEqual(['filter i "in"']);
+      expect(spec.filters).toBeUndefined();
+      expect(dropped).toEqual([`filter ${col} "in"`]);
     },
   );
 
@@ -180,7 +196,7 @@ describe("perspectiveToSpec filters", () => {
     expect(dropped).toEqual(['filter d "<"']);
   });
 
-  it("lists dates outside the years 1 to 9999 the kernel can parse", () => {
+  it("lists dates outside the years 1 to 9999 and days that do not exist", () => {
     // `Date.UTC` reads years 0 to 99 as 1900 to 1999.
     const year0 = new Date(0).setUTCFullYear(0);
     const year1 = new Date(0).setUTCFullYear(1);
@@ -193,13 +209,19 @@ describe("perspectiveToSpec filters", () => {
           ["d", "<", Date.UTC(10000, 0, 1)],
           ["d", ">", year0],
           ["d", "==", "0000-01-01"],
+          ["d", "==", "2024-02-30"],
+          ["d", "==", "2024-13-01"],
           ["d", "<=", Date.UTC(9999, 11, 31)],
           ["d", ">=", year1],
+          ["d", "<=", "9999-12-31"],
+          ["d", ">=", "0001-01-01"],
         ],
       },
       schema,
     );
     expect(spec.filters).toEqual([
+      { col: "d", op: "le", value: "9999-12-31" },
+      { col: "d", op: "ge", value: "0001-01-01" },
       { col: "d", op: "le", value: "9999-12-31" },
       { col: "d", op: "ge", value: "0001-01-01" },
     ]);
@@ -208,6 +230,8 @@ describe("perspectiveToSpec filters", () => {
       'filter t ">"',
       'filter d "<"',
       'filter d ">"',
+      'filter d "=="',
+      'filter d "=="',
       'filter d "=="',
     ]);
   });

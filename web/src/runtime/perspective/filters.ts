@@ -18,11 +18,11 @@ const OPS: Record<string, Filter["op"]> = {
   "is not null": "not_null",
 };
 
-// Python's dates start at year 1.
-const DAY = /^(?!0000)\d{4}-\d{2}-\d{2}$/;
-// The engine reads an integer with `stoll`, which agrees with `Number()` only on plain
-// decimal digits, not on `1e3` or `0x10`. It skips only ASCII whitespace before them.
+// The engine reads an integer with `stoll`, or with `stoi` cast down to the width of an
+// Int8 to Int32 column ("300" on Int8 becomes 44). Both agree with `Number()` only on plain
+// decimal digits, not on `1e3` or `0x10`, and skip only ASCII whitespace before them.
 const INTEGER = /^[ \t\n\v\f\r]*[+-]?\d+\s*$/;
+const INT_BITS: Record<string, number> = { Int8: 8, Int16: 16, Int32: 32 };
 
 /**
  * Perspective's filters as spec filters the kernel accepts and compares as Perspective
@@ -105,7 +105,9 @@ function coerceTerm(term: Term, dtype: string | undefined): Json | undefined {
   if (/^(Int|UInt)/.test(dtype)) {
     if (typeof term === "string" && !INTEGER.test(term)) return undefined;
     const n = toNumber(term);
-    return Number.isInteger(n) ? n : undefined;
+    const half = 2 ** ((INT_BITS[dtype] ?? 64) - 1);
+    // `Number()` rounds digits beyond 2^53, which `stoll` reads exactly.
+    return Number.isSafeInteger(n) && n >= -half && n < half ? n : undefined;
   }
   if (/^(Float|Decimal)/.test(dtype)) {
     const n = toNumber(term);
@@ -123,7 +125,9 @@ function coerceTerm(term: Term, dtype: string | undefined): Json | undefined {
   // The engine reads milliseconds as their UTC calendar day (`gmtime`).
   if (dtype === "Date") {
     if (typeof term === "number") return utcIso(term)?.slice(0, 10);
-    return typeof term === "string" && DAY.test(term) ? term : undefined;
+    // Only a real day reads back as itself, not "2024-02-30" or "0000-01-01".
+    const day = utcIso(Date.parse(`${term}T00:00:00Z`))?.slice(0, 10);
+    return day === term ? day : undefined;
   }
   return term;
 }
