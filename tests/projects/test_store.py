@@ -1,4 +1,7 @@
+import errno
 import json
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -56,6 +59,50 @@ def test_atomic_write_cleans_temporary_files_on_io_failure(
             write_atomic(target, "\ud800" if failure == "write" else "new output")
         assert list(tmp_path.glob(".output.*.tmp")) == []
     assert target.is_dir() if failure == "replace" else target.read_text() == "previous output"
+
+
+def test_atomic_write_names_the_target_when_replace_fails(tmp_path: Path) -> None:
+    target = tmp_path / "output"
+    target.mkdir()
+    with pytest.raises(IsADirectoryError) as raised:
+        write_atomic(target, "new output")
+    # Only the target: not the temp file, and no `-> <other path>` after it.
+    assert str(raised.value).endswith(f": {str(target)!r}")
+
+
+@pytest.mark.parametrize("synced", ["file", "directory"])
+def test_atomic_write_names_the_target_when_fsync_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, synced: str
+) -> None:
+    target = tmp_path / "output"
+    error = OSError(errno.ENOSPC, "No space left on device")
+    fsync = os.fsync
+
+    def fail_sync(fd: int) -> None:
+        if stat.S_ISDIR(os.fstat(fd).st_mode) == (synced == "directory"):
+            raise error
+        fsync(fd)
+
+    monkeypatch.setattr("quarry.projects.files.os.fsync", fail_sync)
+    with pytest.raises(OSError) as raised:
+        write_atomic(target, "new output")
+    assert raised.value is error
+    assert str(error) == f"[Errno {errno.ENOSPC}] No space left on device: {str(target)!r}"
+
+
+def test_atomic_write_passes_an_error_without_an_errno_through(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    error = OSError("disk full")
+
+    def fail_sync(fd: int) -> None:
+        raise error
+
+    monkeypatch.setattr("quarry.projects.files.os.fsync", fail_sync)
+    with pytest.raises(OSError) as raised:
+        write_atomic(tmp_path / "output", "new output")
+    # It has no `[Errno n] message: path` form to put the target in.
+    assert raised.value is error and str(error) == "disk full"
 
 
 def test_slugify() -> None:

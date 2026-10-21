@@ -386,12 +386,13 @@ them.
   `string`, `date32`, `timestamp` and `bool`. Perspective reads every unsigned
   width as signed, so 255 in a UInt8 came back as -1 and 4,000,000,000 in a
   UInt32 as -294,967,296: UInt8, UInt16 and UInt32 become Int64, which holds
-  them exactly, and UInt64 becomes Float64, as Decimal and the 128-bit integers
-  do, since pyarrow cannot read polars' Int128; Categorical, Enum and Time
-  become strings, Duration polars' own text such as `1d 2h`, Binary base64 and
-  nested values JSON strings; and `large_string` is narrowed to `string`. Cost:
-  decimals and large integers can lose precision in Arrow, so JSON rows stay the
-  exact form.
+  them exactly, and UInt64 becomes Float64, as Decimal, Float16 and the 128-bit
+  integers do, since pyarrow cannot read polars' Int128 and Perspective refuses
+  `halffloat`; Categorical, Enum and Time become strings, Duration polars' own
+  text such as `1d 2h`, Binary base64 and nested values JSON strings; an
+  extension column becomes its storage, converted the same way; and
+  `large_string` is narrowed to `string`. Cost: decimals and large integers can
+  lose precision in Arrow, so JSON rows stay the exact form.
 - **INTERVAL and UNION become text**: one helper projects these columns, at any
   depth, as VARCHAR before `.pl()` and reports them as String. `.pl()` rejects
   INTERVAL, nested INTERVAL panics, and polars' environment-variable import path
