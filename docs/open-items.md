@@ -240,6 +240,17 @@ Decisions already made are in [decisions.md](context/decisions.md).
   component folder named ... already exists" until it is removed. The
   components root is also not fsynced after a new folder, so a crash can lose
   the folder. Loud.
+- **Pivot filters on Float32 and Float16 compare at different precisions**:
+  the viewer reads those columns as doubles, while the kernel rounds the filter
+  literal to the column's width, so for a stored 0.1 the viewer's `== 0.1`
+  keeps no rows and "To code"'s keeps the row. Silent.
+- **Extension columns load into the pivot but not into its queries**: polars
+  refuses comparisons, `is_in`, sums, means, min, max and a string cast on an
+  extension column, so a pivot that filters, aggregates or splits on one shows
+  "This layout cannot run as a query". `toSpec` and `filters.ts` also read the
+  `Extension(...)` dtype string as non-numeric, so a default aggregate maps to
+  `count`. Unwrapping extension columns where the kernel takes a frame would
+  cover the queries, the schema and the transport at once. Loud.
 
 ## Deferred work
 
@@ -355,7 +366,9 @@ one up when a researcher needs it.
   `try/finally`, `mount.queries.test` leaves roots mounted, and two tests leave
   `URL` patched. The ECharts browser assertion passes with zero points, and the
   Plotly one depends on the plot's width. OHLC has no non-zero-offset or
-  microsecond case, and no browser test loads Highstock or SciChart.
+  microsecond case, and no browser test loads Highstock or SciChart. No
+  automated test loads an all-null, Float16 or extension column into
+  Perspective itself; `test_arrow.py` checks only the Arrow types.
 
 ## Open questions
 
