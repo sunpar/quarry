@@ -92,9 +92,10 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
       ? undefined
       : new Set(datasets.data.map((d) => d.name));
   // A failed recall or layout write stays until dismissed or retried; a datasets error
-  // clears on refetch.
-  const dismissable = recall.error ?? setCanvas.error;
-  const error = dismissable ?? datasets.error;
+  // clears when the list next loads.
+  const errors = [recall.error, setCanvas.error, datasets.error].filter(
+    (e) => e !== null,
+  );
 
   // react-grid-layout fires onLayoutChange once on mount after compaction; only a real
   // change in positions or sizes is worth a PUT.
@@ -124,16 +125,21 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
             Pin a view from a step to start the canvas.
           </p>
         )}
-        {error !== null && (
-          <div className="flex items-center gap-4 text-sm">
-            <span className="text-destructive">{error.message}</span>
-            {dismissable !== null && (
+        {errors.length > 0 && (
+          <div role="status" className="flex items-center gap-4 text-sm">
+            {errors.map((e, i) => (
+              <span key={i} className="text-destructive">
+                {e.message}
+              </span>
+            ))}
+            {(recall.isError || setCanvas.isError) && (
               <Button
                 variant="ghost"
                 size="xs"
+                // A reset detaches a mutation still in flight from its result.
                 onClick={() => {
-                  recall.reset();
-                  setCanvas.reset();
+                  if (recall.isError) recall.reset();
+                  if (setCanvas.isError) setCanvas.reset();
                 }}
               >
                 Dismiss
@@ -216,7 +222,9 @@ function CanvasCardView({
   const saved = useSavedView(slug, view);
   if (saved.data === undefined)
     return (
-      <p className="p-4 text-sm text-muted-foreground">
+      <p
+        className={`p-4 text-sm ${saved.isError ? "text-destructive" : "text-muted-foreground"}`}
+      >
         {saved.error?.message ?? "Loading"}
       </p>
     );
