@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import queue
-import re
 import shutil
 import signal
 import subprocess
@@ -27,6 +26,7 @@ from quarry.config import QuarryConfig
 from quarry.kernel.client import kill_group
 
 _CODEX_VERSION: Final = "0.162.1"
+_CLIENT_NAME: Final = "quarry"
 _SIGKILL_WAIT: Final = 5.0  # seconds
 _DISABLED: Final = (
     "shell_tool",
@@ -67,7 +67,12 @@ _DISABLED: Final = (
 class _Connection:
     def __init__(self, argv: list[str], cwd: Path, cancel: threading.Event) -> None:
         environment = dict(os.environ)
-        for name in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"):
+        for name in (
+            "OPENAI_API_KEY",
+            "CODEX_API_KEY",
+            "OPENAI_BASE_URL",
+            "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
+        ):
             environment.pop(name, None)
         self.process = subprocess.Popen(
             argv,
@@ -263,7 +268,9 @@ class CodexRuntime:
             raise ProviderError("interrupted by researcher", retryable=False)
         binary = str(self.cli_path) if self.cli_path is not None else shutil.which("codex")
         if binary is None:
-            raise ProviderError("Install Codex 0.162.1 and run codex login", retryable=False)
+            raise ProviderError(
+                f"Install Codex {_CODEX_VERSION} and run codex login", retryable=False
+            )
         try:
             version = subprocess.run(
                 [binary, "--version"],
@@ -274,11 +281,11 @@ class CodexRuntime:
             ).stdout
         except (OSError, subprocess.SubprocessError):
             raise ProviderError(
-                "Cannot run Codex; install 0.162.1 and run codex login", retryable=False
+                f"Cannot run Codex; install {_CODEX_VERSION} and run codex login", retryable=False
             ) from None
-        if re.search(r"\b0\.162\.1\b", version) is None:
+        if version.split() != ["codex-cli", _CODEX_VERSION]:
             raise ProviderError(
-                "Quarry supports Codex 0.162.1 only; verify CLI version", retryable=False
+                f"Quarry supports Codex {_CODEX_VERSION} only; verify CLI version", retryable=False
             )
         with TemporaryDirectory(prefix="quarry-codex-") as directory:
             cwd = Path(directory)
@@ -350,11 +357,13 @@ class CodexRuntime:
             initialized = connection.request(
                 "initialize",
                 {
-                    "clientInfo": {"name": "quarry", "version": __version__},
+                    "clientInfo": {"name": _CLIENT_NAME, "version": __version__},
                     "capabilities": {"experimentalApi": True},
                 },
             )
-            if _CODEX_VERSION not in initialized.get("userAgent", ""):
+            # The userAgent's first token is the client name sent above, a slash and the version.
+            agent = initialized.get("userAgent", "")
+            if agent.partition(" ")[0] != f"{_CLIENT_NAME}/{_CODEX_VERSION}":
                 raise ProviderError("Unexpected Codex app-server version", retryable=False)
             connection.send({"method": "initialized", "params": {}})
             account = connection.request("account/read", {"refreshToken": False})

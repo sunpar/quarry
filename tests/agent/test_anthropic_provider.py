@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import anthropic
@@ -6,6 +7,7 @@ import pytest
 
 from quarry.agent.anthropic_provider import (
     AnthropicProvider,
+    CreateFn,
     from_api_response,
     to_api_messages,
     to_api_tools,
@@ -183,3 +185,54 @@ def test_complete_maps_sdk_errors() -> None:
     with pytest.raises(ProviderError) as info3:
         AnthropicProvider(model="m", create=malformed).complete(system="s", messages=[], tools=[])
     assert info3.value.retryable is False
+
+
+def _ended(*blocks: SimpleNamespace) -> SimpleNamespace:
+    return SimpleNamespace(stop_reason="end_turn", stop_details=None, content=list(blocks))
+
+
+@pytest.mark.parametrize(
+    "create",
+    [
+        lambda **kwargs: "<html>oops</html>",
+        lambda **kwargs: SimpleNamespace(stop_reason=None, content=None),
+        lambda **kwargs: _ended(SimpleNamespace(type="text", text=None)),
+        lambda **kwargs: _ended(SimpleNamespace(type="tool_use", id=None, name="t", input={})),
+        lambda **kwargs: _ended(SimpleNamespace(type="tool_use", id="c1", name=None, input={})),
+        lambda **kwargs: json.loads("<html>oops</html>"),
+        lambda **kwargs: json.loads("[" * 100000),
+        lambda **kwargs: json.loads(b"\xff"),
+    ],
+    ids=[
+        "html",
+        "missing fields",
+        "no text",
+        "no id",
+        "no name",
+        "not json",
+        "too deep",
+        "not utf-8",
+    ],
+)
+def test_complete_maps_malformed_responses(create: CreateFn) -> None:
+    with pytest.raises(ProviderError) as info:
+        AnthropicProvider(model="m", create=create).complete(system="s", messages=[], tools=[])
+    assert info.value.retryable is False
+
+
+def test_complete_lets_client_errors_through() -> None:
+    def streaming_required(**kwargs: object) -> object:
+        raise ValueError("Streaming is required for operations that may take longer than 10 min")
+
+    with pytest.raises(ValueError, match="Streaming is required"):
+        AnthropicProvider(model="m", create=streaming_required).complete(
+            system="s", messages=[], tools=[]
+        )
+
+    def renamed_keyword(**kwargs: object) -> object:
+        raise TypeError("create() got an unexpected keyword argument 'fallbacks'")
+
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        AnthropicProvider(model="m", create=renamed_keyword).complete(
+            system="s", messages=[], tools=[]
+        )
