@@ -203,8 +203,8 @@ class SessionService:
         return step
 
     def start_recall(self, session_id: str, *, prompt: str, code: str, view: View | None) -> Step:
-        step, cancel = self._begin(session_id, kind="recall", prompt=prompt, code=code, view=view)
-        self._start(session_id, self._run_manual, (session_id, step, cancel))
+        step, cancel = self._begin(session_id, kind="recall", prompt=prompt, code=code)
+        self._start(session_id, self._run_manual, (session_id, step, cancel, view))
         return step
 
     def status(self, session_id: str) -> SessionStatus:
@@ -322,13 +322,7 @@ class SessionService:
             self._released.wait_for(lambda: not self._running, SHUTDOWN_WAIT_SECONDS)
 
     def _begin(
-        self,
-        session_id: str,
-        *,
-        kind: StepKind,
-        prompt: str | None,
-        code: str,
-        view: View | None = None,
+        self, session_id: str, *, kind: StepKind, prompt: str | None, code: str
     ) -> tuple[Step, threading.Event]:
         with self._lock:
             if self._busy(session_id):
@@ -340,7 +334,6 @@ class SessionService:
                 prompt=prompt,
                 provider=self._provider_info() if kind == "prompt" else None,
                 code=code,
-                view=view,
                 status="running",
                 error=None,
                 created_at=now_iso(),
@@ -405,7 +398,9 @@ class SessionService:
             done = _recorded(_failed(step, ExecError.from_exception(exc), started), ran)
         self._finish(session_id, done)
 
-    def _run_manual(self, session_id: str, step: Step, cancel: threading.Event) -> None:
+    def _run_manual(
+        self, session_id: str, step: Step, cancel: threading.Event, view: View | None = None
+    ) -> None:
         started = time.monotonic()
         try:
             kernel = self._kernels.get(session_id, has_steps=self._has_steps(session_id))
@@ -414,6 +409,10 @@ class SessionService:
                 done = _stopped(step, started)
             else:
                 done = _apply_exec(step, kernel.execute(step.code), started)
+                # A recalled view reads the datasets this code loads, so it joins only a step
+                # that ran ok: a failed or stopped recall shows its error alone.
+                if done.status == "ok":
+                    done = done.model_copy(update={"view": view})
         except KernelDead as exc:
             done = _died(step, exc, cancel, started)
         except BaseException as exc:  # the boundary, as in _run_prompt

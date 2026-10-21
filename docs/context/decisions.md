@@ -661,10 +661,12 @@ them.
   disabled Run. Cost: a restart cancelling a step still reports that step as
   `running_step` until it ends, so Stop shows, and its interrupt gets a 409 the
   page does not show.
-- **Recall is a manual step**: `start_recall` creates a `recall` step, carrying
-  the saved view for a view recall, and runs it on the manual-step path, so
-  `runs` is filled, lineage records the writes and restart replays it. `_begin`
-  takes the view; the plan's calls used signatures the Stage 2 service lacks.
+- **Recall is a manual step**: `start_recall` creates a `recall` step and runs
+  it on the manual-step path, so `runs` is filled, lineage records the writes
+  and restart replays it. `_run_manual` takes a view recall's saved view and
+  puts it on the step only once its code ran ok, so a running recall mounts
+  nothing before its datasets exist and a failed or stopped one shows its error
+  without a view. The plan's calls used signatures the Stage 2 service lacks.
 - **Shutdown stops and saves running steps**: it cancels every running step,
   closes the kernels, refuses to start new ones, and waits up to 10 s for the
   steps to save as `interrupted`. A step running at shutdown was never saved

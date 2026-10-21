@@ -68,7 +68,8 @@ def test_recall_view_mounts_with_saved_state(tmp_path: Path) -> None:
     client, _ = saved_project(tmp_path, "live")
     sid = client.post("/sessions", json={}).json()["id"]
     body = {"project": "p", "kind": "view", "name": "table"}
-    client.post(f"/sessions/{sid}/recall", json=body)
+    begun = client.post(f"/sessions/{sid}/recall", json=body).json()
+    assert begun["status"] == "running" and begun["view"] is None
     wait_idle(client, sid)
     done = client.get(f"/sessions/{sid}").json()["steps"][0]
     assert done["status"] == "ok" and done["writes"] == ["prices"]
@@ -78,6 +79,17 @@ def test_recall_view_mounts_with_saved_state(tmp_path: Path) -> None:
     wait_idle(client, sid)
     second = client.get(f"/sessions/{sid}").json()["steps"][1]
     assert again.status_code == 202 and second["writes"] == [] and second["view"] is not None
+
+
+def test_failed_view_recall_has_no_view(tmp_path: Path) -> None:
+    client, _ = saved_project(tmp_path, "pinned")
+    [rows] = tmp_path.rglob("data.parquet")
+    rows.unlink()
+    sid = client.post("/sessions", json={}).json()["id"]
+    client.post(f"/sessions/{sid}/recall", json={"project": "p", "kind": "view", "name": "table"})
+    wait_idle(client, sid)
+    done = client.get(f"/sessions/{sid}").json()["steps"][0]
+    assert done["status"] == "error" and done["view"] is None
 
 
 def test_restart_replays_a_recall_step(tmp_path: Path) -> None:
