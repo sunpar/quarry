@@ -93,7 +93,7 @@ for line in sys.stdin:
     if method == "initialize":
         notify("noise", {"interleaved": True})
         agent = "codex_cli_rs/0.162.1 (Mac OS 26.0.0; arm64) test"
-        send({"id": rid, "result": {"userAgent": os.environ.get("QUARRY_CODEX_USER_AGENT", agent)}})
+        send({"id": rid, "result": {"userAgent": plan.get("user_agent", agent)}})
     elif method == "account/read":
         send(
             {
@@ -347,10 +347,10 @@ def test_unsupported_cli_fails_before_start(
     ],
 )
 def test_unsupported_app_server_fails_and_cleans_up(
-    codex_cli: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch, agent: str
+    codex_cli: tuple[Path, Path, Path], agent: str
 ) -> None:
-    cli, _, log = codex_cli
-    monkeypatch.setenv("QUARRY_CODEX_USER_AGENT", agent)
+    cli, plan, log = codex_cli
+    plan.write_text(json.dumps({"user_agent": agent}))
     with pytest.raises(ProviderError, match="Unexpected Codex app-server version"):
         CodexRuntime(model="gpt-6.1-sol", cli_path=cli).complete_text(
             system="s", prompt="p", cancel=threading.Event()
