@@ -75,7 +75,7 @@ describe("SaveComponentDialog", () => {
   });
 
   it("says why an id with no letter or digit cannot be saved", () => {
-    const hint = "An id needs a letter or a digit.";
+    const hint = "An id needs a letter from a to z or a digit.";
     render(
       <SaveComponentDialog
         open
@@ -163,5 +163,26 @@ describe("SaveComponentDialog", () => {
       target: { value: "My Scatter" },
     });
     expect(screen.getByText(refusal)).toBeTruthy();
+  });
+
+  it("locks the id while a save is in flight so its refusal still shows", () => {
+    const refusal = "component 'my-scatter' already exists";
+    const props = {
+      open: true,
+      defaultId: "my-scatter",
+      onClose: () => undefined,
+      onSave: () => undefined,
+    };
+    const idInput = () => screen.getByLabelText<HTMLInputElement>("Id");
+    const { rerender } = render(<SaveComponentDialog {...props} />);
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "My scatter" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save to library" }));
+    rerender(<SaveComponentDialog {...props} pending />);
+    expect(idInput().disabled).toBe(true);
+    rerender(<SaveComponentDialog {...props} error={refusal} />);
+    expect(screen.getByText(refusal)).toBeTruthy();
+    expect(idInput().disabled).toBe(false);
   });
 });

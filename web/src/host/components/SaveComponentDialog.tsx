@@ -79,6 +79,7 @@ export function SaveComponentDialog({
           <Input
             id="component-id"
             value={id}
+            disabled={pending}
             onChange={(e) => setId(e.target.value)}
           />
           {cleanId !== id && cleanId !== "" && (
@@ -88,7 +89,7 @@ export function SaveComponentDialog({
           )}
           {cleanId === "" && id.trim() !== "" && (
             <p className="text-xs text-muted-foreground">
-              An id needs a letter or a digit.
+              An id needs a letter from a to z or a digit.
             </p>
           )}
         </div>

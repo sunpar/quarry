@@ -760,8 +760,8 @@ them.
   had read as one. A missing dataset is its own 404. `create_app` makes
   `<root>/components`, so a regular file there stops `quarry serve` at startup
   rather than turning every save into a 409 "folder already exists". Each save
-  makes it too, so one deleted while the server runs comes back. `create_app`
-  does not make a missing root: that is `quarry serve`'s to create private.
+  makes it too, so one deleted while the server runs comes back. Neither makes
+  a missing root: that is `quarry serve`'s to create private.
   `SaveComponentRequest` trims tags and drops blank and repeated ones, keeping
   the first, so every caller's manifest gets the same tags; they stay
   case-sensitive, like tag search.
