@@ -43,6 +43,8 @@ export function SaveDialog({
   onSave,
 }: SaveDialogProps) {
   const [slug, setSlug] = useState(projects[0]?.slug ?? "");
+  // The list can load after the dialog opens, so its first project is the default then.
+  if (slug === "" && projects[0] !== undefined) setSlug(projects[0].slug);
   const [name, setName] = useState(defaultName);
   const [mode, setMode] = useState<SaveMode>("live");
   const [description, setDescription] = useState("");
