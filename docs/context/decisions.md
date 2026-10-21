@@ -964,7 +964,12 @@ them.
   on every step, so the fixture returns the same scripted instance from the
   factory or the repair step would replay the first turns.
 - **Snapshots**: the server keeps the last 500 per view, appends under the
-  service lock, and answers 409 while that step is still running.
+  service lock, and answers 409 while that step is still running. A report
+  whose state matches the last snapshot's, compared as JSON text since Python's
+  `==` takes `True` for `1`, replaces it with a new `ts` and the new queries.
+  So a view back at its last state within one report window, or an inline view
+  whose local state changed only its queries, adds no history; the scrubber
+  restores state alone.
 - **One `ViewHost` for step views and canvas cards**: `ViewHost` owns the
   bridge, the mount, refreshes and hub registration for both. It keys its mount
   on `viewId`, `sessionId` and `contentKey`, a step view's `content_hash` or a
@@ -977,8 +982,9 @@ them.
   back. Cost if wrong: one extra datasets fetch per schema request.
 - **The snapshot scrubber follows the latest**: `SnapshotScrubber` keeps the
   researcher's pick only while the snapshot count it was made at holds, then
-  moves to the latest. Each posted snapshot is appended to the cached session,
-  so new snapshots reach it during a visit without a refetch. The plan's
+  moves to the latest. Each posted snapshot goes into the cached session by the
+  server's rule, replacing a last snapshot of the same state, so new snapshots
+  reach it during a visit without a refetch. The plan's
   scrubber read the count once, so a view that gained snapshots while mounted
   showed "1 of N". Cost if wrong: the cached list can pass the server's cap of
   500 until the next refetch.

@@ -226,9 +226,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   fails that first query.
 - **Picked snapshots are not what "To code" and "Save view" use**: after a pick
   in the scrubber, both use the newest snapshot. Silent.
-- **Snapshots can repeat**: switching a view A to B to A within one report
-  window appends a duplicate snapshot, and an inline view that queries from
-  local state appends one per change. Silent cost toward the 500 cap.
 - **Component save messages mislead**: a busy session answers `POST /components`
   with 409, the code an existing id gets; `<root>/components` as a regular file
   makes every save a 409 "folder already exists"; and "Save to library" stays

@@ -4,6 +4,7 @@ import { StrictMode, useLayoutEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Session, Step } from "@/shared/api-types";
 import type { HostToRuntime } from "@/shared/bridge-types";
+import type { JsonObject } from "@/shared/json";
 import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
 import { keys } from "../api/keys";
@@ -270,6 +271,50 @@ describe("ViewFrameContainer", () => {
     );
     expect(qc.getQueryState(keys.session("sess"))?.isInvalidated).toBe(false);
     expect(qc.getQueryState(keys.status("sess"))?.isInvalidated).toBe(false);
+  });
+
+  it("replaces the cached last snapshot when the state repeats", async () => {
+    const { send, qc } = mount();
+    const view = step.view && {
+      ...step.view,
+      snapshots: [{ ts: "t0", state: { k: 1 }, queries: [] }],
+    };
+    const session: Session = {
+      meta: {
+        id: "sess",
+        title: "t",
+        created_at: "",
+        provider: { name: "f", model: "m" },
+      },
+      steps: [{ ...step, view }],
+    };
+    qc.setQueryData(keys.session("sess"), session);
+    const cached = () =>
+      qc.getQueryData<Session>(keys.session("sess"))?.steps[0]?.view?.snapshots;
+    const report = (state: JsonObject) =>
+      act(async () => {
+        send({
+          type: "stateChanged",
+          viewId: "s1",
+          state,
+          queries: [{ dataset: "df" }],
+        });
+      });
+    await report({ k: 1 });
+    await vi.waitFor(() =>
+      expect(cached()).toEqual([
+        {
+          ts: expect.any(String),
+          state: { k: 1 },
+          queries: [{ dataset: "df" }],
+        },
+      ]),
+    );
+    expect(cached()?.[0]?.ts).not.toBe("t0");
+    await report({ k: true });
+    await vi.waitFor(() =>
+      expect(cached()?.map((s) => s.state)).toEqual([{ k: 1 }, { k: true }]),
+    );
   });
 
   it("leaves an uncached session uncached after a snapshot", async () => {

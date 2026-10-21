@@ -798,6 +798,35 @@ def test_snapshot_appends_to_persisted_step(tmp_path: Path) -> None:
     assert client.post(f"/sessions/{sid}/steps/nope/snapshots", json=body).status_code == 404
 
 
+def test_snapshot_with_the_last_state_replaces_it(tmp_path: Path) -> None:
+    client = make_client(
+        tmp_path, [py("c1", "df = pl.DataFrame({'a': [1]})"), view_turn("c2"), end()]
+    )
+    sid = client.post("/sessions", json={}).json()["id"]
+    step_id = client.post(f"/sessions/{sid}/steps", json={"prompt": "show"}).json()["id"]
+    wait_idle(client, sid)
+
+    def report(state: dict[str, Json], limit: int) -> int:
+        body = {"state": state, "queries": [{"dataset": "df", "limit": limit}]}
+        response = client.post(f"/sessions/{sid}/steps/{step_id}/snapshots", json=body)
+        return int(response.json()["count"])
+
+    def snapshots() -> list[dict[str, Json]]:
+        session = client.get(f"/sessions/{sid}").json()
+        return list(session["steps"][0]["view"]["snapshots"])
+
+    assert report({"on": 1}, 1) == 1
+    first = snapshots()[0]
+    # The same state with new queries, as a view querying from local state reports.
+    assert report({"on": 1}, 2) == 1
+    [latest] = snapshots()
+    assert latest["queries"] == [{"dataset": "df", "limit": 2}] and latest["ts"] != first["ts"]
+    # True is a different state from 1, and A, B, A keeps all three.
+    assert report({"on": True}, 2) == 2
+    assert report({"on": 1}, 2) == 3
+    assert [s["state"] for s in snapshots()] == [{"on": 1}, {"on": True}, {"on": 1}]
+
+
 def test_snapshot_rejected_for_step_without_view(tmp_path: Path) -> None:
     client = make_client(tmp_path, [py("c1", "x = 1"), end()])
     sid = client.post("/sessions", json={}).json()["id"]

@@ -22,6 +22,12 @@ interface ViewFrameContainerProps {
   actions?: ReactNode;
 }
 
+// The server's rule: a snapshot of the last state replaces it instead of appending.
+const recordSnapshot = (snapshots: Snapshot[], snapshot: Snapshot) =>
+  JSON.stringify(snapshots.at(-1)?.state) === JSON.stringify(snapshot.state)
+    ? [...snapshots.slice(0, -1), snapshot]
+    : [...snapshots, snapshot];
+
 // An updater that leaves an uncached session (undefined) as it is.
 const withSnapshot =
   (stepId: string, snapshot: Snapshot) => (session: Session | undefined) =>
@@ -31,7 +37,10 @@ const withSnapshot =
         s.id === stepId && s.view
           ? {
               ...s,
-              view: { ...s.view, snapshots: [...s.view.snapshots, snapshot] },
+              view: {
+                ...s.view,
+                snapshots: recordSnapshot(s.view.snapshots, snapshot),
+              },
             }
           : s,
       ),
@@ -67,7 +76,7 @@ export function ViewFrameContainer({
         onStateChanged={(state, queries) => {
           void api
             .postSnapshot(sessionId, step.id, { state, queries })
-            // The scrubber reads snapshots from the session; append this one to it instead of
+            // The scrubber reads snapshots from the session; record this one there instead of
             // refetching the whole session. An uncached session stays uncached.
             .then(() =>
               queryClient.setQueryData(
