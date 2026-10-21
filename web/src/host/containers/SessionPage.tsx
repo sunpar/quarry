@@ -131,6 +131,8 @@ function SessionColumn({
     status.data?.busy === true &&
     !steps.some((s) => s.id === status.data?.running_step);
   // Interrupt stops a step wherever it began, but not a save, a recall check or a restart.
+  // A restart cancelling a step still reports it as running, so Stop shows then, and its
+  // interrupt gets a 409 the page does not show.
   const stoppable = running || (held && status.data?.running_step !== null);
   const version = dataVersion(steps, status.data?.kernel.pid);
   const [notice, setNotice] = useState<string | null>(null);
