@@ -284,8 +284,6 @@ one up when a researcher needs it.
   error under the recall's traceback.
 - Canvas cards: a card is blank when its saved view fails to load, a card whose
   view is missing has no Remove, and recall and layout errors never clear.
-- The rail's project list does not scroll, and `SaveDialog` picks its project
-  only when it opens, so a project list that arrives later leaves none chosen.
 - Count in-place mutation inside a function as a write of the frame it changes:
   a helper that sets `df.columns` or deletes `df["k"]` is invisible to lineage,
   and a lambda's body is read where it is bound. Module-level attribute and
