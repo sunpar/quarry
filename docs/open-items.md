@@ -196,9 +196,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   missing `config`, so a snapshot from before the first layout keeps the later
   one. Changing the viewer's settings, theme or title also writes view state.
   Silent.
-- **A failed Perspective engine start sticks**: `ensureEngine` caches its
-  promise, so once the wasm fetch or the worker start fails, every pivot in that
-  frame fails until the frame reloads. Loud.
 - **A corrupt Arrow answer leaves a view loading**: `cache.ts` decodes
   `arrow_base64` inside the success callback, so a decode error skips the error
   branch and the query stays "Loading". Silent.
