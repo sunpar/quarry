@@ -117,9 +117,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   normally. An Anthropic reply whose content is empty or holds only block types
   the adapter does not know, or an OpenAI message with neither content nor tool
   calls, reads as an empty turn that succeeded. Silent.
-- **The Codex version check matches a substring**: the runtime accepts any
-  app-server whose `userAgent` contains `0.162.1`, so 0.162.10 or 10.162.1 pass.
-  Silent: an untested Codex release runs.
 - **Cancel waits for the model**: `/interrupt` and `/restart` stop a prompt step
   only once the provider answers the call in flight, bounded only by the
   provider client's timeout. Meanwhile `/restart` holds its request, a second
@@ -208,6 +205,11 @@ Decisions already made are in [decisions.md](context/decisions.md).
   to the host, and the pivot stays empty. Loud.
 - **A hung `GET /libraries` never mounts a view**: `ViewHost` waits for that one
   answer with no timeout. Silent: the frame stays empty.
+- **An outgoing view's cleanup error replaces the incoming view**: the frame
+  keeps one error boundary across mounts, so when a replaced view throws from
+  an effect cleanup as the next view mounts, the boundary shows that error
+  instead of the new view and posts it under the new mount, which brings back
+  the host's "Fix this view". Loud.
 - **OHLC fails on a case-only name clash**: `Close` and `close` in one dataset
   make its select fail, and the error hides the pickers. Loud. A table's saved
   sort also goes out before the schema loads, so a sort on a dropped column
@@ -255,7 +257,8 @@ one up when a researcher needs it.
   render only from a production build today.
 - Disable the view's "Fix this view" after a successful repair, and clear a
   replay-failure banner once a later restart succeeds.
-- `ErrorBoundary` resets only when the view id changes.
+- Restore, merge and refresh never clear a caught render error, so a view that
+  threw on its state or data stays on the error until it mounts again.
 - The Lightweight Charts attribution link is inert under the sandbox (no
   popups).
 - Add component tests for `SessionPage` (reload keeps the session, 401 message),

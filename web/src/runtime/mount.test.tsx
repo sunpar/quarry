@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { HostBridge } from "@/host/bridge/HostBridge";
 import type { RuntimeToHost } from "@/shared/bridge-types";
@@ -19,7 +19,7 @@ function setup() {
   const root = document.createElement("div");
   document.body.appendChild(root);
   const runtime = createRuntime((m) => sent.push(m), root, table);
-  return { runtime, sent };
+  return { runtime, sent, root };
 }
 
 describe("runtime mount", () => {
@@ -129,6 +129,76 @@ describe("runtime mount", () => {
       expect(
         sent.some((m) => m.type === "error" && m.message.includes("boom")),
       ).toBe(true),
+    );
+  });
+
+  it("drops a render error when the same view id mounts again", async () => {
+    const { runtime, sent, root } = setup();
+    const frame = within(root);
+    await act(async () => {
+      runtime.handle({
+        type: "mount",
+        viewId: "v5",
+        source: `export default function V() { throw new Error("broken-view"); }`,
+        initialState: {},
+        datasets: [],
+      });
+    });
+    await waitFor(() => expect(frame.getByText("broken-view")).toBeTruthy());
+    await act(async () => {
+      runtime.handle({
+        type: "mount",
+        viewId: "v5",
+        source: `export default () => <p>repaired-view</p>;`,
+        initialState: {},
+        datasets: [],
+      });
+    });
+    await waitFor(() => expect(frame.getByText("repaired-view")).toBeTruthy());
+    expect(frame.queryByText("broken-view")).toBeNull();
+    const errors = sent.filter((m) => m.type === "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toEqual(
+      expect.objectContaining({ viewId: "v5", message: "broken-view" }),
+    );
+  });
+
+  it("catches an error the outgoing view throws as the same view id remounts", async () => {
+    const { runtime, sent, root } = setup();
+    await act(async () => {
+      runtime.handle({
+        type: "mount",
+        viewId: "v6",
+        source: `
+          import { useEffect } from "react";
+          export default function V() {
+            useEffect(() => () => { throw new Error("cleanup-boom"); }, []);
+            return <p>outgoing-view</p>;
+          }`,
+        initialState: {},
+        datasets: [],
+      });
+    });
+    await waitFor(() =>
+      expect(within(root).getByText("outgoing-view")).toBeTruthy(),
+    );
+    await act(async () => {
+      runtime.handle({
+        type: "mount",
+        viewId: "v6",
+        source: `export default () => <p>incoming-view</p>;`,
+        initialState: {},
+        datasets: [],
+      });
+    });
+    await waitFor(() =>
+      expect(sent).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          viewId: "v6",
+          message: expect.stringContaining("cleanup-boom"),
+        }),
+      ),
     );
   });
 
