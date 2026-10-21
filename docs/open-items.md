@@ -223,9 +223,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   with 409, the code an existing id gets; `<root>/components` as a regular file
   makes every save a 409 "folder already exists"; and "Save to library" stays
   disabled with no message for an id over 64 characters. Loud but misleading.
-- **An export can fail on a pathological recipe**: `export._stores` catches only
-  `SyntaxError`, so a recipe that makes `analyze` raise `RecursionError` or
-  `MemoryError` fails the export; `tidy._binds` shares the pattern. Loud.
 
 ## Deferred work
 
@@ -258,8 +255,6 @@ one up when a researcher needs it.
 - Make `npm run dev` views work inside the null-origin frame: Vite's dev CORS
   allowlist and its inline React preamble are both blocked there, so views
   render only from a production build today.
-- A stale `session=` id in the hash opens a column on a 404; fall back to the
-  first session.
 - Disable the view's "Fix this view" after a successful repair, and clear a
   replay-failure banner once a later restart succeeds.
 - `ErrorBoundary` resets only when the view id changes.

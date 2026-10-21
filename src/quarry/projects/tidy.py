@@ -8,7 +8,7 @@ from typing import Final
 
 from quarry.agent.runtime import AgentRuntime
 from quarry.agent.types import ProviderError
-from quarry.kernel.lineage import analyze
+from quarry.kernel.lineage import PARSE_ERRORS, analyze
 
 TIDY_SYSTEM: Final = """\
 You tidy Python recipes for a quant researcher. You receive a script that concatenates the
@@ -49,5 +49,5 @@ def tidy_recipe(
 def _binds(code: str, name: str) -> bool:
     try:
         return name in analyze(code).stores
-    except SyntaxError:
+    except PARSE_ERRORS:
         return False

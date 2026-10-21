@@ -1,10 +1,13 @@
 import threading
 
+import pytest
+
 from quarry.agent.fake import FakeProvider
 from quarry.agent.runtime import ApiRuntime
 from quarry.agent.types import AssistantTurn, Message, Provider, ProviderError, ToolDef
 from quarry.projects.tidy import TIDY_SYSTEM, strip_fences
 from quarry.projects.tidy import tidy_recipe as run_tidy
+from tests.kernel.fixtures import UNPARSABLE
 from tests.server.test_app import end
 
 
@@ -38,6 +41,11 @@ def test_tidy_returns_none_on_failure_or_garbage() -> None:
     assert tidy_recipe(FakeProvider([end("")]), "x = 1", "x") is None
     assert tidy_recipe(FakeProvider([end("def (")]), "x = 1", "x") is None
     assert tidy_recipe(FakeProvider([end("y = 2")]), "x = 1", "x") is None
+
+
+@pytest.mark.parametrize("reply", UNPARSABLE)
+def test_tidy_rejects_a_reply_too_deep_to_parse(reply: str) -> None:
+    assert tidy_recipe(FakeProvider([end(reply)]), "x = 1", "x") is None
 
 
 def test_tidy_rejects_a_name_bound_only_inside_a_function() -> None:
