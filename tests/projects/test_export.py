@@ -23,6 +23,10 @@ from quarry.projects.store import ProjectStore
 from quarry.query import Json, QuerySpec
 from tests.fixtures import kept_default_connection
 
+# Recipes `analyze` gives up on with RecursionError and MemoryError (or RecursionError, past
+# 3.11), not SyntaxError.
+UNPARSABLE = ["x = " + " + ".join(["1"] * 10_000), "x = " + "-" * 200_000 + "1"]
+
 RECIPE = "prices = pl.DataFrame({'ts': ['2024-01-02'], 'px': [1.0]})\n"
 VIEW_SOURCE = "export default function V() { return null }"
 SETUP = "# Rebuilds Quarry's kernel namespace"
@@ -451,6 +455,11 @@ def test_a_recipe_runs_before_the_saved_dataset_it_rebinds(tmp_path: Path) -> No
 def test_a_recipe_whose_def_rebinds_a_saved_dataset_runs_first() -> None:
     recipes = ["prices = 1\n", "def prices():\n    return 2\n\nreturns = prices()\n"]
     assert _recipe_order(["prices", "returns"], recipes) == [(1, []), (0, [])]
+
+
+@pytest.mark.parametrize("recipe", UNPARSABLE)
+def test_a_recipe_too_deep_to_parse_constrains_no_other(recipe: str) -> None:
+    assert _recipe_order(["prices", "returns"], [recipe, "returns = 1\n"]) == [(0, []), (1, [])]
 
 
 def test_recipes_in_a_cycle_keep_saved_order_and_say_what_they_rebind(tmp_path: Path) -> None:

@@ -49,5 +49,5 @@ def tidy_recipe(
 def _binds(code: str, name: str) -> bool:
     try:
         return name in analyze(code).stores
-    except SyntaxError:
+    except (SyntaxError, RecursionError, MemoryError):
         return False

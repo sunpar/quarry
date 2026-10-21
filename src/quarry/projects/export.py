@@ -179,7 +179,7 @@ def _recipe_order(names: list[str], recipes: list[str]) -> list[tuple[int, list[
 def _stores(recipe: str) -> frozenset[str]:
     try:
         names = analyze(recipe)
-    except SyntaxError:  # a recipe that does not parse constrains no other
+    except (SyntaxError, RecursionError, MemoryError):  # one that does not parse constrains none
         return frozenset()
     return names.stores | names.defines
 

@@ -226,9 +226,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   with 409, the code an existing id gets; `<root>/components` as a regular file
   makes every save a 409 "folder already exists"; and "Save to library" stays
   disabled with no message for an id over 64 characters. Loud but misleading.
-- **An export can fail on a pathological recipe**: `export._stores` catches only
-  `SyntaxError`, so a recipe that makes `analyze` raise `RecursionError` or
-  `MemoryError` fails the export; `tidy._binds` shares the pattern. Loud.
 
 ## Deferred work
 
