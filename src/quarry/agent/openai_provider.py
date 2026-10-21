@@ -108,12 +108,12 @@ def to_openai_tools(tools: list[ToolDef]) -> list[dict[str, Json]]:
 def from_openai_response(response: Any) -> AssistantTurn:
     choice = response.choices[0]
     message = choice.message
-    if choice.finish_reason is None:
-        raise ValueError("no finish reason")
-    stop = FINISH_MAP.get(choice.finish_reason, "end")
+    stop = FINISH_MAP.get(choice.finish_reason)
     refusal = getattr(message, "refusal", None) or (FILTER_REASON if stop == "refusal" else None)
     if refusal:
         return AssistantTurn(text="", tool_calls=[], stop="refusal", refusal_reason=str(refusal))
+    if stop is None:
+        raise ValueError(f"unknown finish reason: {choice.finish_reason!r}")
     if stop == "max_tokens":
         return AssistantTurn(text=message.content or "", tool_calls=[], stop="max_tokens")
     calls = [

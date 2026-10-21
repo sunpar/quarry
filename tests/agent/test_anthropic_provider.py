@@ -199,6 +199,9 @@ def _ended(*blocks: SimpleNamespace) -> SimpleNamespace:
         lambda **kwargs: SimpleNamespace(
             stop_reason=None, content=[SimpleNamespace(type="text", text="hi")]
         ),
+        lambda **kwargs: SimpleNamespace(
+            stop_reason="pause_turn", content=[SimpleNamespace(type="text", text="hi")]
+        ),
         lambda **kwargs: _ended(SimpleNamespace(type="text", text=None)),
         lambda **kwargs: _ended(SimpleNamespace(type="tool_use", id=None, name="t", input={})),
         lambda **kwargs: _ended(SimpleNamespace(type="tool_use", id="c1", name=None, input={})),
@@ -210,6 +213,7 @@ def _ended(*blocks: SimpleNamespace) -> SimpleNamespace:
         "html",
         "no content",
         "no stop reason",
+        "unknown stop reason",
         "no text",
         "no id",
         "no name",

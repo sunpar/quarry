@@ -125,10 +125,12 @@ Decisions already made are in [decisions.md](context/decisions.md).
   unreadable directory without a log line, and misses a dataset whose parquet
   files sit only in nested directories not named `key=value`. A dangling
   `*.parquet` symlink still lists its dataset. Silent.
-- **An empty provider turn passes as a success**: an Anthropic reply whose
-  content is empty or holds only block types the adapter does not know, or an
-  OpenAI message with neither content nor tool calls, reads as an empty turn
-  that succeeded. Silent.
+- **Empty or contradicting provider turns pass as a success**: an Anthropic
+  reply whose content is empty or holds only block types the adapter does not
+  know, or an OpenAI message with neither content nor tool calls, reads as an
+  empty turn that succeeded; the open question on an empty provider turn
+  decides whether it should. A reply that stops for tool use but carries no
+  tool calls reads as a final answer. Silent.
 - **Cancel waits for the model**: `/interrupt` and `/restart` stop a prompt step
   only once the provider answers the call in flight, bounded only by the
   provider client's timeout. Meanwhile `/restart` holds its request, a second

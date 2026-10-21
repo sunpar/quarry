@@ -93,16 +93,17 @@ def test_from_openai_response_length_and_refusal() -> None:
         ]
     )
     assert from_openai_response(length).stop == "max_tokens"
-    refusal = SimpleNamespace(
-        choices=[
-            SimpleNamespace(
-                finish_reason="stop",
-                message=SimpleNamespace(content=None, tool_calls=None, refusal="no"),
-            )
-        ]
-    )
-    turn = from_openai_response(refusal)
-    assert turn.stop == "refusal" and turn.refusal_reason == "no"
+    for finish in ["stop", None]:
+        refusal = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason=finish,
+                    message=SimpleNamespace(content=None, tool_calls=None, refusal="no"),
+                )
+            ]
+        )
+        turn = from_openai_response(refusal)
+        assert turn.stop == "refusal" and turn.refusal_reason == "no"
     filtered = SimpleNamespace(
         choices=[
             SimpleNamespace(
@@ -203,6 +204,14 @@ def _called(call_id: str | None, name: str | None, arguments: str) -> SimpleName
                 )
             ]
         ),
+        lambda **kwargs: SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason="function_call",
+                    message=SimpleNamespace(content=None, tool_calls=None),
+                )
+            ]
+        ),
         lambda **kwargs: _called(None, "run_python", "{}"),
         lambda **kwargs: _called("c1", None, "{}"),
         lambda **kwargs: _called("c1", "run_python", "[" * 100000),
@@ -223,6 +232,7 @@ def _called(call_id: str | None, name: str | None, arguments: str) -> SimpleName
         "no choices",
         "choices object",
         "no finish reason",
+        "unknown finish reason",
         "no id",
         "no name",
         "arguments too deep",
