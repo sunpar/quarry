@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const server = vi.hoisted(() => ({ init_server: vi.fn(), worker: vi.fn() }));
 const client = vi.hoisted(() => ({ init_client: vi.fn() }));
@@ -8,6 +8,8 @@ vi.mock("@finos/perspective-viewer", () => ({ default: client }));
 vi.mock("@finos/perspective-viewer-datagrid", () => ({}));
 vi.mock("@finos/perspective-viewer-d3fc", () => ({}));
 
+const terminate = vi.fn();
+
 // The engine is cached at module level, so each test imports a fresh copy.
 let ensureEngine: () => Promise<unknown>;
 
@@ -15,15 +17,24 @@ beforeEach(async () => {
   vi.resetModules();
   vi.clearAllMocks();
   vi.stubGlobal("fetch", vi.fn());
-  vi.stubGlobal("Worker", class {});
+  vi.stubGlobal(
+    "Worker",
+    class {
+      terminate = terminate;
+    },
+  );
   client.init_client.mockResolvedValue(undefined);
   server.worker.mockResolvedValue("engine");
   ({ ensureEngine } = await import("./engine"));
 });
 
+afterEach(() => vi.unstubAllGlobals());
+
 describe("ensureEngine", () => {
-  it("starts one engine per frame", async () => {
-    await expect(ensureEngine()).resolves.toBe("engine");
+  it("starts one engine per frame, shared by pivots that mount together", async () => {
+    const first = ensureEngine();
+    expect(ensureEngine()).toBe(first);
+    await expect(first).resolves.toBe("engine");
     await ensureEngine();
     expect(server.worker).toHaveBeenCalledTimes(1);
   });
@@ -38,7 +49,9 @@ describe("ensureEngine", () => {
   it("retries a failed worker without starting the viewer again", async () => {
     server.worker.mockRejectedValueOnce(new Error("no worker"));
     await expect(ensureEngine()).rejects.toThrow("no worker");
+    expect(terminate).toHaveBeenCalledTimes(1);
     await expect(ensureEngine()).resolves.toBe("engine");
+    expect(server.init_server).toHaveBeenCalledTimes(2);
     expect(server.worker).toHaveBeenCalledTimes(2);
     expect(client.init_client).toHaveBeenCalledTimes(1);
   });

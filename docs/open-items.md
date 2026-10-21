@@ -196,6 +196,10 @@ Decisions already made are in [decisions.md](context/decisions.md).
   missing `config`, so a snapshot from before the first layout keeps the later
   one. Changing the viewer's settings, theme or title also writes view state.
   Silent.
+- **A Perspective engine that never answers hangs the pivot**: a worker whose
+  script fails to run, or a server wasm that is not wasm, leaves
+  `perspective.worker` waiting with no error or timeout, so the start never
+  fails and is never retried. Silent: the pivot stays empty.
 - **A corrupt Arrow answer leaves a view loading**: `cache.ts` decodes
   `arrow_base64` inside the success callback, so a decode error skips the error
   branch and the query stays "Loading". Silent.

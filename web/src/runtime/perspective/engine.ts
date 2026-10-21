@@ -20,7 +20,14 @@ export function ensureEngine(): Promise<Client> {
     const url = URL.createObjectURL(
       new Blob([workerSource], { type: "text/javascript" }),
     );
-    return perspective.worker(Promise.resolve(new Worker(url)));
+    const worker = new Worker(url);
+    // A failed start would otherwise leave its worker running beside the retry's.
+    return perspective
+      .worker(Promise.resolve(worker))
+      .catch((error: unknown) => {
+        worker.terminate();
+        throw error;
+      });
   })().catch((error: unknown) => {
     // Forgotten, as a failed SciChart load is, so a later pivot retries.
     engine = null;
