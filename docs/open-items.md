@@ -119,6 +119,9 @@ Decisions already made are in [decisions.md](context/decisions.md).
   instead of falling back to the raw recipe, and a prompt step fails without its
   transcript. The Anthropic adapter reads a `text/html` 200 as an empty turn
   that succeeded. Loud, except the last.
+- **The Codex version check matches a substring**: the runtime accepts any
+  app-server whose `userAgent` contains `0.162.1`, so 0.162.10 or 10.162.1 pass.
+  Silent: an untested Codex release runs.
 - **Cancel waits for the model**: `/interrupt` and `/restart` stop a prompt step
   only once the provider answers the call in flight, bounded only by the
   provider client's timeout. Meanwhile `/restart` holds its request, a second
@@ -307,8 +310,6 @@ one up when a researcher needs it.
   `_wasm/scichart.wasm` and nothing else.
 - Export a single view with `quarry projects export`, and import a `.ipynb`.
   Neither is in the spec.
-- Keep the version in one place: `pyproject.toml` and `src/quarry/__init__.py`
-  both hold it, and the test checks only its type.
 - Type the op sets in `quarry/query/spec.py` as `frozenset[FilterOp]` rather
   than `frozenset[str]`.
 - Keep TIMETZ offsets in JSON rows, and fix the Duration comment in
@@ -319,8 +320,6 @@ one up when a researcher needs it.
   equivalence `normalize` sorts rows, so order is compared only under a limit.
 - Tighten tests further: some `match=` patterns in `test_spec.py` also match
   pydantic's echoed input, and the polars target has no direct nulls-first test.
-- Close Stage 2 test gaps: nothing checks the arguments the OpenAI adapter sends
-  or that every tool schema stays strict.
 - Merge canvas layout writes: `CanvasPage` sends the whole card list from its
   own copy of the layout, half a second after a drag, so a write sent after a
   pin made elsewhere drops that card. A `set_canvas` that takes positions by

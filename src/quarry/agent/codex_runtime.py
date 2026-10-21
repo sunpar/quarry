@@ -19,13 +19,14 @@ from typing import Any, Final, Self
 
 from pydantic import ValidationError
 
+from quarry import __version__
 from quarry.agent.loop import StepExecution, StepHalted, StepOutcome
 from quarry.agent.tools import TOOL_DEFS, ToolExecutor
 from quarry.agent.types import AssistantTurn, Message, ProviderError, ToolCall, ToolResult
 from quarry.config import QuarryConfig
 from quarry.kernel.client import kill_group
 
-_VERSION: Final = "0.162.1"
+_CODEX_VERSION: Final = "0.162.1"
 _SIGKILL_WAIT: Final = 5.0  # seconds
 _DISABLED: Final = (
     "shell_tool",
@@ -349,11 +350,11 @@ class CodexRuntime:
             initialized = connection.request(
                 "initialize",
                 {
-                    "clientInfo": {"name": "quarry", "version": "0.1.0"},
+                    "clientInfo": {"name": "quarry", "version": __version__},
                     "capabilities": {"experimentalApi": True},
                 },
             )
-            if _VERSION not in initialized.get("userAgent", ""):
+            if _CODEX_VERSION not in initialized.get("userAgent", ""):
                 raise ProviderError("Unexpected Codex app-server version", retryable=False)
             connection.send({"method": "initialized", "params": {}})
             account = connection.request("account/read", {"refreshToken": False})

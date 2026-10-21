@@ -1576,7 +1576,6 @@ wheels = [
 
 [[package]]
 name = "quarry"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
@@ -1624,7 +1623,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.5" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
-provides-extras = ["mssql", "claude-code"]
+provides-extras = ["claude-code", "mssql"]
 
 [package.metadata.requires-dev]
 dev = [
