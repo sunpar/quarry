@@ -61,14 +61,9 @@ export function SaveComponentDialog({
       id: cleanId,
       name: name.trim(),
       description,
-      tags: [
-        ...new Set(
-          tags
-            .split(",")
-            .map((t) => t.trim())
-            .filter((t) => t !== ""),
-        ),
-      ],
+      tags: [...new Set(tags.split(",").map((t) => t.trim()))].filter(
+        (t) => t !== "",
+      ),
     });
   };
   return (
