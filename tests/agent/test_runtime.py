@@ -186,7 +186,11 @@ def test_finish_waits_for_executing_tool_after_adapter_failure(
         release.set()
         running.result(timeout=5)
         out = outcome.result(timeout=5)
-    assert out.status == "error" and out.error_message == "native process exited"
+    assert (
+        out.status == "error"
+        and out.error is not None
+        and out.error.message == "native process exited"
+    )
     assert out.code == "x = 1" and [(r.code, r.status) for r in out.runs] == [("x = 1", "ok")]
     with pytest.raises(StepHalted):
         step.dispatch(python_call("late", "x = 2"))
@@ -260,7 +264,7 @@ def test_stop_closes_queued_dispatch_before_active_callback_settles(
         with pytest.raises(StepHalted, match="transport died"):
             pending.result(timeout=5)
     out = step.finish(status="ok", transcript=[])
-    assert out.status == "error" and out.error_message == "transport died"
+    assert out.status == "error" and out.error is not None and out.error.message == "transport died"
     assert out.code == "x = 1" and len(out.runs) == 1
 
 
@@ -328,5 +332,5 @@ def test_executing_python_failure_overrides_completion_trigger(
         release.set()
         assert active.result(timeout=5).is_error
     out = step.finish(status="ok", transcript=[])
-    assert out.status == "error" and "ZeroDivisionError" in (out.error_message or "")
+    assert out.status == "error" and out.error is not None and out.error.type == "ZeroDivisionError"
     assert [r.status for r in out.runs] == ["error", "error"]

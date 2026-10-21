@@ -372,18 +372,13 @@ class SessionService:
                 tools=tools,
                 cancel=cancel,
             )
-            error = (
-                ExecError(type="StepError", message=outcome.error_message, traceback="")
-                if outcome.error_message
-                else None
-            )
             done = _ended(
                 _recorded(step, ran),
                 started,
                 status=outcome.status,
                 note=outcome.note,
                 code=outcome.code,
-                error=error,
+                error=outcome.error,
                 transcript=outcome.transcript,
                 view=View.from_pending(outcome.view) if outcome.view else None,
                 provider=ProviderInfo(

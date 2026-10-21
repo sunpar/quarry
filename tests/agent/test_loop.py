@@ -20,7 +20,7 @@ from quarry.agent.types import (
 )
 from quarry.components.library import ComponentLibrary
 from quarry.kernel.client import KernelClient, KernelDead
-from quarry.kernel.executor import ExecResult
+from quarry.kernel.executor import ExecError, ExecResult
 
 
 @pytest.fixture
@@ -45,6 +45,10 @@ def py(call_id: str, code: str) -> AssistantTurn:
 
 def end(text: str = "done") -> AssistantTurn:
     return AssistantTurn(text=text, tool_calls=[], stop="end")
+
+
+def step_error(message: str) -> ExecError:
+    return ExecError(type="StepError", message=message, traceback="")
 
 
 class CancelsOnCall(FakeProvider):
@@ -97,8 +101,10 @@ def test_happy_path_runs_code_and_records_transcript(kernel: KernelClient, tmp_p
 def test_second_consecutive_python_error_ends_step(kernel: KernelClient, tmp_path: Path) -> None:
     provider = FakeProvider([py("c1", "1/0"), py("c2", "1/0"), end()])
     out = run(provider, kernel, tmp_path)
-    assert out.status == "error"
-    assert out.error_message is not None and "ZeroDivisionError" in out.error_message
+    assert out.status == "error" and out.error is not None
+    # The traceback stays apart from the message, as a manual step's does.
+    assert (out.error.type, out.error.message) == ("ZeroDivisionError", "division by zero")
+    assert out.error.traceback.startswith("Traceback")
     assert out.iterations == 2
     assert len(provider.calls) == 2
     result_messages = [m for m in out.transcript if m.tool_results]
@@ -137,16 +143,20 @@ def test_second_failure_stops_the_rest_of_the_turn(kernel: KernelClient, tmp_pat
 def test_refusal_and_truncation(kernel: KernelClient, tmp_path: Path) -> None:
     declined = AssistantTurn(text="", tool_calls=[], stop="refusal", refusal_reason="no")
     refused = run(FakeProvider([declined]), kernel, tmp_path)
-    assert refused.status == "error" and refused.error_message == "no"
+    assert refused.status == "error" and refused.error == step_error("no")
     cut = AssistantTurn(text="partial", tool_calls=[], stop="max_tokens")
     truncated = run(FakeProvider([cut]), kernel, tmp_path)
-    assert truncated.status == "error" and "truncated" in (truncated.error_message or "")
+    assert (
+        truncated.status == "error"
+        and truncated.error is not None
+        and "truncated" in truncated.error.message
+    )
 
 
 def test_iteration_cap(kernel: KernelClient, tmp_path: Path) -> None:
     provider = FakeProvider([py(f"c{i}", "x = 1") for i in range(5)])
     out = run(provider, kernel, tmp_path, max_iterations=3)
-    assert out.status == "error" and "iteration cap" in (out.error_message or "")
+    assert out.status == "error" and out.error is not None and "iteration cap" in out.error.message
     assert out.iterations == 3
 
 
@@ -165,7 +175,7 @@ def test_provider_error_fails_step(kernel: KernelClient, tmp_path: Path) -> None
         tools=tools(kernel, tmp_path),
         cancel=threading.Event(),
     )
-    assert out.status == "error" and out.error_message == "rate limited"
+    assert out.status == "error" and out.error == step_error("rate limited")
 
 
 def test_interrupted_python_marks_step_interrupted(kernel: KernelClient, tmp_path: Path) -> None:
@@ -178,7 +188,7 @@ def test_cancel_before_a_provider_call_skips_it(kernel: KernelClient, tmp_path: 
     cancel.set()
     provider = FakeProvider([end()])
     out = run(provider, kernel, tmp_path, cancel)
-    assert out.status == "interrupted" and out.error_message == "interrupted by researcher"
+    assert out.status == "interrupted" and out.error == step_error("interrupted by researcher")
     assert provider.calls == [] and out.iterations == 0
 
 
@@ -188,7 +198,7 @@ def test_cancel_during_a_provider_call_skips_its_tools(
     cancel = threading.Event()
     provider = CancelsOnCall([py("c1", "x = 1"), py("c2", "y = 2"), end()], cancel, 2)
     out = run(provider, kernel, tmp_path, cancel)
-    assert out.status == "interrupted" and out.error_message == "interrupted by researcher"
+    assert out.status == "interrupted" and out.error == step_error("interrupted by researcher")
     assert [r.code for r in out.runs] == ["x = 1"] and len(provider.calls) == 2
 
 
@@ -215,7 +225,7 @@ def test_cancel_during_the_last_allowed_tool_call_is_not_the_cap(
         cancel=cancel,
         max_iterations=1,
     )
-    assert out.status == "interrupted" and out.error_message == "interrupted by researcher"
+    assert out.status == "interrupted" and out.error == step_error("interrupted by researcher")
     assert [r.code for r in out.runs] == ["x = 1"]
 
 
@@ -264,7 +274,7 @@ def test_view_is_captured(kernel: KernelClient, tmp_path: Path) -> None:
 def test_cancel_during_a_final_answer_is_not_ok(kernel: KernelClient, tmp_path: Path) -> None:
     cancel = threading.Event()
     out = run(CancelsOnCall([end()], cancel, 1), kernel, tmp_path, cancel)
-    assert out.status == "interrupted" and out.error_message == "interrupted by researcher"
+    assert out.status == "interrupted" and out.error == step_error("interrupted by researcher")
 
 
 def test_api_runtime_preserves_tool_result_batches(kernel: KernelClient, tmp_path: Path) -> None:
@@ -301,7 +311,7 @@ def test_non_python_tool_does_not_reset_failures(kernel: KernelClient, tmp_path:
     provider = FakeProvider([py("first", "1/0"), search, py("second", "1/0"), end()])
     out = run(provider, kernel, tmp_path)
     assert out.status == "error" and out.iterations == 3
-    assert "ZeroDivisionError" in (out.error_message or "")
+    assert out.error is not None and out.error.type == "ZeroDivisionError"
     assert [r.code for r in out.runs] == ["1/0", "1/0"]
 
 
@@ -332,7 +342,7 @@ def test_kernel_death_preserves_completed_runs_without_partial_result_batch(
         tools=executor,
         cancel=threading.Event(),
     )
-    assert out.status == "error" and out.error_message == "kernel died during execution"
+    assert out.status == "error" and out.error == step_error("kernel died during execution")
     assert out.iterations == 1 and out.code == "x = 1"
     assert [m.role for m in out.transcript] == ["user", "assistant"]
     assert [(r.code, r.status) for r in out.runs] == [("x = 1", "ok")]

@@ -310,7 +310,7 @@ def test_operational_failures_are_explicit(
     cli, plan, _ = codex_cli
     plan.write_text(json.dumps(plan_data))
     out = step(cli, codex_tools)
-    assert out.status == "error" and expected in (out.error_message or "")
+    assert out.status == "error" and out.error is not None and expected in out.error.message
     with pytest.raises(ProviderError) as failed:
         CodexRuntime(model="gpt-6.1-sol", cli_path=cli).complete_text(
             system="s", prompt="p", cancel=threading.Event()
@@ -356,7 +356,7 @@ def test_unknown_tools_and_malformed_arguments_never_execute(
     cli, plan, _ = codex_cli
     plan.write_text(json.dumps({"calls": [{"name": name, "input": arguments}]}))
     out = step(cli, codex_tools)
-    assert out.status == "error" and expected in (out.error_message or "")
+    assert out.status == "error" and out.error is not None and expected in out.error.message
     assert out.runs == []
 
 
@@ -378,7 +378,7 @@ def test_two_python_errors_stop_queued_execution_after_another_tool(
         )
     )
     out = step(cli, codex_tools)
-    assert out.status == "error" and "ZeroDivisionError" in (out.error_message or "")
+    assert out.status == "error" and out.error is not None and out.error.type == "ZeroDivisionError"
     assert [r.code for r in out.runs] == ["1/0", "1/0"]
 
 
@@ -393,7 +393,7 @@ def test_native_budget_blocks_thirteenth_call(
         )
     )
     out = step(cli, codex_tools)
-    assert out.status == "error" and "12" in (out.error_message or "")
+    assert out.status == "error" and out.error is not None and "12" in out.error.message
     assert len(out.runs) == 12 and out.runs[-1].code == "x = 11"
 
 
@@ -503,7 +503,7 @@ def test_inherited_configuration_cannot_relax_the_boundary(
     cli, plan, log = codex_cli
     plan.write_text(json.dumps({"config": config}))
     out = step(cli, codex_tools)
-    assert out.status == "error" and expected in (out.error_message or "")
+    assert out.status == "error" and out.error is not None and expected in out.error.message
     assert not any(r.get("method") == "thread/start" for r in records(log))
 
 
@@ -514,7 +514,7 @@ def test_thread_inventory_rejects_an_inherited_mcp_tool_before_inference(
     cli, plan, log = codex_cli
     plan.write_text(json.dumps({"mcp_status": [{"name": "unexpected", "tools": {"unsafe": {}}}]}))
     out = step(cli, codex_tools)
-    assert out.status == "error" and "MCP" in (out.error_message or "")
+    assert out.status == "error" and out.error is not None and "MCP" in out.error.message
     assert not any(r.get("method") == "turn/start" for r in records(log))
 
 
@@ -684,7 +684,7 @@ def test_missing_terminal_status_returns_error_and_closes_transport(
     plan.write_text(json.dumps({"terminal_payload": {"id": "turn"}}))
     try:
         out = step(cli, codex_tools)
-        assert out.status == "error" and "malformed" in (out.error_message or "")
+        assert out.status == "error" and out.error is not None and "malformed" in out.error.message
         assert any(r.get("terminated") for r in records(log))
     finally:
         pid = next(r["pid"] for r in records(log) if "pid" in r)
