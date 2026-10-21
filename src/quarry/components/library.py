@@ -6,7 +6,6 @@ import json
 import logging
 import re
 from collections import Counter
-from contextlib import suppress
 from pathlib import Path
 from typing import Final, Literal
 
@@ -125,23 +124,32 @@ def write_component(root: Path, manifest: ComponentManifest, source: str) -> Pat
     """Write `manifest` and `source` into a new `root/<id>/`, returning that directory. A folder
     already there is a FileExistsError: the library skips one with a bad manifest, so it may
     hold files a researcher wrote. The library lists a component once both files exist, so
-    the manifest goes last. A save that fails removes what it wrote, so the id stays free;
-    only a crash can leave the folder behind."""
+    the manifest goes last. A save that fails removes what it wrote, so the id stays free; a
+    removal that fails, which is logged, or a crash can still leave a folder that refuses
+    the id."""
     root.mkdir(mode=PRIVATE_DIR, exist_ok=True)
     target = child(root, manifest.id)
+    source_path, manifest_path = target / "component.tsx", target / "manifest.json"
     target.mkdir(mode=PRIVATE_DIR)
     try:
-        write_atomic(target / "component.tsx", source)
-        write_atomic(target / "manifest.json", manifest.model_dump_json(by_alias=True, indent=2))
+        write_atomic(source_path, source)
+        write_atomic(manifest_path, manifest.model_dump_json(by_alias=True, indent=2))
         # The new folder is durable only once its entry in `root` is.
         sync_dir(root)
     except BaseException:
-        for name in ("component.tsx", "manifest.json"):
-            (target / name).unlink(missing_ok=True)
-        # Not rmtree: a file someone else put here stays, and the save's own error is the one
-        # reported.
-        with suppress(OSError):
-            target.rmdir()
+        # Each step is best-effort, so the save's own error is the one raised. Not rmtree: a
+        # file someone else put here stays.
+        for remove, path in (
+            (Path.unlink, source_path),
+            (Path.unlink, manifest_path),
+            (Path.rmdir, target),
+        ):
+            try:
+                remove(path)
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                log.warning("could not remove %s after a failed component save: %s", path, exc)
         raise
     return target
 

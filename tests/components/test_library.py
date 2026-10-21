@@ -207,24 +207,51 @@ def test_write_component_syncs_the_root_that_gained_a_folder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     synced = record_fsyncs(monkeypatch)
-    library.write_component(tmp_path, generated(), "")
-    # A new folder is durable only once the directory holding its entry is synced.
-    assert any(os.path.samestat(s, tmp_path.stat()) for s in synced)
+    folder = library.write_component(tmp_path, generated(), "")
+    # A new folder is durable only once the directory holding its entry is synced, after the
+    # folder is made; a sync of the folder itself shows it was.
+    made = next(i for i, s in enumerate(synced) if os.path.samestat(s, folder.stat()))
+    assert any(os.path.samestat(s, tmp_path.stat()) for s in synced[made:])
 
 
 def test_failed_write_component_frees_its_id(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    written: list[str] = []
+
     def disk_full(path: Path) -> None:
+        written.extend(sorted(p.name for p in (path / "my-scatter").iterdir()))
         raise OSError("disk full")
 
-    # The root's sync is the last step, so both files exist when it fails.
     with monkeypatch.context() as patch:
         patch.setattr("quarry.components.library.sync_dir", disk_full)
         with pytest.raises(OSError, match="disk full"):
             library.write_component(tmp_path, generated(), "")
+    assert written == ["component.tsx", "manifest.json"]
     assert not (tmp_path / "my-scatter").exists()
     library.write_component(tmp_path, generated(), "")
+
+
+@root_ignores_modes
+def test_failed_cleanup_keeps_the_saves_own_error_and_logs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    folder = tmp_path / "my-scatter"
+
+    def disk_full_and_read_only(path: Path) -> None:
+        # As when an I/O error leaves the disk read-only: the cleanup can remove nothing.
+        folder.chmod(0o500)
+        raise OSError("disk full")
+
+    monkeypatch.setattr("quarry.components.library.sync_dir", disk_full_and_read_only)
+    with (
+        caplog.at_level(logging.WARNING, logger="quarry.components.library"),
+        pytest.raises(OSError, match="disk full"),
+    ):
+        library.write_component(tmp_path, generated(), "")
+    folder.chmod(0o700)
+    # Each step ran and logged what it left, though the one before it failed.
+    assert "component.tsx" in caplog.text and "manifest.json" in caplog.text
 
 
 def test_write_component_leaves_a_missing_root_to_quarry_serve(tmp_path: Path) -> None:
