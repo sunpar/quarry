@@ -49,20 +49,4 @@ describe("SnapshotScrubber", () => {
     rerender(<SnapshotScrubber snapshots={more} onPick={() => undefined} />);
     expect(screen.getByText("4 of 4")).toBeTruthy();
   });
-
-  it("follows the latest snapshot when it is replaced after a pick", () => {
-    const { rerender } = render(
-      <SnapshotScrubber snapshots={snapshots} onPick={() => undefined} />,
-    );
-    fireEvent.change(screen.getByRole("slider"), { target: { value: "0" } });
-    // The view reported the last state again, so the server replaced it: same count, new ts.
-    const replaced = [
-      ...snapshots.slice(0, -1),
-      { ts: "2026-10-08T00:03:00Z", state: { n: 3 }, queries: [] },
-    ];
-    rerender(
-      <SnapshotScrubber snapshots={replaced} onPick={() => undefined} />,
-    );
-    expect(screen.getByText("3 of 3")).toBeTruthy();
-  });
 });

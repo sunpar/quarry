@@ -981,17 +981,17 @@ them.
   `ownDatasets` prop of step metadata, which would have brought stale schemas
   back. Cost if wrong: one extra datasets fetch per schema request.
 - **The snapshot scrubber follows the latest**: `SnapshotScrubber` keeps the
-  researcher's pick only while the latest snapshot's `ts` holds, then moves to
-  the latest. Every report appends a snapshot or replaces the last one, both
-  with a new `ts`, so a report of the last state moves the scrubber even though
-  the count stays the same. Each posted snapshot goes into the cached session by
-  the server's rule, replacing a last snapshot of the same state, so new
-  snapshots reach it during a visit without a refetch. The plan's scrubber read
-  the count once, so a view that gained snapshots while mounted showed "1 of N".
-  Cost if wrong: the cached list can pass the server's cap of 500 until the next
-  refetch, and the cache stamps a posted snapshot with the browser's `ts`, not
-  the server's, so the first session refetch after a post drops a pick to the
-  latest.
+  researcher's pick only while the snapshot count it was made at holds, and
+  `ViewFrameContainer` remounts it on each report from the view, so a new
+  snapshot or a report that replaces the last one at the same count moves it to
+  the latest. A restore sends no report, and a refetch alone keeps the pick; a
+  key on the latest `ts` would not, since the cache stamps a posted snapshot
+  with the browser's time, not the server's. Each posted snapshot goes into the
+  cached session by the server's rule, replacing a last snapshot of the same
+  state, so new snapshots reach it during a visit without a refetch. The plan's
+  scrubber read the count once, so a view that gained snapshots while mounted
+  showed "1 of N". Cost if wrong: the cached list can pass the server's cap of
+  500 until the next refetch.
 - **The dev proxy forwards `/projects`**: `web/vite.config.ts` proxies it beside
   `/sessions` and `/healthz`. The plan added project routes without it, so
   `npm run dev` answered 404. Stage 5 adds `/components`, `/libraries` and

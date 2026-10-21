@@ -1,5 +1,10 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen } from "@testing-library/react";
+import {
+  QueryClient,
+  QueryClientProvider,
+  skipToken,
+  useQuery,
+} from "@tanstack/react-query";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { StrictMode, useLayoutEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Session, Snapshot, Step } from "@/shared/api-types";
@@ -50,6 +55,23 @@ const cachedSession = (snapshots: Snapshot[]): Session => ({
   steps: [{ ...step, view: step.view && { ...step.view, snapshots } }],
 });
 
+// Passes the step from the cached session once there is one, as the session page does, so
+// recorded snapshots and refetches reach the scrubber.
+function CachedStep(props: { dataVersion: string; onRepair: () => void }) {
+  const { data } = useQuery<Session>({
+    queryKey: keys.session("sess"),
+    queryFn: skipToken,
+  });
+  return (
+    <ViewFrameContainer
+      sessionId="sess"
+      step={data?.steps[0] ?? step}
+      running={false}
+      {...props}
+    />
+  );
+}
+
 function mount(onRepair = vi.fn()) {
   const fetchImpl = vi.fn(async (url: string) => {
     if (url.endsWith("/snapshots"))
@@ -74,13 +96,7 @@ function mount(onRepair = vi.fn()) {
   const tree = (dataVersion: string) => (
     <QueryClientProvider client={qc}>
       <ApiProvider client={api}>
-        <ViewFrameContainer
-          sessionId="sess"
-          step={step}
-          running={false}
-          dataVersion={dataVersion}
-          onRepair={onRepair}
-        />
+        <CachedStep dataVersion={dataVersion} onRepair={onRepair} />
       </ApiProvider>
     </QueryClientProvider>
   );
@@ -306,6 +322,49 @@ describe("ViewFrameContainer", () => {
     await vi.waitFor(() =>
       expect(cached()?.map((s) => s.state)).toEqual([{ k: 1 }, { k: true }]),
     );
+  });
+
+  describe("after a pick in the scrubber", () => {
+    const a: Snapshot = { ts: "t0", state: { k: "a" }, queries: [] };
+    const b: Snapshot = { ts: "t1", state: { k: "b" }, queries: [] };
+    // The query cache tells its observers on a timer, so wait one out before reading the screen.
+    const cache = (qc: QueryClient, snapshots: Snapshot[]) =>
+      act(async () => {
+        qc.setQueryData(keys.session("sess"), cachedSession(snapshots));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    const pickFirst = () =>
+      fireEvent.change(screen.getByRole("slider"), { target: { value: "0" } });
+
+    it("moves to the latest when the view reports the last state again", async () => {
+      const { send, qc } = mount();
+      await cache(qc, [a, b]);
+      pickFirst();
+      expect(screen.getByText("1 of 2")).toBeTruthy();
+      await act(async () => {
+        send({
+          type: "stateChanged",
+          viewId: "s1",
+          state: b.state,
+          queries: [],
+        });
+      });
+      // The report replaces the last snapshot, so the count stays 2.
+      await vi.waitFor(() => {
+        const cached = qc.getQueryData<Session>(keys.session("sess"));
+        expect(cached?.steps[0]?.view?.snapshots[1]?.ts).not.toBe("t1");
+        expect(screen.getByText("2 of 2")).toBeTruthy();
+      });
+    });
+
+    it("keeps the pick when a refetch brings the same snapshots", async () => {
+      const { qc } = mount();
+      await cache(qc, [a, b]);
+      pickFirst();
+      // The server stamps its own ts, so a refetch after a recorded snapshot changes the last one's.
+      await cache(qc, [a, { ...b, ts: "t1-server" }]);
+      expect(screen.getByText("1 of 2")).toBeTruthy();
+    });
   });
 
   it("leaves an uncached session uncached after a snapshot", async () => {

@@ -8,13 +8,13 @@ interface SnapshotScrubberProps {
 }
 
 export function SnapshotScrubber({ snapshots, onPick }: SnapshotScrubberProps) {
-  // A pick holds only while the latest snapshot's ts does; every report appends or replaces the
-  // latest with a new ts, so the scrubber moves to it even when the count stays the same.
-  const [pick, setPick] = useState<{ at: number; of?: string } | null>(null);
-  const latest = snapshots.at(-1)?.ts;
+  // A pick holds only while the list it was made from does; a new snapshot moves to the latest.
+  const [pick, setPick] = useState<{ at: number; of: number } | null>(null);
   if (snapshots.length < 2) return null;
   const current =
-    pick !== null && pick.of === latest ? pick.at : snapshots.length - 1;
+    pick !== null && pick.of === snapshots.length
+      ? pick.at
+      : snapshots.length - 1;
   return (
     <label className="flex items-center gap-3 text-sm text-muted-foreground">
       History
@@ -25,7 +25,7 @@ export function SnapshotScrubber({ snapshots, onPick }: SnapshotScrubberProps) {
         value={current}
         onChange={(e) => {
           const next = Number(e.target.value);
-          setPick({ at: next, of: latest });
+          setPick({ at: next, of: snapshots.length });
           const picked = snapshots[next];
           if (picked !== undefined) onPick(picked.state);
         }}

@@ -49,6 +49,10 @@ export function ViewFrameContainer({
   const api = useApi();
   const queryClient = useQueryClient();
   const [restoreState, setRestoreState] = useState<JsonObject | null>(null);
+  // Keys the scrubber, so each report from the view drops a pick: the view has left the picked
+  // state even when its report replaces the last snapshot and the count holds. A restore sends
+  // no report, and a refetch alone keeps the pick.
+  const [reports, setReports] = useState(0);
   const view = step.view;
   if (view === null) return null;
   return (
@@ -66,6 +70,7 @@ export function ViewFrameContainer({
         title={`View for step ${step.index + 1}`}
         disabled={running}
         onStateChanged={(state, queries) => {
+          setReports((n) => n + 1);
           void api
             .postSnapshot(sessionId, step.id, { state, queries })
             // The scrubber reads snapshots from the session; record this one there instead of
@@ -85,7 +90,11 @@ export function ViewFrameContainer({
         onFix={(error) => onRepair({ step_id: step.id, error })}
       />
       <div className="flex items-center gap-4 empty:hidden">
-        <SnapshotScrubber snapshots={view.snapshots} onPick={setRestoreState} />
+        <SnapshotScrubber
+          key={reports}
+          snapshots={view.snapshots}
+          onPick={setRestoreState}
+        />
         {actions !== undefined && <div className="ml-auto">{actions}</div>}
       </div>
     </div>
