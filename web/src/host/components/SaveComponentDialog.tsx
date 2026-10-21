@@ -29,14 +29,15 @@ interface SaveComponentDialogProps {
   onSave: (choice: ComponentChoice) => void;
 }
 
-const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
-
-// Unlike a view name, a component id has no underscores.
+// Unlike a view name, a component id has no underscores, and the server takes
+// at most 64 characters.
 const normaliseId = (value: string): string =>
   value
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/^-+/, "")
+    .slice(0, 64)
+    .replace(/-+$/, "");
 
 export function SaveComponentDialog({
   open,
@@ -50,9 +51,13 @@ export function SaveComponentDialog({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
+  // Editing the id hides the last save's refusal, whatever it was about; the
+  // next save shows any refusal that still applies.
+  const [triedId, setTriedId] = useState<string | null>(null);
   const cleanId = normaliseId(id);
-  const canSave = !pending && ID.test(cleanId) && name.trim() !== "";
-  const save = () =>
+  const canSave = !pending && cleanId !== "" && name.trim() !== "";
+  const save = () => {
+    setTriedId(cleanId);
     onSave({
       id: cleanId,
       name: name.trim(),
@@ -62,6 +67,7 @@ export function SaveComponentDialog({
         .map((t) => t.trim())
         .filter((t) => t !== ""),
     });
+  };
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="flex flex-col gap-4">
@@ -73,11 +79,17 @@ export function SaveComponentDialog({
           <Input
             id="component-id"
             value={id}
+            disabled={pending}
             onChange={(e) => setId(e.target.value)}
           />
           {cleanId !== id && cleanId !== "" && (
             <p className="text-xs text-muted-foreground">
               Saved as <code className="font-mono">{cleanId}</code>
+            </p>
+          )}
+          {cleanId === "" && id.trim() !== "" && (
+            <p className="text-xs text-muted-foreground">
+              An id needs a letter from a to z or a digit.
             </p>
           )}
         </div>
@@ -107,7 +119,9 @@ export function SaveComponentDialog({
             onChange={(e) => setTags(e.target.value)}
           />
         </div>
-        {error !== null && <p className="text-sm text-destructive">{error}</p>}
+        {error !== null && cleanId === triedId && (
+          <p className="text-sm text-destructive">{error}</p>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel

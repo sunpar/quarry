@@ -25,6 +25,7 @@ from quarry.kernel.client import KernelDead, RpcFailure
 from quarry.kernel.datasets import DatasetMeta
 from quarry.kernel.executor import QueryResult
 from quarry.libraries import LibraryStatus, library_settings, licensed_libraries
+from quarry.projects.files import PRIVATE_DIR
 from quarry.projects.store import ProjectStore
 from quarry.query.spec import Json, QueryError, QuerySpec
 from quarry.server.component_routes import register_component_routes
@@ -74,6 +75,9 @@ def create_app(
     static = static_dir or Path(__file__).parent.parent / "static"
     licensed = licensed_libraries(config)
     researcher_root = config.root / "components"
+    # A save makes it again if it is deleted; made here too, a file in its place stops the
+    # server instead of failing every save. No `parents`: the root is `quarry serve`'s to create.
+    researcher_root.mkdir(mode=PRIVATE_DIR, exist_ok=True)
     roots = [builtin_root(), researcher_root]
     if config.libraries.team_components is not None:
         roots.append(config.libraries.team_components)
