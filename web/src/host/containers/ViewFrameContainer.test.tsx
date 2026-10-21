@@ -55,6 +55,10 @@ const cachedSession = (snapshots: Snapshot[]): Session => ({
   steps: [{ ...step, view: step.view && { ...step.view, snapshots } }],
 });
 
+const a: Snapshot = { ts: "t0", state: { k: "a" }, queries: [] };
+const b: Snapshot = { ts: "t1", state: { k: "b" }, queries: [] };
+const c: Snapshot = { ts: "t2", state: { k: "c" }, queries: [] };
+
 // Passes the step from the cached session once there is one, as the session page does, so
 // recorded snapshots and refetches reach the scrubber. Its actions show the pick they are given.
 function CachedStep(props: { dataVersion: string; onRepair: () => void }) {
@@ -268,10 +272,7 @@ describe("ViewFrameContainer", () => {
   });
 
   it("mounts the view on its latest snapshot, and only once", async () => {
-    const { iframe, send } = mount([
-      { ts: "t0", state: { k: "a" }, queries: [] },
-      { ts: "t1", state: { k: "b" }, queries: [] },
-    ]);
+    const { iframe, send } = mount([a, b]);
     const posted: HostToRuntime[] = [];
     vi.spyOn(iframe.contentWindow as Window, "postMessage").mockImplementation(
       (m: HostToRuntime) => posted.push(m),
@@ -284,7 +285,7 @@ describe("ViewFrameContainer", () => {
       send({
         type: "stateChanged",
         viewId: "s1",
-        state: { k: "c" },
+        state: c.state,
         queries: [],
       });
     });
@@ -293,7 +294,7 @@ describe("ViewFrameContainer", () => {
     expect(
       posted.filter((m) => m.type === "mount" || m.type === "restore"),
     ).toEqual([
-      expect.objectContaining({ type: "mount", initialState: { k: "b" } }),
+      expect.objectContaining({ type: "mount", initialState: b.state }),
     ]);
   });
 
@@ -317,8 +318,7 @@ describe("ViewFrameContainer", () => {
   });
 
   it("appends a saved snapshot to the cached session without refetching", async () => {
-    const { send, qc } = mount();
-    qc.setQueryData(keys.session("sess"), cachedSession([]));
+    const { send, qc } = mount([]);
     qc.setQueryData(keys.status("sess"), {});
     await act(async () => {
       send({
@@ -339,11 +339,7 @@ describe("ViewFrameContainer", () => {
   });
 
   it("replaces the cached last snapshot when the state repeats", async () => {
-    const { send, qc } = mount();
-    qc.setQueryData(
-      keys.session("sess"),
-      cachedSession([{ ts: "t0", state: { k: 1 }, queries: [] }]),
-    );
+    const { send, qc } = mount([{ ts: "t0", state: { k: 1 }, queries: [] }]);
     const cached = () =>
       qc.getQueryData<Session>(keys.session("sess"))?.steps[0]?.view?.snapshots;
     const report = (state: JsonObject) =>
@@ -368,9 +364,6 @@ describe("ViewFrameContainer", () => {
   });
 
   describe("after a pick in the scrubber", () => {
-    const a: Snapshot = { ts: "t0", state: { k: "a" }, queries: [] };
-    const b: Snapshot = { ts: "t1", state: { k: "b" }, queries: [] };
-    const c: Snapshot = { ts: "t2", state: { k: "c" }, queries: [] };
     // The query cache tells its observers on a timer, so wait one out before reading the screen.
     const cache = (qc: QueryClient, snapshots: Snapshot[]) =>
       act(async () => {
