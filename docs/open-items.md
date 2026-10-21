@@ -125,11 +125,12 @@ Decisions already made are in [decisions.md](context/decisions.md).
   unreadable directory without a log line, and misses a dataset whose parquet
   files sit only in nested directories not named `key=value`. A dangling
   `*.parquet` symlink still lists its dataset. Silent.
-- **Some malformed provider responses still pass**: the SDKs fill a missing
-  field with None, so a 200 without a stop reason reads as a turn that ended
-  normally. An Anthropic reply whose content is empty or holds only block types
-  the adapter does not know, or an OpenAI message with neither content nor tool
-  calls, reads as an empty turn that succeeded. Silent.
+- **Empty or contradicting provider turns pass as a success**: an Anthropic
+  reply whose content is empty or holds only block types the adapter does not
+  know, or an OpenAI message with neither content nor tool calls, reads as an
+  empty turn that succeeded; the open question on an empty provider turn
+  decides whether it should. A reply that stops for tool use but carries no
+  tool calls reads as a final answer. Silent.
 - **Cancel waits for the model**: `/interrupt` and `/restart` stop a prompt step
   only once the provider answers the call in flight, bounded only by the
   provider client's timeout. Meanwhile `/restart` holds its request, a second
@@ -215,18 +216,18 @@ Decisions already made are in [decisions.md](context/decisions.md).
   to the host, and the pivot stays empty. Loud.
 - **A hung `GET /libraries` never mounts a view**: `ViewHost` waits for that one
   answer with no timeout. Silent: the frame stays empty.
+- **The project rail asks for a project while projects load or fail**:
+  `ProjectRail` builds its list from `metas.data ?? []`, so it shows "Create a
+  project to save datasets and views into." until the list arrives, or until
+  a refetch succeeds when `GET /projects` fails. Silent: the failure is never
+  shown.
 - **An outgoing view's cleanup error replaces the incoming view**: the frame
   keeps one error boundary across mounts, so when a replaced view throws from
   an effect cleanup as the next view mounts, the boundary shows that error
   instead of the new view and posts it under the new mount, which brings back
   the host's "Fix this view". Loud.
-- **Time-series and large-series can guess a case-only clash**: each picks the
-  first datetime column and the first numeric one, which can differ only in
-  case, as `Date` and `date`, so the query fails. Loud.
-- **OHLC can chart a column named like a price as that price**: its name pass
-  takes the first numeric column whose name starts with the role, so
-  `open_interest` listed before `open`, or `lower_band` before `low`, is charted
-  as that price. Silent.
+- **OHLC guesses a column starting with a price's name as that price**: with no
+  `open` column, `open_interest` is charted as the open. Silent.
 - **Arrowing through a chart picker runs a query per option**: the pickers stay
   mounted while a query loads, and on Windows and Linux a closed `<select>`
   fires a change for each option the arrow keys pass. Nothing cancels a running
@@ -236,12 +237,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   thread pool, so when two reports of the same state race, the older one can
   replace the newer, and "To code" and "Save view" use stale queries until the
   next report. Silent.
-- **The "To code" drawer can run past the column**: the drawer is 40rem wide
-  inside the actions box, which shares a row that does not wrap with the History
-  slider. Once a view has two or more snapshots, the drawer runs past the column
-  on narrower windows: at a 1280px window its right edge is at 1038px, past the
-  column's 912px. Rendering it below that row at full width would fix it. Loud:
-  the overflow is visible.
 - **A busy session's component save shares a 409**: a busy session's 409 on
   `POST /components` shares its code with an existing id's, though its message
   says the session is busy. The open question on its code covers the fix.
@@ -296,8 +291,6 @@ one up when a researcher needs it.
 - Add component tests for `SessionPage` (reload keeps the session, 401 message),
   the time series success and "needs a date column" paths, and the canvas's
   debounced layout write and its flush on unmount.
-- `SaveDialog` gets an empty list while projects load or fail, so it shows
-  "Create a project in the rail first." until they arrive.
 - Count in-place mutation inside a function as a write of the frame it changes:
   a helper that sets `df.columns` or deletes `df["k"]` is invisible to lineage,
   and a lambda's body is read where it is bound. Module-level attribute and
@@ -398,6 +391,11 @@ one up when a researcher needs it.
   so that it can show a saving state. The session stays usable, since the hold
   is released first. Give validation a deadline, and how long, when a slow but
   valid recipe would then fail its save?
+- **An empty provider turn**: Anthropic can end a turn with no content, so a
+  reply with a stop reason but no text or tool calls may be a real answer or a
+  malformed body, and an OpenAI message with neither is just as ambiguous. Both
+  adapters read it as a turn that ended. Treat it as an error, or keep it as a
+  turn that ended?
 - **Live provider calls**: neither adapter has called its real API. Whether the
   Anthropic API accepts `fallbacks="default"` with the
   `server-side-fallback-2026-07-01` beta, and whether `gpt-5` is the right

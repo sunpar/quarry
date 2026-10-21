@@ -51,7 +51,12 @@ const step: Step = {
 
 const json = (body: unknown) => new Response(JSON.stringify(body));
 
-function setup(saveFails = false, shown = step, picked?: string) {
+function setup(
+  saveFails = false,
+  shown = step,
+  picked?: string,
+  projectsFail = false,
+) {
   const calls: string[] = [];
   const bodies = new Map<string, unknown>();
   let finishSave = () => {};
@@ -61,7 +66,10 @@ function setup(saveFails = false, shown = step, picked?: string) {
     calls.push(key);
     if (init?.body !== undefined)
       bodies.set(key, JSON.parse(String(init.body)));
-    if (key === "GET /projects") return json([meta]);
+    if (key === "GET /projects")
+      return projectsFail
+        ? new Response(JSON.stringify({ detail: "db locked" }), { status: 500 })
+        : json([meta]);
     if (key === "POST /projects/p/views") {
       await saved;
       if (saveFails) return new Response(null, { status: 500 });
@@ -94,7 +102,7 @@ async function pin() {
   fireEvent.click(screen.getByRole("button", { name: "Pin to canvas" }));
   const dialog = screen.getByRole("dialog");
   // The dialog opens before the project list arrives.
-  within(dialog).getByText("Create a project in the rail first.");
+  within(dialog).getByText("Loading");
   fireEvent.change(within(dialog).getByLabelText("Name"), {
     target: { value: "closes" },
   });
@@ -106,6 +114,14 @@ async function pin() {
 }
 
 describe("StepActions pin to canvas", () => {
+  it("shows why the project list did not load", async () => {
+    setup(false, step, undefined, true);
+    fireEvent.click(screen.getByRole("button", { name: "Pin to canvas" }));
+    const dialog = screen.getByRole("dialog");
+    const shown = await within(dialog).findByText("500: db locked");
+    expect(shown.className).toContain("text-destructive");
+  });
+
   it("says it is saving and disables its buttons until the save ends", async () => {
     const { finishSave, onDone } = setup();
     await pin();

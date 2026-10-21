@@ -1407,8 +1407,7 @@ them.
 
 - **Built-ins inline their column helpers**: the plan's `_shared/columns.ts`
   would load as `require("@builtin/_shared/columns")`, which the runtime cannot
-  serve, so each built-in keeps its own `isTime` and `isNumeric` and
-  `time-series` is unchanged.
+  serve, so each built-in keeps its own `isTime` and `isNumeric`.
 - **The TanStack table registers no sorting feature**: the query spec sorts on
   the server and `header.column.id` is core in v9, so the plan's
   `rowSortingFeature` and `enableSorting: false` are gone; v9's `TableOptions`
@@ -1436,19 +1435,21 @@ them.
   datetime as local time.
 - **OHLC never guesses one column for two roles**: a saved column counts only
   while the live schema has it with a fitting dtype; each remaining price role
-  then takes the first free numeric column named like it, then the first free
-  numeric column. A column the researcher picks for two roles keeps both, and
-  the query selects it once, since the kernel refuses a repeated `select` name.
-  The kernel also refuses two names that differ only in case, as `Close` and
-  `close`, so saved columns, guesses and picker options compare names ignoring
-  case: a saved column that clashes with one resolved before it is guessed like
-  a missing one, the time is resolved after the saved prices but takes the only
-  time column over a saved price that clashes with it, and a picker leaves out a
-  column that clashes with another role's. A dataset without a time column and
-  four price columns distinct ignoring case shows the "needs ... columns"
-  message; when the guesses leave a role empty otherwise, the pickers stay with
-  that role blank and ask for a column. The chart effect is keyed on the rows
-  and the five names, so a re-render with the same result keeps the chart.
+  then takes the first free numeric column named as it ignoring case, then the
+  first whose name starts with it, then the first free numeric column, so
+  `open_interest` listed before `open` does not take the open. A column the
+  researcher picks for two roles keeps both, and the query selects it once,
+  since the kernel refuses a repeated `select` name. The kernel also refuses two
+  names that differ only in case, as `Close` and `close`, so saved columns,
+  guesses and picker options compare names ignoring case: a saved column that
+  clashes with one resolved before it is guessed like a missing one, the time is
+  resolved after the saved prices but takes the only time column over a saved
+  price that clashes with it, and a picker leaves out a column that clashes with
+  another role's. A dataset without a time column and four price columns
+  distinct ignoring case shows the "needs ... columns" message; when the guesses
+  leave a role empty otherwise, the pickers stay with that role blank and ask
+  for a column. The chart effect is keyed on the rows and the five names, so a
+  re-render with the same result keeps the chart.
 
 ### Recharts, Plotly and ECharts
 
@@ -1495,14 +1496,20 @@ them.
   the default instead of failing the query. Roles resolve in an order that
   always leaves the next one a column, and each picker offers only the columns
   still free, compared ignoring case as the kernel compares names. In the
-  scatter, y skips x and the color column skips both. The heatmap resolves the
-  value first, then the row and column keys from the rest, and the column skips
-  the row, since a column pivoted against itself is only a diagonal. The bar and
-  line chart resolves the value first and skips `<value>_<fn>`, the aggregate's
-  name, as a category; with no other column left it groups by a numeric one,
-  then by the value itself, which the kernel accepts, because the manifest's
-  `any` role matches all-numeric datasets. A loading or failed query never hides
-  the pickers either: its message shows under them.
+  scatter, y skips x and the color column skips both. The time series and large
+  series take only time columns that leave a value, keep a saved time, and
+  otherwise take the first that does not clash with the saved value. The
+  value skips the time, so `Date` and `date` are never paired; the Time picker
+  offers every time column, and picking one the value clashes with moves the
+  value, so every pair stays reachable.
+  The heatmap resolves the value first, then the row and column keys from the
+  rest, and the column skips the row, since a column pivoted against itself is
+  only a diagonal. The bar and line chart resolves the value first and skips
+  `<value>_<fn>`, the aggregate's name, as a category; with no other column left
+  it groups by a numeric one, then by the value itself, which the kernel
+  accepts, because the manifest's `any` role matches all-numeric datasets. A
+  loading or failed query never hides the pickers either: its message shows
+  under them.
 - **The heatmap never defaults to a numeric key**: the pivot runs eagerly and
   makes one column per distinct value of its column key, which `row_cap` and
   `limit` do not bound, so a float key made a grid thousands of columns wide on

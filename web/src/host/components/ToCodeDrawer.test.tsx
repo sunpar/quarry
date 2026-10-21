@@ -8,7 +8,6 @@ describe("ToCodeDrawer", () => {
     const onChange = vi.fn();
     render(
       <ToCodeDrawer
-        open
         code="result = df.lazy().collect()"
         dropped={["expression e"]}
         pending={false}
@@ -30,7 +29,6 @@ describe("ToCodeDrawer", () => {
   it("disables run while pending and shows an error", () => {
     render(
       <ToCodeDrawer
-        open
         code=""
         dropped={[]}
         pending

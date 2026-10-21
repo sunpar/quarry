@@ -13,11 +13,16 @@ const momentum: ProjectMeta = {
 };
 const projects = [momentum];
 
-const viewDialog = (list: ProjectMeta[], onSave: () => void) => (
+const viewDialog = (
+  list: ProjectMeta[] | undefined,
+  onSave: () => void,
+  error: string | null = null,
+) => (
   <SaveDialog
     open
     kind="view"
     projects={list}
+    error={error}
     defaultName="step-3-view"
     onClose={() => undefined}
     onSave={onSave}
@@ -63,9 +68,23 @@ describe("SaveDialog", () => {
     );
   });
 
+  it.each([
+    ["Loading", undefined, null],
+    ["boom", undefined, "boom"],
+    // A failed refetch keeps the last list.
+    ["boom", [], "boom"],
+  ])("says %s, not the create hint, for %j", (shown, list, error) => {
+    render(viewDialog(list, vi.fn(), error));
+    screen.getByText(shown);
+    expect(
+      screen.queryByText("Create a project in the rail first."),
+    ).toBeNull();
+    expect(saveButton().disabled).toBe(true);
+  });
+
   it("chooses the first project when the list arrives after opening", () => {
     const onSave = vi.fn();
-    const { rerender } = render(viewDialog([], onSave));
+    const { rerender } = render(viewDialog(undefined, onSave));
     expect(saveButton().disabled).toBe(true);
     rerender(viewDialog(projects, onSave));
     expect(projectSelect().value).toBe("p");
