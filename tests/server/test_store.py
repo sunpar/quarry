@@ -8,7 +8,7 @@ import pytest
 from quarry.agent.tools import PendingView
 from quarry.server.models import ProviderInfo, Step, StepStatus, View, now_iso
 from quarry.server.store import SessionStore
-from tests.fixtures import mode, umask
+from tests.fixtures import mode, record_fsyncs, umask
 
 
 def step(index: int, status: StepStatus = "ok") -> Step:
@@ -51,19 +51,6 @@ def test_append_and_reload_steps(tmp_path: Path) -> None:
     reloaded = SessionStore(tmp_path).get(meta.id)
     assert [s.index for s in reloaded.steps] == [0, 1]
     assert (tmp_path / "sessions" / meta.id / "steps" / "0001.json").exists()
-
-
-def record_fsyncs(monkeypatch: pytest.MonkeyPatch) -> list[os.stat_result]:
-    """Each file `os.fsync` is given from now on, as `fstat` saw it."""
-    synced: list[os.stat_result] = []
-    fsync = os.fsync
-
-    def recording_fsync(fd: int) -> None:
-        synced.append(os.fstat(fd))
-        fsync(fd)
-
-    monkeypatch.setattr(os, "fsync", recording_fsync)
-    return synced
 
 
 @pytest.fixture

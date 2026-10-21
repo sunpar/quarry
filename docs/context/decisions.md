@@ -755,9 +755,14 @@ them.
   lists one whose manifest names another id under that id, so the check against
   the library alone had let a save replace files a researcher wrote. It writes
   `component.tsx`, then `manifest.json`: the library lists a component only once
-  both exist, so a crash between them leaves nothing listed. Cost: that crash,
-  or any failed write after the folder exists, leaves a folder that refuses the
-  id until it is removed. The id pattern ends in `\Z`, not the plan's `$`, which
+  both exist, so a crash between them leaves nothing listed. It then fsyncs the
+  root so the new folder survives a crash. A save that fails after the folder
+  exists removes both files and the folder, with `rmdir`, not `rmtree`, so a
+  file someone else put there stays; such a folder had refused the id until it
+  was removed. Each removal is best-effort and logs a warning when it fails, so
+  the save's own error is the one reported. Cost: a removal that fails, or a
+  crash mid-save, still leaves a folder that refuses the id until it is
+  removed. The id pattern ends in `\Z`, not the plan's `$`, which
   in Python also matches before a trailing newline, and the id reaches the path
   through `child`. A save that names only one of `session_id` and `dataset`
   answers 422, since a half binding had saved `requires: []`, and "no such

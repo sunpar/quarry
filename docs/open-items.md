@@ -244,12 +244,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **A busy session's component save shares a 409**: a busy session's 409 on
   `POST /components` shares its code with an existing id's, though its message
   says the session is busy. The open question on its code covers the fix.
-- **A failed component save can block its id**: a save that fails after its
-  folder is made, such as on a full disk, leaves a folder without a manifest.
-  The library skips it, and every later save of that id gets the 409 "a
-  component folder named ... already exists" until it is removed. The
-  components root is also not fsynced after a new folder, so a crash can lose
-  the folder. Loud.
 - **Pivot filters on Float32 and Float16 compare at different precisions**:
   the viewer reads those columns as doubles, while the kernel rounds the filter
   literal to the column's width, so for a stored 0.1 the viewer's `== 0.1`
