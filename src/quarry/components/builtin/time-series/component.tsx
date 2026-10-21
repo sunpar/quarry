@@ -22,6 +22,14 @@ const LIMIT = 50000;
 const isTime = (dtype: string) =>
   dtype === "Date" || dtype.startsWith("Datetime");
 const isNumeric = (dtype: string) => /^(Int|UInt|Float|Decimal)/.test(dtype);
+// A saved column counts only while the live schema still offers it.
+const fit = (saved: string | null, options: string[]) =>
+  saved !== null && options.includes(saved) ? saved : null;
+// The options no earlier role holds; the kernel refuses a select name repeated in any case.
+const others = (options: string[], taken: (string | null)[]) =>
+  options.filter(
+    (o) => !taken.some((t) => t?.toLowerCase() === o.toLowerCase()),
+  );
 
 export default function TimeSeries({ datasets }: Props) {
   const dataset = datasets[0] ?? "";
@@ -30,13 +38,21 @@ export default function TimeSeries({ datasets }: Props) {
     time: null,
     value: null,
   });
-  // A saved column counts only while the live schema still has it with a fitting dtype.
-  const pick = (saved: string | null, fits: (dtype: string) => boolean) =>
-    schema?.find((c) => c.name === saved && fits(c.dtype))?.name ??
-    schema?.find((c) => fits(c.dtype))?.name ??
+  const names = (fits: (dtype: string) => boolean) =>
+    (schema ?? []).filter((c) => fits(c.dtype)).map((c) => c.name);
+  const numeric = names(isNumeric);
+  // A time column fits only if it leaves a value: `Date` beside a lone `date` does not.
+  const times = names(isTime).filter((t) =>
+    numeric.some((n) => n.toLowerCase() !== t.toLowerCase()),
+  );
+  // A saved time stays; otherwise take the first that does not clash with the saved value.
+  const time =
+    fit(chosen.time, times) ??
+    others(times, [fit(chosen.value, numeric)])[0] ??
+    times[0] ??
     null;
-  const time = pick(chosen.time, isTime);
-  const value = pick(chosen.value, isNumeric);
+  const values = others(numeric, [time]);
+  const value = fit(chosen.value, values) ?? values[0] ?? null;
   const ready = time !== null && value !== null;
   const result = useQuery(
     ready
@@ -71,7 +87,8 @@ export default function TimeSeries({ datasets }: Props) {
   if (!ready) {
     return (
       <p className="p-4 text-sm text-muted-foreground">
-        This dataset needs a date column and a numeric column.
+        This dataset needs a date column and a numeric column whose names differ
+        by more than case.
       </p>
     );
   }
@@ -82,13 +99,13 @@ export default function TimeSeries({ datasets }: Props) {
         <ColumnPicker
           label="Time"
           value={time}
-          options={schema.filter((c) => isTime(c.dtype)).map((c) => c.name)}
+          options={times}
           onChange={(t) => setChosen({ time: t, value })}
         />
         <ColumnPicker
           label="Value"
           value={value}
-          options={schema.filter((c) => isNumeric(c.dtype)).map((c) => c.name)}
+          options={values}
           onChange={(v) => setChosen({ time, value: v })}
         />
       </div>

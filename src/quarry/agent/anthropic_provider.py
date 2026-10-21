@@ -116,7 +116,9 @@ def to_api_tools(tools: list[ToolDef]) -> list[dict[str, Json]]:
 
 
 def from_api_response(response: Any) -> AssistantTurn:
-    stop = STOP_MAP.get(response.stop_reason, "end")
+    stop = STOP_MAP.get(response.stop_reason)
+    if stop is None:
+        raise ValueError(f"unknown stop reason: {response.stop_reason!r}")
     text_parts: list[str] = []
     calls: list[ToolCall] = []
     for block in response.content:
