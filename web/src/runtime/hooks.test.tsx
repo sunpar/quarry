@@ -41,7 +41,14 @@ function Probe() {
 function ArrowProbe() {
   const q = useQuery({ dataset: "df", format: "arrow" });
   if (q.status !== "success")
-    return <span data-testid="status">{q.status}</span>;
+    return (
+      <span
+        data-testid="status"
+        title={q.status === "error" ? q.message : undefined}
+      >
+        {q.status}
+      </span>
+    );
   return (
     <div>
       <span data-testid="status">{q.status}</span>
@@ -127,6 +134,7 @@ describe("hooks", () => {
       });
     });
     expect(screen.getByTestId("status").textContent).toBe("error");
+    expect(screen.getByTestId("status").title).not.toBe("");
   });
 
   it("a snapshot carries the specs its mounted hooks hold", () => {
