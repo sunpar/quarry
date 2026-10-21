@@ -186,7 +186,11 @@ class _Connection:
             self.process.wait(timeout=1)
         except subprocess.TimeoutExpired:
             kill_group(self.process)
-            self.process.wait()
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                # Refused, or outlived, SIGKILL. Closing its pipes would wait for it too.
+                raise ProviderError("Codex app-server outlived SIGKILL", retryable=False) from None
         self.outgoing.put(None)
         self.writer.join(timeout=1)
         for stream in (self.process.stdin, self.process.stdout):

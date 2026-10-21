@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from quarry.agent import codex_runtime
 from quarry.agent.codex_runtime import CodexRuntime, _Connection
 from quarry.agent.loop import StepOutcome
 from quarry.agent.tools import TOOL_DEFS, ToolExecutor
@@ -685,6 +686,20 @@ def test_close_after_the_app_server_exited_unreaped(tmp_path: Path) -> None:
     finally:
         connection.close(None, None)
     assert connection.process.returncode == 0
+
+
+def test_close_fails_for_an_app_server_it_cannot_signal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    connection = _Connection(["sleep", "30"], tmp_path, threading.Event())
+    try:
+        # A refused signal, as macOS answers for a process another user owns: no endless wait.
+        monkeypatch.setattr(codex_runtime, "kill_group", lambda process, sig=0: None)
+        with pytest.raises(ProviderError, match="outlived SIGKILL"):
+            connection.close(None, None)
+    finally:
+        os.killpg(connection.process.pid, signal.SIGKILL)
+        connection.process.wait()
 
 
 def test_missing_terminal_status_returns_error_and_closes_transport(

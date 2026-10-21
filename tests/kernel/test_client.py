@@ -271,23 +271,18 @@ def test_close_kills_the_processes_a_step_started(tmp_path: Path) -> None:
     assert exits_soon(pid), f"step child {pid} outlived close()"
 
 
-def test_kill_group_raises_for_a_live_group_that_refuses(
+def test_kill_group_passes_over_the_eperm_macos_gives_for_zombies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    process = subprocess.Popen(["sleep", "30"], start_new_session=True)
-    try:
+    # Linux signals zombies, so this stands in for macOS there.
+    process = subprocess.Popen(["true"], start_new_session=True)
+    process.wait()
 
-        def refuse(pgid: int, sig: int) -> None:
-            raise PermissionError(errno.EPERM, "Operation not permitted")
+    def refuse(pgid: int, sig: int) -> None:
+        raise PermissionError(errno.EPERM, "Operation not permitted")
 
-        with monkeypatch.context() as patch:
-            patch.setattr(os, "killpg", refuse)
-            # Not the zombies-only EPERM macOS gives: the caller's wait would never end.
-            with pytest.raises(PermissionError):
-                kill_group(process)
-    finally:
-        kill_group(process)
-        process.wait()
+    monkeypatch.setattr(os, "killpg", refuse)
+    kill_group(process)
 
 
 def test_close_does_not_signal_a_kernel_the_client_already_reaped(

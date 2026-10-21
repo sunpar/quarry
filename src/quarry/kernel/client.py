@@ -302,15 +302,8 @@ def kill_group(process: subprocess.Popen[Any], sig: int = signal.SIGKILL) -> Non
     `process` was reaped earlier: then its group can be empty, and another process can have
     taken its pid, which is the group's id.
     """
-    try:
+    # ProcessLookupError: the group is empty. macOS raises PermissionError instead when only
+    # exiting processes or zombies are left in it, as when `process` exited and nothing has reaped
+    # it yet. Callers wait a bounded time after the kill, so one that refused it still ends.
+    with contextlib.suppress(ProcessLookupError, PermissionError):
         os.killpg(process.pid, sig)
-    except ProcessLookupError:  # the group is empty
-        pass
-    except PermissionError as error:
-        # macOS answers this instead when only exiting processes or zombies are left in the
-        # group, as when `process` exited and nothing has reaped it yet. One still running a
-        # second later refused the signal.
-        try:
-            process.wait(timeout=1)
-        except subprocess.TimeoutExpired:
-            raise error from None
