@@ -21,7 +21,7 @@ from quarry.kernel.datasets import (
     is_dataset,
     schema_of,
 )
-from quarry.kernel.lineage import analyze
+from quarry.kernel.lineage import PARSE_ERRORS, analyze
 from quarry.projects.models import Project, SavedDatasetMeta, SavedViewMeta
 from quarry.projects.recipe import split_leading_future
 from quarry.projects.store import ProjectStore
@@ -179,7 +179,7 @@ def _recipe_order(names: list[str], recipes: list[str]) -> list[tuple[int, list[
 def _stores(recipe: str) -> frozenset[str]:
     try:
         names = analyze(recipe)
-    except (SyntaxError, RecursionError, MemoryError):  # an unparsable recipe constrains no other
+    except PARSE_ERRORS:  # a recipe that does not parse constrains no other
         return frozenset()
     return names.stores | names.defines
 

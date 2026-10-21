@@ -454,9 +454,19 @@ def test_a_recipe_whose_def_rebinds_a_saved_dataset_runs_first() -> None:
     assert _recipe_order(["prices", "returns"], recipes) == [(1, []), (0, [])]
 
 
-@pytest.mark.parametrize("recipe", UNPARSABLE)
-def test_a_recipe_too_deep_to_parse_constrains_no_other(recipe: str) -> None:
-    assert _recipe_order(["prices", "returns"], [recipe, "returns = 1\n"]) == [(0, []), (1, [])]
+@pytest.mark.parametrize("deep", UNPARSABLE)
+def test_a_recipe_too_deep_to_parse_constrains_no_other(deep: str) -> None:
+    # Parsed, its assignment to prices would run it first.
+    recipes = ["prices = 1\n", "prices = 2\n" + deep]
+    assert _recipe_order(["prices", "returns"], recipes) == [(0, []), (1, [])]
+
+
+@pytest.mark.parametrize("recipe", [*UNPARSABLE, pytest.param("later = (\n", id="syntax-error")])
+def test_a_dataset_script_keeps_a_recipe_that_does_not_parse(tmp_path: Path, recipe: str) -> None:
+    store = project_with_saved_items(tmp_path)
+    save_another_dataset(store, "later", recipe)
+    script = dataset_script(store.get("momentum"), store, "later")
+    assert script.index(SETUP) < script.index(recipe)
 
 
 def test_recipes_in_a_cycle_keep_saved_order_and_say_what_they_rebind(tmp_path: Path) -> None:
