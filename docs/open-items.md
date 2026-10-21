@@ -160,10 +160,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   a peer connection's ICE traffic or a DNS prefetch, so a generated view can put
   rows in a STUN host name or a prefetched name despite the runtime CSP and the
   host's `frame-src 'self'`. Silent.
-- **A refused column choice hides the chart pickers**: every chart built-in
-  returns early on a query error, so when the kernel refuses a saved column
-  choice, the pickers that could change it are gone. Loud, and the view stays on
-  the error.
 - **The first browser test can time out on load**: in 1 of 5 local full runs,
   the session's first Playwright test waited 30 s for the "New session" button
   in `open_session` and failed, before any step ran; reruns passed. The cause is
@@ -213,6 +209,12 @@ Decisions already made are in [decisions.md](context/decisions.md).
   stream that is still valid base64 decodes, so `client.table` rejects inside
   `PerspectiveViewer`'s load effect. The runtime reports the unhandled rejection
   to the host, and the pivot stays empty. Loud.
+- **Float16 and extension columns break the pivot**: `for_viewer` leaves a
+  Float16 column as Arrow `halffloat` and passes an extension column's storage
+  type through unconverted. Perspective 3.8.0 refuses `halffloat` and an
+  extension over Duration or Struct, so the pivot stays empty, and reads an
+  extension over UInt64 as signed, so 2^64 - 1 shows as -1. `to_json_rows`
+  handles both. Loud, except the UInt64 case, which is silent.
 - **A hung `GET /libraries` never mounts a view**: `ViewHost` waits for that one
   answer with no timeout. Silent: the frame stays empty.
 - **An outgoing view's cleanup error replaces the incoming view**: the frame
@@ -221,9 +223,13 @@ Decisions already made are in [decisions.md](context/decisions.md).
   instead of the new view and posts it under the new mount, which brings back
   the host's "Fix this view". Loud.
 - **OHLC fails on a case-only name clash**: `Close` and `close` in one dataset
-  make its select fail, and the error hides the pickers. Loud. A table's saved
-  sort also goes out before the schema loads, so a sort on a dropped column
-  fails that first query.
+  make its select fail. Loud. A table's saved sort also goes out before the
+  schema loads, so a sort on a dropped column fails that first query.
+- **Arrowing through a chart picker runs a query per option**: the pickers stay
+  mounted while a query loads, and on Windows and Linux a closed `<select>`
+  fires a change for each option the arrow keys pass. Nothing cancels a running
+  query, so each option runs its own kernel query to the end. Large-series and
+  the table built-ins already did this. Silent cost.
 - **Picked snapshots are not what "To code" and "Save view" use**: after a pick
   in the scrubber, both use the newest snapshot. Silent.
 - **Snapshots can repeat**: switching a view A to B to A within one report
@@ -284,8 +290,8 @@ one up when a researcher needs it.
   error under the recall's traceback.
 - Canvas cards: a card is blank when its saved view fails to load, a card whose
   view is missing has no Remove, and recall and layout errors never clear.
-- The rail's project list does not scroll, and `SaveDialog` picks its project
-  only when it opens, so a project list that arrives later leaves none chosen.
+- `SaveDialog` gets an empty list while projects load or fail, so it shows
+  "Create a project in the rail first." until they arrive.
 - Count in-place mutation inside a function as a write of the frame it changes:
   a helper that sets `df.columns` or deletes `df["k"]` is invisible to lineage,
   and a lambda's body is read where it is bound. Module-level attribute and
@@ -318,10 +324,7 @@ one up when a researcher needs it.
   Neither is in the spec.
 - Name the target path in a failed export's message, which names its temporary
   file (`.out.ipynb.<random>.tmp`) instead.
-- Type the op sets in `quarry/query/spec.py` as `frozenset[FilterOp]` rather
-  than `frozenset[str]`.
-- Keep TIMETZ offsets in JSON rows, and fix the Duration comment in
-  `_json_native`, which says milliseconds though the guard covers every unit.
+- Keep TIMETZ offsets in JSON rows.
 - Smoke-test `sql()` against the firm's SQL Server with `VARCHAR(MAX)` columns,
   which may need arrow-odbc's `max_text_size`.
 - Merge canvas layout writes: `CanvasPage` sends the whole card list from its
@@ -332,8 +335,7 @@ one up when a researcher needs it.
 - Check that the host's `frame-src 'self'` stops a view frame's own navigation
   in Firefox and Safari; the Playwright test runs Chromium only.
 - Review the chart built-ins' visuals and accessibility, which no Stage 5 review
-  covered: table header sorts are mouse-only, and OHLC shows a blank pane while
-  loading.
+  covered: table header sorts are mouse-only.
 - Small host fixes from the Stage 5 reviews: clicking "To code" again replaces
   code edited in the drawer, a 409's message stays while the id is edited, Stop
   shows during a hold, "Save to library" keeps duplicate tags, and a dead
@@ -344,9 +346,7 @@ one up when a researcher needs it.
   spec, and `_imported_names` repeats the filter rendering's literal coercion;
   the Arrow cache keeps both the base64 and the decoded buffer;
   `PerspectiveViewer` writes `latest.current` during render, as the plan wrote
-  it; `_sql_table_reads` lists `RecursionError` beside `RuntimeError`, its base
-  class; `arrow.py` and `datasets.py` repeat the `enumerate` and `pl.nth` idiom;
-  `tidy._binds` accepts a recipe whose only mention of `df` is an attribute
+  it; `tidy._binds` accepts a recipe whose only mention of `df` is an attribute
   store or `del df["k"]`, which validation still catches; and
   `@types/d3-selection` resolves to 1.0.10 through Perspective, hidden by
   `skipLibCheck`.

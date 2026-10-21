@@ -77,7 +77,10 @@ export function ProjectBrowser({
                   </li>
                 ))}
                 {views.map((v) => (
-                  <li key={`view-${v.name}`} className="text-sm">
+                  <li
+                    key={`view-${v.name}`}
+                    className="flex items-center gap-2 text-sm"
+                  >
                     <button
                       type="button"
                       aria-label={`Recall ${v.name}`}
@@ -86,9 +89,7 @@ export function ProjectBrowser({
                     >
                       {v.name}
                     </button>
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      view
-                    </span>
+                    <span className="text-xs text-muted-foreground">view</span>
                   </li>
                 ))}
               </ul>

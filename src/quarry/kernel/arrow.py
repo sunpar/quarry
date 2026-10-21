@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 
 import polars as pl
 import pyarrow as pa
@@ -17,13 +18,7 @@ def for_viewer(frame: pl.DataFrame) -> pl.DataFrame:
     Duration, Time and Binary become String. Nested columns become one JSON string per row.
     Everything else passes through unchanged.
     """
-    # pl.nth, not pl.col: a column named like a regex (`^a.*$`) or `*` would select others.
-    exprs = [
-        expr.alias(name)
-        for index, (name, dtype) in enumerate(frame.schema.items())
-        if (expr := _viewer_expr(pl.nth(index), dtype)) is not None
-    ]
-    return frame.with_columns(exprs) if exprs else frame
+    return convert_columns(frame, _viewer_expr)
 
 
 def arrow_ipc(frame: pl.DataFrame) -> bytes:
@@ -40,6 +35,19 @@ def arrow_ipc(frame: pl.DataFrame) -> bytes:
     with pa.ipc.new_stream(sink, narrowed.schema) as writer:
         writer.write_table(narrowed)
     return bytes(sink.getvalue().to_pybytes())
+
+
+def convert_columns(
+    frame: pl.DataFrame, convert: Callable[[pl.Expr, pl.DataType], pl.Expr | None]
+) -> pl.DataFrame:
+    """`frame` with each column replaced by `convert(column, dtype)` where that is not None."""
+    # pl.nth, not pl.col: a column named like a regex (`^a.*$`) or `*` would select others.
+    exprs = [
+        expr.alias(name)
+        for index, (name, dtype) in enumerate(frame.schema.items())
+        if (expr := convert(pl.nth(index), dtype)) is not None
+    ]
+    return frame.with_columns(exprs) if exprs else frame
 
 
 def _viewer_expr(col: pl.Expr, dtype: pl.DataType) -> pl.Expr | None:
