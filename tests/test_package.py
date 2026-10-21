@@ -9,7 +9,7 @@ def test_the_build_reads_the_package_version() -> None:
     built = subprocess.run(
         [sys.executable, "-m", "hatchling", "version"],
         cwd=Path(__file__).parents[1],
-        capture_output=True,
+        stdout=subprocess.PIPE,  # hatchling's reasons for failing still reach stderr
         text=True,
         check=True,
     )

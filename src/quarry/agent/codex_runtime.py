@@ -25,7 +25,7 @@ from quarry.agent.tools import TOOL_DEFS, ToolExecutor
 from quarry.agent.types import AssistantTurn, Message, ProviderError, ToolCall, ToolResult
 from quarry.config import QuarryConfig
 
-_VERSION: Final = "0.162.1"
+_CODEX_VERSION: Final = "0.162.1"
 _DISABLED: Final = (
     "shell_tool",
     "stable_environment_tools",
@@ -349,7 +349,7 @@ class CodexRuntime:
                     "capabilities": {"experimentalApi": True},
                 },
             )
-            if _VERSION not in initialized.get("userAgent", ""):
+            if _CODEX_VERSION not in initialized.get("userAgent", ""):
                 raise ProviderError("Unexpected Codex app-server version", retryable=False)
             connection.send({"method": "initialized", "params": {}})
             account = connection.request("account/read", {"refreshToken": False})

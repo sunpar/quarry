@@ -45,6 +45,10 @@ build-backend = "hatchling.build"
 [tool.hatch.version]
 path = "src/quarry/__init__.py"
 
+[tool.uv]
+# The version lives in `__init__.py`, so an editable install rebuilds when it changes.
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/quarry/__init__.py" }]
+
 [tool.hatch.build]
 artifacts = ["src/quarry/static/**"]
 

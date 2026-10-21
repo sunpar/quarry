@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from quarry import __version__
 from quarry.agent.codex_runtime import CodexRuntime
 from quarry.agent.loop import StepOutcome
 from quarry.agent.tools import TOOL_DEFS, ToolExecutor
@@ -245,6 +246,8 @@ def test_text_completion_uses_fresh_private_capability_catalog(
         out = runtime.complete_text(system="sys", prompt="tidy", cancel=threading.Event())
         assert out.text == "done" and out.stop == "end" and out.tool_calls == []
     entries = records(log)
+    hellos = [r["params"] for r in entries if r.get("method") == "initialize"]
+    assert all(h["clientInfo"] == {"name": "quarry", "version": __version__} for h in hellos)
     starts = [r["params"] for r in entries if r.get("method") == "thread/start"]
     assert len(starts) == 2 and starts[0]["cwd"] != starts[1]["cwd"]
     for start in starts:
