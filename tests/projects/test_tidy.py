@@ -7,7 +7,7 @@ from quarry.agent.runtime import ApiRuntime
 from quarry.agent.types import AssistantTurn, Message, Provider, ProviderError, ToolDef
 from quarry.projects.tidy import TIDY_SYSTEM, strip_fences
 from quarry.projects.tidy import tidy_recipe as run_tidy
-from tests.projects.test_export import UNPARSABLE
+from tests.kernel.fixtures import UNPARSABLE
 from tests.server.test_app import end
 
 

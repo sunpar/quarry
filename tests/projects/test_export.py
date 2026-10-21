@@ -22,10 +22,7 @@ from quarry.projects.models import SavedDatasetMeta, SavedViewMeta
 from quarry.projects.store import ProjectStore
 from quarry.query import Json, QuerySpec
 from tests.fixtures import kept_default_connection
-
-# Recipes `analyze` gives up on with RecursionError and MemoryError (or RecursionError, past
-# 3.11), not SyntaxError.
-UNPARSABLE = ["x = " + " + ".join(["1"] * 10_000), "x = " + "-" * 200_000 + "1"]
+from tests.kernel.fixtures import UNPARSABLE
 
 RECIPE = "prices = pl.DataFrame({'ts': ['2024-01-02'], 'px': [1.0]})\n"
 VIEW_SOURCE = "export default function V() { return null }"
