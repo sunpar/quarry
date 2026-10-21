@@ -36,6 +36,11 @@ const PRICES = ["open", "high", "low", "close"] as const;
 const isTime = (dtype: string) =>
   dtype === "Date" || dtype.startsWith("Datetime");
 const isNumeric = (dtype: string) => /^(Int|UInt|Float|Decimal)/.test(dtype);
+// The options no role holds yet, compared ignoring case as the kernel compares names.
+const others = (options: string[], taken: (string | null)[]) =>
+  options.filter(
+    (o) => !taken.some((t) => t?.toLowerCase() === o.toLowerCase()),
+  );
 
 export default function Ohlc({ datasets }: Props) {
   const dataset = datasets[0] ?? "";
@@ -132,8 +137,7 @@ export default function Ohlc({ datasets }: Props) {
 }
 
 // Saved columns the live schema still fits, then columns named like the role, then the
-// next numeric one. A guess takes only a column no other role holds, compared ignoring
-// case as the kernel compares selected names.
+// next numeric one. A guess takes only a column no other role holds.
 function resolve(chosen: Columns, times: string[], numeric: string[]) {
   const fit = (saved: string | null, options: string[]) =>
     saved !== null && options.includes(saved) ? saved : null;
@@ -145,13 +149,7 @@ function resolve(chosen: Columns, times: string[], numeric: string[]) {
   const guess = (match: (name: string, role: string) => boolean) => {
     for (const role of PRICES)
       out[role] ??=
-        numeric.find(
-          (n) =>
-            match(n, role) &&
-            !Object.values(out).some(
-              (t) => t?.toLowerCase() === n.toLowerCase(),
-            ),
-        ) ?? null;
+        others(numeric, Object.values(out)).find((n) => match(n, role)) ?? null;
   };
   guess((name, role) => name.toLowerCase().startsWith(role));
   guess(() => true);
