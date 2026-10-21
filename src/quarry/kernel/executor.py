@@ -458,8 +458,29 @@ class Executor:
         return obj
 
 
+def last_bytes(text: str, limit: int = TAIL_BYTES) -> str:
+    """The longest end of `text` whose UTF-8 fits in `limit` bytes. A lone surrogate counts as
+    the "?" the kernel's wire sends for it."""
+    # Each character takes at least one byte, so the last `limit` characters hold the answer.
+    data = text[max(len(text) - limit, 0) :].encode("utf-8", "replace")
+    # "ignore" drops what the cut leaves of a split character.
+    return data[max(len(data) - limit, 0) :].decode("utf-8", "ignore")
+
+
+def joined_tail(tails: list[str]) -> str:
+    """The last `TAIL_BYTES` of several runs' output, from each run's tail. A tail within 3
+    bytes of the limit may have dropped a split character, so the runs before it are left out
+    rather than spliced into that gap."""
+    kept: list[str] = []
+    for tail in reversed(tails):
+        kept.append(tail)
+        if len(tail.encode("utf-8", "replace")) > TAIL_BYTES - 4:
+            break
+    return last_bytes("".join(reversed(kept)))
+
+
 class _TailWriter(io.TextIOBase):
-    """A text stream that keeps only the last `limit` characters written to it.
+    """A text stream that keeps only the last `limit` bytes of UTF-8 written to it.
 
     A step can print without end, and all of it but the tail would be thrown away anyway.
     """
@@ -477,16 +498,15 @@ class _TailWriter(io.TextIOBase):
         if s:  # an empty chunk would never count toward a trim
             self._chunks.append(s)
             self._held += len(s)
-            # Trimming only past twice the limit copies each character a bounded number of
-            # times, however small the writes.
+            # `_held` counts characters, each at least a byte, so trimming only past twice the
+            # limit copies each character a bounded number of times, however small the writes.
             if self._held > 2 * self._limit:
                 tail = self.getvalue()
                 self._chunks, self._held = [tail], len(tail)
         return len(s)
 
     def getvalue(self) -> str:
-        text = "".join(self._chunks)
-        return text[max(len(text) - self._limit, 0) :]
+        return last_bytes("".join(self._chunks), self._limit)
 
 
 def _bound(

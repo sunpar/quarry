@@ -42,7 +42,7 @@ def encode(msg: BaseModel) -> bytes:
     try:
         return msg.model_dump_json(by_alias=True).encode("utf-8") + b"\n"
     except PydanticSerializationError:
-        # Text decoded with surrogateescape (odd file names, raw bytes) reaches printed output.
+        # Text decoded with surrogateescape (odd file names, raw bytes) reaches error messages.
         text = json.dumps(msg.model_dump(mode="json", by_alias=True), ensure_ascii=False)
         return text.encode("utf-8", "replace") + b"\n"
 

@@ -142,8 +142,11 @@ them.
 - **Exact truncation**: `query` fetches `row_cap + 1` rows and reports
   `truncated` only when more than `row_cap` came back. The plan's heuristic
   marked an exactly full result as truncated.
-- **Bounded output tails**: step stdout and stderr go to a writer that keeps at
-  most `tail_bytes` characters while the step runs. A runaway print loop had
+- **Bounded output tails**: step stdout and stderr go to a writer that returns
+  the last `tail_bytes` bytes of their UTF-8, so spec §5's "last 4 KB" holds for
+  multi-byte output, and that holds at most twice `tail_bytes` characters while
+  the step runs. A character the cut would split is dropped, and a lone
+  surrogate counts as the `?` the wire sends for it. A runaway print loop had
   grown memory by about 50 MB/s.
 - **`SystemExit` in a step is an error**: a step calling `exit()` gets an error
   result, and the kernel keeps running. Shutdown therefore never relies on
@@ -571,7 +574,11 @@ them.
 - **A prompt step's code is the blocks that ran**: `Step.code` joins only the
   `run_python` calls that succeeded, read as spec §5's "the final Python that
   ran". It is for reading; replay uses `runs`. The output tails join every run's
-  tails, keeping the last 4096 characters.
+  tails, keeping the last 4096 bytes. A run whose tail is within 3 bytes of the
+  limit may have lost a split character there, so it leaves the runs before it
+  out rather than splicing their output into that gap. Cost: a run that printed
+  4093 to 4095 bytes uncut hides up to 3 bytes of the runs before it; telling
+  the cases apart needs the kernel to report a cut.
 - **A prompt step ends with its failing run's error**: after a second
   `run_python` failure, the step's `error` is that run's own type, message and
   traceback, as a manual step's is. An error the agent loop raises itself, such

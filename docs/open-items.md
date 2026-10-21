@@ -106,8 +106,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **`close()` right after `shutdown()` can cut off a snapshot**: `close()` sends
   SIGKILL at once, so a snapshot still writing leaves a stray `.tmp` file beside
   its target. The target keeps its old contents. Silent.
-- **Output tails count characters**: the spec promises the last 4 KB of output,
-  and the tail keeps 4096 characters. Silent; multi-byte output runs past 4 KB.
 - **A loader that hangs at import hangs startup**: the server imports loaders to
   describe them to the agent, and each kernel imports them at start. Loud only
   through a stderr notice naming the loader after 10 s.
@@ -313,7 +311,6 @@ one up when a researcher needs it.
   Neither is in the spec.
 - Keep the version in one place: `pyproject.toml` and `src/quarry/__init__.py`
   both hold it, and the test checks only its type.
-- Count output tails in bytes, as the spec's "last 4 KB" says.
 - Type the op sets in `quarry/query/spec.py` as `frozenset[FilterOp]` rather
   than `frozenset[str]`.
 - Keep TIMETZ offsets in JSON rows, and fix the Duration comment in
