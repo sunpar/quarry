@@ -1,7 +1,6 @@
 import json
 import os
 import signal
-import subprocess
 import sys
 import threading
 import time
@@ -22,6 +21,7 @@ from quarry.config import ProviderConfig, QuarryConfig
 from quarry.kernel.client import KernelClient
 from quarry.projects.tidy import tidy_recipe
 from tests.components.test_library import write_component
+from tests.kernel.test_client import exits_soon
 
 _FAKE = r"""
 import json, os, signal, sys, time
@@ -680,10 +680,7 @@ def test_cancellation_stays_responsive_when_native_stops_reading_results(
 def test_close_after_the_app_server_exited_unreaped(tmp_path: Path) -> None:
     connection = _Connection([sys.executable, "-c", ""], tmp_path, threading.Event())
     # A zombie, exited but not reaped: on macOS, signalling its group then fails with EPERM.
-    ps = ["ps", "-o", "stat=", "-p", str(connection.process.pid)]
-    deadline = time.monotonic() + 5
-    while not subprocess.run(ps, capture_output=True, text=True).stdout.startswith("Z"):
-        assert time.monotonic() < deadline
+    assert exits_soon(connection.process.pid)
     connection.close(None, None)
     assert connection.process.returncode == 0
 
