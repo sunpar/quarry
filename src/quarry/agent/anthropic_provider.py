@@ -61,7 +61,7 @@ class AnthropicProvider:
             raise ProviderError(str(exc), retryable=True) from exc
         except anthropic.APIError as exc:
             raise ProviderError(str(exc), retryable=False) from exc
-        except (json.JSONDecodeError, RecursionError) as exc:
+        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
             # A 200 whose body is not JSON, or nests too deep, fails to decode in the SDK.
             raise ProviderError(f"malformed provider response: {exc}", retryable=False) from exc
         try:

@@ -54,12 +54,12 @@ class OpenAIProvider:
             raise ProviderError(str(exc), retryable=True) from exc
         except openai.APIError as exc:
             raise ProviderError(str(exc), retryable=False) from exc
-        except (json.JSONDecodeError, RecursionError) as exc:
+        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
             # A 200 whose body is not JSON, or nests too deep, fails to decode in the SDK.
             raise ProviderError(f"malformed provider response: {exc}", retryable=False) from exc
         try:
             return from_openai_response(response)
-        except (ValueError, TypeError, AttributeError, IndexError, RecursionError) as exc:
+        except (ValueError, TypeError, AttributeError, IndexError, KeyError, RecursionError) as exc:
             # The SDK fills a missing field with None and leaves tool arguments
             # undecoded, so a body of the wrong shape fails here.
             raise ProviderError(f"malformed provider response: {exc}", retryable=False) from exc
@@ -113,9 +113,9 @@ def from_openai_response(response: Any) -> AssistantTurn:
     if refusal:
         return AssistantTurn(text="", tool_calls=[], stop="refusal", refusal_reason=str(refusal))
     if stop == "max_tokens":
-        return AssistantTurn(text=str(message.content or ""), tool_calls=[], stop="max_tokens")
+        return AssistantTurn(text=message.content or "", tool_calls=[], stop="max_tokens")
     calls = [
         ToolCall(id=c.id, name=c.function.name, input=json.loads(c.function.arguments or "{}"))
         for c in (message.tool_calls or [])
     ]
-    return AssistantTurn(text=str(message.content or ""), tool_calls=calls, stop=stop)
+    return AssistantTurn(text=message.content or "", tool_calls=calls, stop=stop)

@@ -201,8 +201,18 @@ def _ended(*blocks: SimpleNamespace) -> SimpleNamespace:
         lambda **kwargs: _ended(SimpleNamespace(type="tool_use", id="c1", name=None, input={})),
         lambda **kwargs: json.loads("<html>oops</html>"),
         lambda **kwargs: json.loads("[" * 100000),
+        lambda **kwargs: json.loads(b"\xff"),
     ],
-    ids=["html", "missing fields", "no text", "no id", "no name", "not json", "too deep"],
+    ids=[
+        "html",
+        "missing fields",
+        "no text",
+        "no id",
+        "no name",
+        "not json",
+        "too deep",
+        "not utf-8",
+    ],
 )
 def test_complete_maps_malformed_responses(create: CreateFn) -> None:
     with pytest.raises(ProviderError) as info:

@@ -195,21 +195,33 @@ def _called(call_id: str | None, name: str | None, arguments: str) -> SimpleName
         lambda **kwargs: "<html>oops</html>",
         lambda **kwargs: SimpleNamespace(choices=None),
         lambda **kwargs: SimpleNamespace(choices=[]),
+        lambda **kwargs: SimpleNamespace(choices={}),
         lambda **kwargs: _called(None, "run_python", "{}"),
         lambda **kwargs: _called("c1", None, "{}"),
         lambda **kwargs: _called("c1", "run_python", "[" * 100000),
+        lambda **kwargs: SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason="stop", message=SimpleNamespace(content=["x"], tool_calls=None)
+                )
+            ]
+        ),
         lambda **kwargs: json.loads("<html>oops</html>"),
         lambda **kwargs: json.loads("[" * 100000),
+        lambda **kwargs: json.loads(b"\xff"),
     ],
     ids=[
         "html",
         "missing fields",
         "no choices",
+        "choices object",
         "no id",
         "no name",
         "arguments too deep",
+        "content list",
         "not json",
         "too deep",
+        "not utf-8",
     ],
 )
 def test_complete_maps_malformed_responses(create: CreateFn) -> None:
