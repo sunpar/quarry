@@ -222,7 +222,8 @@ export function StepActions({
         <SaveDialog
           open
           kind={pending.kind}
-          projects={projects.data ?? []}
+          projects={projects.data}
+          error={projects.error?.message ?? null}
           defaultName={
             pending.kind === "dataset"
               ? pending.name

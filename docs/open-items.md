@@ -215,6 +215,11 @@ Decisions already made are in [decisions.md](context/decisions.md).
   to the host, and the pivot stays empty. Loud.
 - **A hung `GET /libraries` never mounts a view**: `ViewHost` waits for that one
   answer with no timeout. Silent: the frame stays empty.
+- **The project rail asks for a project while projects load or fail**:
+  `ProjectRail` builds its list from `metas.data ?? []`, so it shows "Create a
+  project to save datasets and views into." until the list arrives, or until
+  a refetch succeeds when `GET /projects` fails. Silent: the failure is never
+  shown.
 - **An outgoing view's cleanup error replaces the incoming view**: the frame
   keeps one error boundary across mounts, so when a replaced view throws from
   an effect cleanup as the next view mounts, the boundary shows that error
@@ -292,8 +297,6 @@ one up when a researcher needs it.
   debounced layout write and its flush on unmount.
 - A failed view recall keeps its view on the step, so the frame shows a query
   error under the recall's traceback.
-- `SaveDialog` gets an empty list while projects load or fail, so it shows
-  "Create a project in the rail first." until they arrive.
 - Count in-place mutation inside a function as a write of the frame it changes:
   a helper that sets `df.columns` or deletes `df["k"]` is invisible to lineage,
   and a lambda's body is read where it is bound. Module-level attribute and
