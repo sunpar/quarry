@@ -114,6 +114,11 @@ def load_config(root: Path, env: Mapping[str, str] | None = None) -> QuarryConfi
             raw: dict[str, object] = tomllib.load(handle)
     except FileNotFoundError:
         shared, raw = False, {}
+    except OSError as error:
+        raise ConfigError(f"config file unreadable: {path}: {error.strerror}") from error
+    except UnicodeDecodeError:
+        # `from None`: the error's text quotes a byte of the file, perhaps of a DSN password.
+        raise ConfigError(f"config file is not valid UTF-8: {path}") from None
     # Only --root sets the root: a config key would redirect every root-relative resource.
     if "root" in raw:
         raise ConfigError("config.toml cannot set root; pass --root instead")

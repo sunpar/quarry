@@ -1,6 +1,7 @@
 import os
 import re
 import tomllib
+import warnings
 from pathlib import Path
 from typing import BinaryIO
 
@@ -199,14 +200,16 @@ def test_no_warning_without_both_a_password_and_shared_permissions(
     load_config(tmp_path, env={})
 
 
-@pytest.mark.filterwarnings("error")
+@pytest.mark.parametrize(
+    ("mode", "warns"), [(0o600, False), (0o644, True)], ids=["owner", "shared"]
+)
 def test_dsn_warning_checks_the_file_it_read(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    mode: int, warns: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    write_dsn_config(tmp_path, PASSWORD_DSN, 0o600)
+    write_dsn_config(tmp_path, PASSWORD_DSN, mode)
     swapped = tmp_path / "swapped.toml"
     swapped.write_text("")
-    swapped.chmod(0o644)
+    swapped.chmod(mode ^ 0o044)  # the other permissions
     load = tomllib.load
 
     def load_then_swap(handle: BinaryIO) -> dict[str, object]:
@@ -215,7 +218,24 @@ def test_dsn_warning_checks_the_file_it_read(
         return raw
 
     monkeypatch.setattr(tomllib, "load", load_then_swap)
-    assert load_config(tmp_path, env={}).data.mssql_dsn == PASSWORD_DSN
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        load_config(tmp_path, env={})
+    assert any("chmod 600" in str(w.message) for w in caught) is warns
+
+
+def test_an_unreadable_config_is_a_config_error(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.write_text("")  # a file where the root directory should be
+    with pytest.raises(ConfigError, match="config file unreadable"):
+        load_config(root, env={})
+
+
+def test_a_config_that_is_not_utf8_does_not_echo_its_bytes(tmp_path: Path) -> None:
+    (tmp_path / CONFIG_FILENAME).write_bytes(b'[data]\nmssql_dsn = "PWD=hu\xe9ter2"\n')
+    with pytest.raises(ConfigError, match="not valid UTF-8") as info:
+        load_config(tmp_path, env={})
+    assert "0xe9" not in str(info.value) and info.value.__cause__ is None
 
 
 @pytest.mark.filterwarnings("error")
