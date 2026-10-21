@@ -91,7 +91,8 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
     datasets.data === undefined
       ? undefined
       : new Set(datasets.data.map((d) => d.name));
-  // A failed recall or layout write stays until dismissed; a datasets error clears on refetch.
+  // A failed recall or layout write stays until dismissed or retried; a datasets error
+  // clears on refetch.
   const dismissable = recall.error ?? setCanvas.error;
   const error = dismissable ?? datasets.error;
 
@@ -172,20 +173,19 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
                     }
                     onRemove={() => remove(item.i)}
                   >
-                    {view === undefined ? (
+                    {view === undefined && (
                       <p className="p-4 text-sm text-muted-foreground">
                         No longer in this project.
                       </p>
-                    ) : (
-                      present !== undefined && (
-                        <CanvasCardView
-                          slug={slug}
-                          view={item.i}
-                          sessionId={sessionId}
-                          dataVersion={version}
-                          hub={hub}
-                        />
-                      )
+                    )}
+                    {view !== undefined && present !== undefined && (
+                      <CanvasCardView
+                        slug={slug}
+                        view={item.i}
+                        sessionId={sessionId}
+                        dataVersion={version}
+                        hub={hub}
+                      />
                     )}
                   </CanvasCardFrame>
                 </div>
