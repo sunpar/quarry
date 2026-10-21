@@ -23,7 +23,7 @@ export function SessionRail({
       <Button variant="outline" size="sm" onClick={onCreate}>
         New session
       </Button>
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
+      <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
         <ul className="flex flex-col gap-0.5">
           {sessions.map((s) => (
             <li key={s.id}>

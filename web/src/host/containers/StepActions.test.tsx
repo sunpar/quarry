@@ -80,20 +80,25 @@ function setup(saveFails = false) {
   return { calls, bodies, finishSave, onDone, qc };
 }
 
-async function pin(qc: QueryClient) {
-  await waitFor(() => expect(qc.getQueryData(["projects"])).toBeDefined());
+async function pin() {
   fireEvent.click(screen.getByRole("button", { name: "Pin to canvas" }));
   const dialog = screen.getByRole("dialog");
+  // The dialog opens before the project list arrives.
+  within(dialog).getByText("Create a project in the rail first.");
   fireEvent.change(within(dialog).getByLabelText("Name"), {
     target: { value: "closes" },
   });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Save view" }));
+  const save = within(dialog).getByRole<HTMLButtonElement>("button", {
+    name: "Save view",
+  });
+  await waitFor(() => expect(save.disabled).toBe(false));
+  fireEvent.click(save);
 }
 
 describe("StepActions pin to canvas", () => {
   it("says it is saving and disables its buttons until the save ends", async () => {
-    const { finishSave, onDone, qc } = setup();
-    await pin(qc);
+    const { finishSave, onDone } = setup();
+    await pin();
     expect(onDone).toHaveBeenLastCalledWith("Saving view closes…");
     const button = () =>
       screen.getByRole<HTMLButtonElement>("button", { name: "Pin to canvas" });
@@ -105,9 +110,9 @@ describe("StepActions pin to canvas", () => {
   });
 
   it("asks the save to pin the view and writes no canvas itself", async () => {
-    const { calls, bodies, finishSave, onDone, qc } = setup();
+    const { calls, bodies, finishSave, onDone } = setup();
     finishSave();
-    await pin(qc);
+    await pin();
     await waitFor(() =>
       expect(onDone).toHaveBeenCalledWith("Saved view closes"),
     );
@@ -127,7 +132,7 @@ describe("StepActions pin to canvas", () => {
       views: [],
     });
     finishSave();
-    await pin(qc);
+    await pin();
     await waitFor(() =>
       expect(onDone).not.toHaveBeenLastCalledWith("Saving view closes…"),
     );

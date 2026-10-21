@@ -23,6 +23,9 @@ const viewDialog = (list: ProjectMeta[], onSave: () => void) => (
     onSave={onSave}
   />
 );
+const saveButton = () =>
+  screen.getByRole<HTMLButtonElement>("button", { name: "Save view" });
+const projectSelect = () => screen.getByLabelText<HTMLSelectElement>("Project");
 
 describe("SaveDialog", () => {
   it("submits project, name, mode and description", () => {
@@ -35,7 +38,7 @@ describe("SaveDialog", () => {
     fireEvent.change(screen.getByLabelText("Description"), {
       target: { value: "daily" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save view" }));
+    fireEvent.click(saveButton());
     expect(onSave).toHaveBeenCalledWith({
       slug: "p",
       name: "closes",
@@ -48,9 +51,13 @@ describe("SaveDialog", () => {
     const onSave = vi.fn();
     render(viewDialog(projects, onSave));
     fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "!!!" },
+    });
+    expect(saveButton().disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "My Closes!" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save view" }));
+    fireEvent.click(saveButton());
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({ name: "my-closes" }),
     );
@@ -59,8 +66,20 @@ describe("SaveDialog", () => {
   it("chooses the first project when the list arrives after opening", () => {
     const onSave = vi.fn();
     const { rerender } = render(viewDialog([], onSave));
+    expect(saveButton().disabled).toBe(true);
     rerender(viewDialog(projects, onSave));
-    fireEvent.click(screen.getByRole("button", { name: "Save view" }));
+    expect(projectSelect().value).toBe("p");
+    fireEvent.click(saveButton());
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ slug: "p" }));
+  });
+
+  it("keeps the shown project when a refetch puts another first", () => {
+    const onSave = vi.fn();
+    const { rerender } = render(viewDialog(projects, onSave));
+    rerender(
+      viewDialog([{ ...momentum, slug: "a", name: "Alpha" }, momentum], onSave),
+    );
+    fireEvent.click(saveButton());
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ slug: "p" }));
   });
 
@@ -72,7 +91,7 @@ describe("SaveDialog", () => {
       target: { value: "q" },
     });
     rerender(viewDialog([...two], onSave));
-    fireEvent.click(screen.getByRole("button", { name: "Save view" }));
+    fireEvent.click(saveButton());
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ slug: "q" }));
   });
 });

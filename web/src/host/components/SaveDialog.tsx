@@ -42,11 +42,9 @@ export function SaveDialog({
   onClose,
   onSave,
 }: SaveDialogProps) {
-  // The list can load after the dialog opens, so use the first project until one is picked.
-  const [picked, setPicked] = useState("");
-  const slug = projects.some((p) => p.slug === picked)
-    ? picked
-    : (projects[0]?.slug ?? "");
+  const [slug, setSlug] = useState(projects[0]?.slug ?? "");
+  // The list can load after the dialog opens, so its first project is the default then.
+  if (slug === "" && projects[0] !== undefined) setSlug(projects[0].slug);
   const [name, setName] = useState(defaultName);
   const [mode, setMode] = useState<SaveMode>("live");
   const [description, setDescription] = useState("");
@@ -69,7 +67,7 @@ export function SaveDialog({
           <select
             id="save-project"
             value={slug}
-            onChange={(e) => setPicked(e.target.value)}
+            onChange={(e) => setSlug(e.target.value)}
             className="h-8 rounded-md border border-input bg-background px-2 text-sm"
           >
             {projects.map((p) => (
