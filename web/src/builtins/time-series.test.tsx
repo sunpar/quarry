@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { QueryHookResult } from "@/runtime/hooks";
 
@@ -13,20 +13,45 @@ const createChart = vi.hoisted(() =>
 );
 const query = vi.fn<(spec: unknown) => QueryHookResult>();
 const saved = vi.hoisted((): Record<string, unknown> => ({}));
+const schema = vi.hoisted(() => ({
+  current: null as { name: string; dtype: string }[] | null,
+}));
 vi.mock("@quarry/hooks", () => ({
   useQuery: (spec: unknown) => query(spec),
   useViewState: <T,>(key: string, initial: T) => [
     key in saved ? (saved[key] as T) : initial,
     () => undefined,
   ],
-  useDatasetSchema: () => [
-    { name: "ts", dtype: "Date" },
-    { name: "px", dtype: "Float64" },
-  ],
+  useDatasetSchema: () =>
+    schema.current ?? [
+      { name: "ts", dtype: "Date" },
+      { name: "px", dtype: "Float64" },
+    ],
 }));
 vi.mock("lightweight-charts", () => ({ LineSeries: {}, createChart }));
 
 import TimeSeries from "@builtin/time-series/component";
+
+// Renders with `columns` saved or with the live schema replaced, then puts both back.
+function renderWith(options: {
+  columns?: object;
+  live?: { name: string; dtype: string }[];
+}) {
+  if (options.columns !== undefined) saved.columns = options.columns;
+  if (options.live !== undefined) schema.current = options.live;
+  try {
+    return render(<TimeSeries datasets={["px"]} />);
+  } finally {
+    delete saved.columns;
+    schema.current = null;
+  }
+}
+
+const options = (label: string) =>
+  Array.from(
+    screen.getByLabelText<HTMLSelectElement>(label).options,
+    (o) => o.value,
+  );
 
 describe("time-series built-in", () => {
   it("picks the first datetime and numeric columns and sorts by time", () => {
@@ -43,15 +68,102 @@ describe("time-series built-in", () => {
 
   it("drops a saved column the live schema no longer has", () => {
     query.mockReturnValue({ status: "loading" });
-    saved.columns = { time: "gone", value: "px" };
-    try {
-      render(<TimeSeries datasets={["px"]} />);
-    } finally {
-      delete saved.columns;
-    }
+    renderWith({ columns: { time: "gone", value: "px" } });
     expect(query).toHaveBeenLastCalledWith(
       expect.objectContaining({ select: ["ts", "px"] }),
     );
+  });
+
+  it("never pairs the time with a value that differs only in case", () => {
+    // The kernel refuses two selected names that differ only in case.
+    query.mockReturnValue({ status: "loading" });
+    renderWith({
+      live: [
+        { name: "Date", dtype: "Date" },
+        { name: "date", dtype: "Int64" },
+        { name: "px", dtype: "Float64" },
+      ],
+    });
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({ select: ["Date", "px"] }),
+    );
+    expect(options("Value")).toEqual(["px"]);
+  });
+
+  it("takes a time column that leaves a value", () => {
+    query.mockReturnValue({ status: "loading" });
+    for (const time of [null, "Date"]) {
+      cleanup();
+      renderWith({
+        columns: { time, value: null },
+        live: [
+          { name: "Date", dtype: "Date" },
+          { name: "ts", dtype: "Datetime" },
+          { name: "date", dtype: "Int64" },
+        ],
+      });
+      expect(query).toHaveBeenLastCalledWith(
+        expect.objectContaining({ select: ["ts", "date"] }),
+      );
+      expect(options("Time")).toEqual(["ts"]);
+    }
+  });
+
+  const clashing = [
+    { name: "Date", dtype: "Date" },
+    { name: "ts", dtype: "Datetime" },
+    { name: "date", dtype: "Int64" },
+    { name: "px", dtype: "Float64" },
+  ];
+
+  it("falls back to a time column that keeps the saved value", () => {
+    query.mockReturnValue({ status: "loading" });
+    renderWith({ columns: { time: "gone", value: "date" }, live: clashing });
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({ select: ["ts", "date"] }),
+    );
+  });
+
+  it("offers every time column, and the value gives way to the picked one", () => {
+    query.mockReturnValue({ status: "loading" });
+    const crossed = [
+      { name: "Date", dtype: "Date" },
+      { name: "TS", dtype: "Datetime" },
+      { name: "date", dtype: "Int64" },
+      { name: "ts", dtype: "Float64" },
+    ];
+    renderWith({ live: crossed });
+    expect(options("Time")).toEqual(["Date", "TS"]);
+    cleanup();
+    // Picking `TS` while `ts` is the value: the value gives way.
+    renderWith({ columns: { time: "TS", value: "ts" }, live: crossed });
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({ select: ["TS", "date"] }),
+    );
+  });
+
+  it("keeps a saved time over a saved value that clashes with it", () => {
+    query.mockReturnValue({ status: "loading" });
+    renderWith({ columns: { time: "Date", value: "date" }, live: clashing });
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({ select: ["Date", "px"] }),
+    );
+    expect(options("Value")).toEqual(["px"]);
+  });
+
+  it("asks for names that differ by more than case", () => {
+    query.mockReturnValue({ status: "loading" });
+    renderWith({
+      live: [
+        { name: "Date", dtype: "Date" },
+        { name: "date", dtype: "Int64" },
+      ],
+    });
+    expect(
+      screen.getByText(
+        "This dataset needs a date column and a numeric column whose names differ by more than case.",
+      ),
+    ).toBeTruthy();
   });
 
   it("drops unplottable rows, keeps the last of a second, and reads naive times as UTC", () => {
