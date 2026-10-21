@@ -210,12 +210,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   stream that is still valid base64 decodes, so `client.table` rejects inside
   `PerspectiveViewer`'s load effect. The runtime reports the unhandled rejection
   to the host, and the pivot stays empty. Loud.
-- **Float16 and extension columns break the pivot**: `for_viewer` leaves a
-  Float16 column as Arrow `halffloat` and passes an extension column's storage
-  type through unconverted. Perspective 3.8.0 refuses `halffloat` and an
-  extension over Duration or Struct, so the pivot stays empty, and reads an
-  extension over UInt64 as signed, so 2^64 - 1 shows as -1. `to_json_rows`
-  handles both. Loud, except the UInt64 case, which is silent.
 - **A hung `GET /libraries` never mounts a view**: `ViewHost` waits for that one
   answer with no timeout. Silent: the frame stays empty.
 - **An outgoing view's cleanup error replaces the incoming view**: the frame
@@ -355,15 +349,13 @@ one up when a researcher needs it.
   store or `del df["k"]`, which validation still catches; and
   `@types/d3-selection` resolves to 1.0.10 through Perspective, hidden by
   `skipLibCheck`.
-- Close Stage 5 test gaps:
-  - Server: no test sends an all-null column to Perspective.
-  - Web and browser tests: the Perspective cache-hit test checks React's row
-    count, not the viewer's table. `ViewHost.test.tsx` is at 240 lines with
-    fixed 20 ms sleeps. `state.test.ts` uses fake timers without `try/finally`,
-    `mount.queries.test` leaves roots mounted, and two tests leave `URL`
-    patched. The ECharts browser assertion passes with zero points, and the
-    Plotly one depends on the plot's width. OHLC has no non-zero-offset or
-    microsecond case, and no browser test loads Highstock or SciChart.
+- Close Stage 5 web and browser test gaps: the Perspective cache-hit test
+  checks React's row count, not the viewer's table. `ViewHost.test.tsx` is at
+  240 lines with fixed 20 ms sleeps. `state.test.ts` uses fake timers without
+  `try/finally`, `mount.queries.test` leaves roots mounted, and two tests leave
+  `URL` patched. The ECharts browser assertion passes with zero points, and the
+  Plotly one depends on the plot's width. OHLC has no non-zero-offset or
+  microsecond case, and no browser test loads Highstock or SciChart.
 
 ## Open questions
 
