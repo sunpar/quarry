@@ -25,7 +25,7 @@ from quarry.data.loaders import describe_failures, describe_loaders, load_loader
 from quarry.data.parquet import scan_layout
 from quarry.kernel.client import KernelClient, KernelDead
 from quarry.kernel.datasets import DatasetMeta
-from quarry.kernel.executor import ExecError, ExecResult, QueryResult, last_bytes
+from quarry.kernel.executor import ExecError, ExecResult, QueryResult, joined_tail
 from quarry.query.spec import Json, QuerySpec
 from quarry.server.kernels import KernelManager, ReplayReport, SessionBusy
 from quarry.server.models import (
@@ -485,8 +485,8 @@ def _recorded(step: Step, ran: list[tuple[str, ExecResult]]) -> Step:
     return step.model_copy(
         update={
             "runs": [CodeRun(code=code, status=result.status) for code, result in ran],
-            "stdout_tail": last_bytes("".join(result.stdout_tail for _, result in ran)),
-            "stderr_tail": last_bytes("".join(result.stderr_tail for _, result in ran)),
+            "stdout_tail": joined_tail([result.stdout_tail for _, result in ran]),
+            "stderr_tail": joined_tail([result.stderr_tail for _, result in ran]),
             "reads": lineage.reads,
             "writes": lineage.writes,
             "defines": lineage.defines,

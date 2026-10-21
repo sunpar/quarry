@@ -467,6 +467,18 @@ def last_bytes(text: str, limit: int = TAIL_BYTES) -> str:
     return data[max(len(data) - limit, 0) :].decode("utf-8", "ignore")
 
 
+def joined_tail(tails: list[str]) -> str:
+    """The last `TAIL_BYTES` of several runs' output, from each run's tail. A tail within 3
+    bytes of the limit may have dropped a split character, so the runs before it are left out
+    rather than spliced into that gap."""
+    kept: list[str] = []
+    for tail in reversed(tails):
+        kept.append(tail)
+        if len(tail.encode("utf-8", "replace")) > TAIL_BYTES - 4:
+            break
+    return last_bytes("".join(reversed(kept)))
+
+
 class _TailWriter(io.TextIOBase):
     """A text stream that keeps only the last `limit` bytes of UTF-8 written to it.
 

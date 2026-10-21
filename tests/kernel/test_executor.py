@@ -15,7 +15,14 @@ from polars.exceptions import ColumnNotFoundError
 from quarry.kernel import datasets
 from quarry.kernel import executor as executor_module
 from quarry.kernel.datasets import Dataset, DatasetMeta
-from quarry.kernel.executor import Executor, _identity_check, _TailWriter, last_bytes
+from quarry.kernel.executor import (
+    TAIL_BYTES,
+    Executor,
+    _identity_check,
+    _TailWriter,
+    joined_tail,
+    last_bytes,
+)
 from quarry.query import Agg, Backing, Filter, Json, Pivot, QueryError, QuerySpec, Sort
 from quarry.query.sql_target import relation_view
 from tests.kernel.fixtures import BUSY_LOOP, HEAVY
@@ -192,11 +199,18 @@ def test_execute_tails_are_exactly_the_last_tail_bytes() -> None:
 def test_tail_writer_holds_at_most_twice_its_limit_while_written() -> None:
     writer = _TailWriter(100)
     written = ""
-    for chunk in [*(f"{i}," * (i % 7) for i in range(5000)), "", "y" * 1000, "z"]:
+    for chunk in [*(f"{i}é," * (i % 7) for i in range(5000)), "", "😀" * 1000, "z"]:
         writer.write(chunk)
         written += chunk
         assert sum(map(len, writer._chunks)) <= 200
-        assert writer.getvalue() == written[-100:]
+        assert writer.getvalue() == last_bytes(written, 100)
+
+
+def test_joined_tail_keeps_runs_before_a_cut_tail_out() -> None:
+    cut = last_bytes("😀" * 2000)  # 4093 bytes: the cut split an emoji
+    assert joined_tail(["ok\n", cut]) == cut
+    assert joined_tail(["one\n", "two\n"]) == "one\ntwo\n"
+    assert joined_tail(["x" * TAIL_BYTES, "two\n"]) == ("x" * TAIL_BYTES + "two\n")[-TAIL_BYTES:]
 
 
 def test_execute_with_tail_bytes_zero_keeps_nothing() -> None:
