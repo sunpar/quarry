@@ -23,26 +23,28 @@ export function SessionRail({
       <Button variant="outline" size="sm" onClick={onCreate}>
         New session
       </Button>
-      <ul className="flex flex-col gap-0.5 overflow-y-auto">
-        {sessions.map((s) => (
-          <li key={s.id}>
-            <button
-              type="button"
-              aria-current={s.id === activeId ? "page" : undefined}
-              onClick={() => onSelect(s.id)}
-              className="w-full truncate rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted aria-[current=page]:bg-muted aria-[current=page]:text-primary"
-            >
-              {s.title}
-            </button>
-          </li>
-        ))}
-      </ul>
-      {sessions.length === 0 && (
-        <p className="text-sm text-muted-foreground">
-          Start a session to explore data.
-        </p>
-      )}
-      {children}
+      <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
+        <ul className="flex flex-col gap-0.5">
+          {sessions.map((s) => (
+            <li key={s.id}>
+              <button
+                type="button"
+                aria-current={s.id === activeId ? "page" : undefined}
+                onClick={() => onSelect(s.id)}
+                className="w-full truncate rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted aria-[current=page]:bg-muted aria-[current=page]:text-primary"
+              >
+                {s.title}
+              </button>
+            </li>
+          ))}
+        </ul>
+        {sessions.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            Start a session to explore data.
+          </p>
+        )}
+        {children}
+      </div>
     </nav>
   );
 }
