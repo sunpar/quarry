@@ -115,8 +115,12 @@ describe("SessionPage session choice", () => {
   const unlisted: SessionMeta = { ...meta, id: "s3", title: "unlisted" };
 
   // A server listing `listed`, to which a create adds, that also has the `unlisted` session;
-  // and the paths the page fetched.
-  function serve(listed: SessionMeta[], listing = 200) {
+  // and the paths the page fetched. `stale` is listed only on the first request.
+  function serve(
+    listed: SessionMeta[],
+    listing = 200,
+    stale: SessionMeta[] = [],
+  ) {
     const fetched: string[] = [];
     const fetchImpl = async (path: string, init?: RequestInit) => {
       fetched.push(path);
@@ -124,10 +128,9 @@ describe("SessionPage session choice", () => {
         listed.push(second);
         return json(second);
       }
-      if (path === "/sessions")
-        return listing === 200
-          ? json(listed)
-          : new Response(null, { status: listing });
+      if (path === "/sessions" && listing !== 200)
+        return new Response(null, { status: listing });
+      if (path === "/sessions") return json([...stale.splice(0), ...listed]);
       const session = [...listed, unlisted].find(
         (s) => path === `/sessions/${s.id}`,
       );
@@ -152,6 +155,14 @@ describe("SessionPage session choice", () => {
       ),
     );
     expect(readSession(window.location.hash)).toBe("s1");
+  });
+
+  it("skips sessions a stale list still names", async () => {
+    history.replaceState(null, "", "#token=t&session=gone");
+    const goneToo: SessionMeta = { ...meta, id: "gone-too", title: "gone too" };
+    serve([meta], 200, [{ ...meta, id: "gone", title: "gone" }, goneToo]);
+    await waitFor(() => expect(readSession(window.location.hash)).toBe("s1"));
+    expect(screen.getByRole("button", { name: "t" }).ariaCurrent).toBe("page");
   });
 
   it("keeps a linked session the list does not show yet", async () => {

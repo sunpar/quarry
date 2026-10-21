@@ -85,12 +85,15 @@ export function SessionPage({ token }: SessionPageProps) {
         <SessionColumn
           key={current}
           id={current}
-          // A session the server lacks, as a stale link names, gives way to another.
-          onMissing={() => {
-            const other = sessions.data?.find((s) => s.id !== current);
-            if (other === undefined) setActiveId(null);
-            else select(other.id);
-          }}
+          // A session the server lacks, as a stale link names, gives way to another from a fresh
+          // list: the cached one can still hold it, or not have arrived.
+          onMissing={() =>
+            void sessions.refetch().then(({ data }) => {
+              const other = data?.find((s) => s.id !== current);
+              if (other === undefined) setActiveId(null);
+              else select(other.id);
+            })
+          }
         />
       )}
     </div>
@@ -107,9 +110,10 @@ function SessionColumn({
   const session = useSession(id);
   const missing =
     session.error instanceof ApiError && session.error.status === 404;
+  // Once, when the 404 arrives: `onMissing` is a new function on every render.
   useEffect(() => {
     if (missing) onMissing();
-  }, [missing, onMissing]);
+  }, [missing]);
   const submit = useSubmitPrompt(id);
   const interrupt = useInterrupt(id);
   const restart = useRestart(id);
