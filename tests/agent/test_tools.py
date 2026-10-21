@@ -5,9 +5,11 @@ from pathlib import Path
 
 import pytest
 
+from quarry.agent.anthropic_provider import to_api_tools
+from quarry.agent.openai_provider import to_openai_tools
 from quarry.agent.tools import TOOL_DEFS, ToolExecutor
 from quarry.agent.transpile import CommandTranspiler, NoopTranspiler, Transpiler
-from quarry.agent.types import ToolCall
+from quarry.agent.types import ToolCall, ToolDef
 from quarry.components.library import ComponentLibrary
 from quarry.kernel.client import KernelClient
 from quarry.query import Json
@@ -42,6 +44,38 @@ def test_tool_defs_names() -> None:
         "render_view",
         "write_view",
     ]
+
+
+def _objects(schema: Json) -> Iterator[dict[str, Json]]:
+    """Every object schema in `schema`, nested ones included."""
+    if isinstance(schema, dict):
+        kind = schema.get("type")
+        if (
+            kind == "object"
+            or (isinstance(kind, list) and "object" in kind)
+            or "properties" in schema
+        ):
+            yield schema
+        for value in schema.values():
+            yield from _objects(value)
+    elif isinstance(schema, list):
+        for value in schema:
+            yield from _objects(value)
+
+
+@pytest.mark.parametrize("tool", TOOL_DEFS, ids=lambda tool: tool.name)
+def test_every_tool_schema_is_strict(tool: ToolDef) -> None:
+    # OpenAI's strict mode wants every property required and no extra properties, in nested
+    # objects too, which the converters do not close; Quarry sends both providers the same.
+    for sent in [*to_openai_tools([tool]), *to_api_tools([tool])]:
+        objects = list(_objects(sent))
+        assert objects
+        for item in objects:
+            properties, required = item.get("properties"), item.get("required")
+            assert isinstance(properties, dict) and isinstance(required, list), item
+            assert all(isinstance(name, str) for name in required), item
+            assert item.get("additionalProperties") is False, item
+            assert sorted(map(str, required)) == sorted(properties), item
 
 
 def test_run_python_success_and_failure(kernel: KernelClient, tmp_path: Path) -> None:

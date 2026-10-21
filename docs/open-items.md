@@ -325,8 +325,6 @@ one up when a researcher needs it.
   equivalence `normalize` sorts rows, so order is compared only under a limit.
 - Tighten tests further: some `match=` patterns in `test_spec.py` also match
   pydantic's echoed input, and the polars target has no direct nulls-first test.
-- Close Stage 2 test gaps: nothing checks the arguments the OpenAI adapter sends
-  or that every tool schema stays strict.
 - Merge canvas layout writes: `CanvasPage` sends the whole card list from its
   own copy of the layout, half a second after a drag, so a write sent after a
   pin made elsewhere drops that card. A `set_canvas` that takes positions by
