@@ -28,7 +28,10 @@ beforeEach(async () => {
   ({ ensureEngine } = await import("./engine"));
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("ensureEngine", () => {
   it("starts one engine per frame, shared by pivots that mount together", async () => {
@@ -47,9 +50,11 @@ describe("ensureEngine", () => {
   });
 
   it("retries a failed worker without starting the viewer again", async () => {
+    const revoke = vi.spyOn(URL, "revokeObjectURL");
     server.worker.mockRejectedValueOnce(new Error("no worker"));
     await expect(ensureEngine()).rejects.toThrow("no worker");
     expect(terminate).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledTimes(1);
     await expect(ensureEngine()).resolves.toBe("engine");
     expect(server.init_server).toHaveBeenCalledTimes(2);
     expect(server.worker).toHaveBeenCalledTimes(2);

@@ -21,11 +21,12 @@ export function ensureEngine(): Promise<Client> {
       new Blob([workerSource], { type: "text/javascript" }),
     );
     const worker = new Worker(url);
-    // A failed start would otherwise leave its worker running beside the retry's.
+    // A failed start would otherwise leave its worker and script URL beside the retry's.
     return perspective
       .worker(Promise.resolve(worker))
       .catch((error: unknown) => {
         worker.terminate();
+        URL.revokeObjectURL(url);
         throw error;
       });
   })().catch((error: unknown) => {
