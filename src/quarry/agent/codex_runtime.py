@@ -19,6 +19,7 @@ from typing import Any, Final, Self
 
 from pydantic import ValidationError
 
+from quarry import __version__
 from quarry.agent.loop import StepExecution, StepHalted, StepOutcome
 from quarry.agent.tools import TOOL_DEFS, ToolExecutor
 from quarry.agent.types import AssistantTurn, Message, ProviderError, ToolCall, ToolResult
@@ -344,7 +345,7 @@ class CodexRuntime:
             initialized = connection.request(
                 "initialize",
                 {
-                    "clientInfo": {"name": "quarry", "version": "0.1.0"},
+                    "clientInfo": {"name": "quarry", "version": __version__},
                     "capabilities": {"experimentalApi": True},
                 },
             )
