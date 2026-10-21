@@ -8,6 +8,9 @@ import { RuntimeProvider } from "./context";
 import { useDatasetSchema, useQuery, useViewState } from "./hooks";
 import { ViewStateStore } from "./state";
 
+// Lets every pending answer settle, however many promise hops it takes.
+const settled = () => new Promise((done) => setTimeout(done));
+
 function harness() {
   const sent: RuntimeToHost[] = [];
   const bridge = new RuntimeBridge("v1", (m) => sent.push(m));
@@ -38,7 +41,14 @@ function Probe() {
 function ArrowProbe() {
   const q = useQuery({ dataset: "df", format: "arrow" });
   if (q.status !== "success")
-    return <span data-testid="status">{q.status}</span>;
+    return (
+      <span
+        data-testid="status"
+        title={q.status === "error" ? q.message : undefined}
+      >
+        {q.status}
+      </span>
+    );
   return (
     <div>
       <span data-testid="status">{q.status}</span>
@@ -101,6 +111,30 @@ describe("hooks", () => {
     expect(screen.getByTestId("status").textContent).toBe("success");
     expect(screen.getByTestId("rows").textContent).toBe("0");
     expect(screen.getByTestId("arrow").textContent).toBe("0,1,2");
+  });
+
+  it("an Arrow answer that does not decode is a query error", async () => {
+    const { bridge, sent, wrap } = harness();
+    render(wrap(<ArrowProbe />));
+    const msg = sent.find((m) => m.type === "query");
+    if (msg?.type !== "query") throw new Error("expected query");
+    await act(async () => {
+      bridge.handle({
+        type: "queryResult",
+        viewId: "v1",
+        id: msg.id,
+        ok: true,
+        result: {
+          schema: [{ name: "a", dtype: "Int64" }],
+          rows: null,
+          arrow_base64: "not base64!",
+          row_count: 1,
+          truncated: false,
+        },
+      });
+    });
+    expect(screen.getByTestId("status").textContent).toBe("error");
+    expect(screen.getByTestId("status").title).not.toBe("");
   });
 
   it("a snapshot carries the specs its mounted hooks hold", () => {
@@ -168,7 +202,7 @@ describe("hooks", () => {
     };
     cache.ensureQuery(spec);
     answer(lastQueryId(), 1);
-    await Promise.resolve();
+    await settled();
     const before = cache.ensureQuery(spec);
     expect(sent.filter((m) => m.type === "query")).toHaveLength(1);
     cache.refresh();
@@ -176,7 +210,7 @@ describe("hooks", () => {
     expect(cache.ensureQuery(spec)).toBe(before);
     expect(sent.filter((m) => m.type === "query")).toHaveLength(2);
     answer(lastQueryId(), 2);
-    await Promise.resolve();
+    await settled();
     const after = cache.ensureQuery(spec);
     expect(after.status === "success" && after.result.row_count).toBe(2);
   });
@@ -205,7 +239,7 @@ describe("hooks", () => {
     const [first, second] = ids();
     answer(second, 2);
     answer(first, 1);
-    await Promise.resolve();
+    await settled();
     const state = cache.ensureQuery(spec);
     expect(state.status === "success" && state.result.row_count).toBe(2);
   });

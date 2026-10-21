@@ -221,3 +221,13 @@ def test_missing_recipe_is_an_export_failure_for_an_existing_project(
     error = capsys.readouterr().err
     assert "export failed" in error and "no such project" not in error
     assert target.read_text() == "previous export"
+
+
+def test_an_unreadable_config_is_an_export_failure(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project_with_saved_items(tmp_path)
+    (tmp_path / "config.toml").mkdir()
+    out = str(tmp_path / "out.ipynb")
+    assert main(["projects", "export", "momentum", "--root", str(tmp_path), "--out", out]) == 1
+    assert "export failed: config file unreadable" in capsys.readouterr().err

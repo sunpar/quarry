@@ -41,23 +41,26 @@ export class RequestCache {
     if (known !== undefined && !this.stale.delete(`q:${key}`)) return known;
     if (known === undefined) this.queries.set(key, LOADING);
     const ticket = this.ticket(`q:${key}`);
-    this.bridge.query(spec).then(
-      (result) =>
-        this.settle(this.queries, key, `q:${key}`, ticket, {
-          status: "success",
-          result,
-          // Decoded once per answer, so the buffer is stable across renders.
-          arrow:
-            result.arrow_base64 === null
-              ? null
-              : decodeBase64(result.arrow_base64),
-        }),
-      (error: unknown) =>
-        this.settle(this.queries, key, `q:${key}`, ticket, {
-          status: "error",
-          message: error instanceof Error ? error.message : String(error),
-        }),
-    );
+    this.bridge
+      .query(spec)
+      // Decoded once per answer, so the buffer is stable across renders. A
+      // failed decode takes the error path below, as a failed query does.
+      .then((result): QueryState => ({
+        status: "success",
+        result,
+        arrow:
+          result.arrow_base64 === null
+            ? null
+            : decodeBase64(result.arrow_base64),
+      }))
+      .then(
+        (state) => this.settle(this.queries, key, `q:${key}`, ticket, state),
+        (error: unknown) =>
+          this.settle(this.queries, key, `q:${key}`, ticket, {
+            status: "error",
+            message: error instanceof Error ? error.message : String(error),
+          }),
+      );
     return known ?? LOADING;
   }
 
