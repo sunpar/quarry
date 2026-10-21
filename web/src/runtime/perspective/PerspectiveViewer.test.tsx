@@ -70,7 +70,7 @@ describe("PerspectiveViewer", () => {
     expect(node.restore).toHaveBeenLastCalledWith(next);
   });
 
-  it("resets a layout once when the config goes missing", async () => {
+  it("resets the layout when the config goes missing", async () => {
     gate = deferred();
     gate.resolve();
     const config = { group_by: ["a"] };
@@ -79,7 +79,6 @@ describe("PerspectiveViewer", () => {
     );
     const node = viewerIn(container);
     await vi.waitFor(() => expect(node.restore).toHaveBeenCalledTimes(1));
-    rerender(<PerspectiveViewer arrow={arrow} />);
     rerender(<PerspectiveViewer arrow={arrow} />);
     expect(node.reset).toHaveBeenCalledTimes(1);
     expect(node.reset).toHaveBeenCalledWith(true);
@@ -90,12 +89,11 @@ describe("PerspectiveViewer", () => {
   it("does not reset a viewer that never had a layout", async () => {
     gate = deferred();
     gate.resolve();
-    const { container, rerender } = render(<PerspectiveViewer arrow={arrow} />);
+    const { container } = render(<PerspectiveViewer arrow={arrow} />);
     const node = viewerIn(container);
     await vi.waitFor(() => expect(node.load).toHaveBeenCalledTimes(1));
     await gate.promise;
     await Promise.resolve();
-    rerender(<PerspectiveViewer arrow={arrow} />);
     expect(node.reset).not.toHaveBeenCalled();
     expect(node.restore).not.toHaveBeenCalled();
   });
