@@ -144,7 +144,7 @@ def test_table_filters_sort_history_and_executed_to_code(
     python = page.get_by_role("textbox", name="Python")
     expect(python).to_have_value(re.compile(r"str\.contains.*literal=True"))
     assert ".sort(" in python.input_value()
-    # The drawer opens below the History slider and stays inside the step's column.
+    # The drawer stays inside the step's column.
     drawer = page.get_by_role("region", name="To code").bounding_box()
     card = page.get_by_role("article", name="Step 1").bounding_box()
     assert drawer is not None and card is not None
