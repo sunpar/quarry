@@ -239,7 +239,7 @@ Decisions already made are in [decisions.md](context/decisions.md).
   next report. Silent.
 - **A busy session's component save shares a 409**: a busy session's 409 on
   `POST /components` shares its code with an existing id's, though its message
-  says the session is busy. Giving it another code is a decision to make.
+  says the session is busy. The open question on its code covers the fix.
 - **A failed component save can block its id**: a save that fails after its
   folder is made, such as on a full disk, leaves a folder without a manifest.
   The library skips it, and every later save of that id gets the 409 "a
@@ -255,7 +255,8 @@ one up when a researcher needs it.
 ### Any time
 
 - Add a tie-breaker to paged sorts, because DuckDB's parallel `ORDER BY` returns
-  rows with tied keys in a different order each run.
+  rows with tied keys in a different order each run. The open question on
+  tie-breakers decides when.
 - Explain in the UI why an interrupt may not stop a step at once, and offer the
   Stage 2 restart.
 - Run restart in the background and report replay progress through `/status`, as
@@ -387,6 +388,15 @@ one up when a researcher needs it.
   It would change what `config={undefined}` means for agent-written views, and
   its echo writes view state, adding a snapshot that moves the scrubber off the
   pick. Which should a missing config mean?
+- **When paged sorts get a tie-breaker**: DuckDB's parallel `ORDER BY` returns
+  rows with tied keys in a different order each run, so a page of ungrouped rows
+  can skip or repeat one. Sorting next by every remaining column fixes it, at
+  the cost of a full sort. Add it always, only when a spec sorts, or only when
+  it pages with an offset?
+- **Which code a busy session's component save returns**: `POST /components`
+  answers a busy session with 409, the code an existing id gets, though its
+  message says the session is busy. Keep 409, or move it to another code such
+  as 503?
 - **Live provider calls**: neither adapter has called its real API. Whether the
   Anthropic API accepts `fallbacks="default"` with the
   `server-side-fallback-2026-07-01` beta, and whether `gpt-5` is the right
