@@ -1,5 +1,7 @@
 """Every fixture spec must agree across direct targets and generated source."""
 
+from decimal import Decimal
+
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
@@ -79,6 +81,14 @@ def test_grouped_rows_follow_their_keys_on_every_target(
     frame = pl.DataFrame(
         {"k": ["b", None, "a", "c", "b", "a"], "g": [1, 1, 2, 2, 1, 2], "v": [1, 2, 3, 4, 5, 6]}
     )
+    results = _column_on_every_target(spec, frame, col)
+    assert results == dict.fromkeys(results, expected)
+
+
+def _column_on_every_target(
+    spec: QuerySpec, frame: pl.DataFrame, col: str
+) -> dict[str, list[object]]:
+    """`col` of `spec`'s result over `frame`, registered as `t`, from each target."""
     conn = utc_connection()
     conn.register("t", frame)
     results: dict[str, pl.DataFrame] = {
@@ -89,9 +99,7 @@ def test_grouped_rows_follow_their_keys_on_every_target(
             for b in BACKINGS
         },
     }
-    assert {target: df[col].to_list() for target, df in results.items()} == dict.fromkeys(
-        results, expected
-    )
+    return {target: df[col].to_list() for target, df in results.items()}
 
 
 # Each integer dtype DuckDB can read from polars, with its largest value.
@@ -121,6 +129,41 @@ def test_integer_sums_agree_exactly(spec: QuerySpec, dtype: pl.DataType) -> None
     assert_frame_equal(via_polars, via_sql)
     assert via_sql.dtypes[1] == pl.Decimal(38, 0)
     assert via_polars.rows() == [("a", 2 * top), ("b", None)]
+
+
+@pytest.mark.parametrize(
+    "filter_",
+    [
+        Filter(col="x", op="eq", value=0.1),
+        Filter(col="x", op="le", value=0.1),
+        Filter(col="x", op="gt", value=0.1),
+        Filter(col="x", op="in", value=[0.1]),
+        Filter(col="x", op="between", value=[0.1, 0.2]),
+    ],
+    ids=lambda f: f.model_dump_json(),
+)
+def test_a_float32_column_compares_as_float64_on_every_target(filter_: Filter) -> None:
+    # The viewer reads Float32 as Float64, where a stored 0.1 is not 0.1.
+    spec = QuerySpec(dataset="t", filters=[filter_], select=["n"], sort=[Sort(col="n")])
+    frame = pl.DataFrame({"n": [1, 2, 3], "x": pl.Series([0.05, 0.1, 0.2], dtype=pl.Float32)})
+    wide = to_polars(spec, frame.cast({"x": pl.Float64})).collect()["n"].to_list()
+    results = _column_on_every_target(spec, frame, "n")
+    assert results == dict.fromkeys(results, wide)
+
+
+@pytest.mark.parametrize("op", ["eq", "le", "gt"])
+def test_a_fraction_against_a_decimal_column_compares_as_float64_on_every_target(
+    op: str,
+) -> None:
+    # Both rows read as the Float64 0.3, which the viewer and polars compare.
+    spec = QuerySpec.model_validate(
+        {"dataset": "t", "filters": [{"col": "x", "op": op, "value": 0.3}], "select": ["n"]}
+    )
+    exact = [Decimal("0.3"), Decimal("0.30000000000000000001")]
+    frame = pl.DataFrame({"n": [1, 2], "x": pl.Series(exact, dtype=pl.Decimal(38, 20))})
+    wide = to_polars(spec, frame.cast({"x": pl.Float64})).collect()["n"].to_list()
+    results = _column_on_every_target(spec, frame, "n")
+    assert results == dict.fromkeys(results, wide)
 
 
 @pytest.mark.parametrize(("filter_", "selected"), ZONED_FILTERS, ids=ZONED_IDS)

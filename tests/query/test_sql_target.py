@@ -22,7 +22,9 @@ def test_quote_ident_escapes_double_quotes() -> None:
 def test_quote_literal() -> None:
     assert quote_literal("it's") == "'it''s'"
     assert quote_literal(3) == "3"
-    assert quote_literal(2.5) == "2.5"
+    assert quote_literal(2.5) == "2.5::DOUBLE"
+    assert quote_literal(-0.1) == "-0.1::DOUBLE"
+    assert quote_literal(3.0) == "3.0"
     assert quote_literal(True) == "TRUE"
     assert quote_literal(None) == "NULL"
 

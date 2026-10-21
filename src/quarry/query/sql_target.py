@@ -251,6 +251,10 @@ def quote_literal(value: Json) -> str:
             return "NULL"
         case bool():
             return "TRUE" if value else "FALSE"
+        case float() if not value.is_integer():
+            # DuckDB reads `0.1` as a DECIMAL and casts it to a FLOAT column's type. As a DOUBLE
+            # it widens the column instead, as the viewer and polars compare it.
+            return f"{value!r}::DOUBLE"
         case int() | float():
             return repr(value)
         case str():

@@ -32,7 +32,11 @@ them.
   to the column dtype for `to_polars` and for schema-aware `to_source`. JSON
   from JavaScript drops the `.0` of whole floats, and polars 2.0 `is_in` is
   strictly typed, so `ret in [0]` failed on a float column. A fractional number
-  against an integer column compares as Float64.
+  against an integer column compares as Float64, and so does any number against
+  a Float32 or Float16 column, as the viewer reads those columns; at the
+  column's width a stored 0.1 would equal 0.1. SQL renders a fractional number
+  as `::DOUBLE` for the same reason, which also compares a Decimal column as
+  Float64, as polars and the viewer do.
 - **One column-reference check**: `quarry/query/columns.py` checks every column
   a spec names, for every target, since two copies would drift. A pivot's sort
   and select are checked against the pivoted frame, because its columns come

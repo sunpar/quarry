@@ -206,7 +206,8 @@ def test_pivot_value_named_like_an_index_column_raises_query_error() -> None:
     ("value", "dtype", "expected"),
     [
         (0, pl.Float64(), CoercedLiteral(0.0, compare_as_float=False)),
-        ([1, 2.5], pl.Float32(), CoercedLiteral([1.0, 2.5], compare_as_float=False)),
+        ([1, 2.5], pl.Float32(), CoercedLiteral([1.0, 2.5], compare_as_float=True)),
+        (0.1, pl.Float16(), CoercedLiteral(0.1, compare_as_float=True)),
         (100.0, pl.Int64(), CoercedLiteral(100, compare_as_float=False)),
         ([100, 200.5], pl.Int64(), CoercedLiteral([100.0, 200.5], compare_as_float=True)),
         ("2024-01-03", pl.Date(), CoercedLiteral(date(2024, 1, 3), compare_as_float=False)),

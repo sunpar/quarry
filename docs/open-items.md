@@ -245,10 +245,12 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **A busy session's component save shares a 409**: a busy session's 409 on
   `POST /components` shares its code with an existing id's, though its message
   says the session is busy. The open question on its code covers the fix.
-- **Pivot filters on Float32 and Float16 compare at different precisions**:
-  the viewer reads those columns as doubles, while the kernel rounds the filter
-  literal to the column's width, so for a stored 0.1 the viewer's `== 0.1`
-  keeps no rows and "To code"'s keeps the row. Silent.
+- **A relation's Float32 filter rounds a whole number past 2^24**: the viewer
+  and polars compare a Float32 column as Float64, but SQL leaves a whole number
+  bare, and DuckDB casts it to the column's FLOAT, so on a relation `== 16777217`
+  keeps a stored 16777216 the viewer drops. Rendering it as `::DOUBLE` would
+  round integer columns past 2^53 instead; the fix needs column types in
+  `to_sql`. Silent.
 - **Extension columns load into the pivot but not into its queries**: polars
   refuses comparisons, `is_in`, sums, means, min, max and a string cast on an
   extension column, so a pivot that filters, aggregates or splits on one shows
