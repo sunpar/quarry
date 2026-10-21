@@ -40,10 +40,7 @@ export function SessionPage({ token }: SessionPageProps) {
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
-  // An id the server does not list, as from a stale link, falls back to the first session.
-  const listed = sessions.data ?? [];
-  const current =
-    listed.find((s) => s.id === activeId)?.id ?? listed[0]?.id ?? null;
+  const current = activeId ?? sessions.data?.[0]?.id ?? null;
   const [page, setPage] = useState<Page>({ kind: "session" });
   const select = (id: string) => {
     setActiveId(id);
@@ -61,7 +58,7 @@ export function SessionPage({ token }: SessionPageProps) {
   return (
     <div className="flex h-screen">
       <SessionRail
-        sessions={listed}
+        sessions={sessions.data ?? []}
         activeId={current}
         onSelect={select}
         onCreate={() =>
@@ -85,14 +82,34 @@ export function SessionPage({ token }: SessionPageProps) {
       ) : current === null ? (
         <main className="flex-1" />
       ) : (
-        <SessionColumn key={current} id={current} />
+        <SessionColumn
+          key={current}
+          id={current}
+          // A session the server lacks, as a stale link names, gives way to another.
+          onMissing={() => {
+            const other = sessions.data?.find((s) => s.id !== current);
+            if (other === undefined) setActiveId(null);
+            else select(other.id);
+          }}
+        />
       )}
     </div>
   );
 }
 
-function SessionColumn({ id }: { id: string }) {
+function SessionColumn({
+  id,
+  onMissing,
+}: {
+  id: string;
+  onMissing: () => void;
+}) {
   const session = useSession(id);
+  const missing =
+    session.error instanceof ApiError && session.error.status === 404;
+  useEffect(() => {
+    if (missing) onMissing();
+  }, [missing, onMissing]);
   const submit = useSubmitPrompt(id);
   const interrupt = useInterrupt(id);
   const restart = useRestart(id);

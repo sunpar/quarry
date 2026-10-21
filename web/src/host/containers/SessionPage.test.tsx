@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SessionMeta, SessionStatus, Step } from "@/shared/api-types";
+import { readSession } from "../api/auth";
 import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
 import { SessionPage } from "./SessionPage";
@@ -111,9 +112,11 @@ describe("SessionPage prompt box", () => {
 
 describe("SessionPage session choice", () => {
   const second: SessionMeta = { ...meta, id: "s2", title: "second" };
+  const unlisted: SessionMeta = { ...meta, id: "s3", title: "unlisted" };
 
-  // The sessions the server lists, which a create adds to, and the paths the page fetched.
-  function serve(listed: SessionMeta[]) {
+  // A server listing `listed`, to which a create adds, that also has the `unlisted` session;
+  // and the paths the page fetched.
+  function serve(listed: SessionMeta[], listing = 200) {
     const fetched: string[] = [];
     const fetchImpl = async (path: string, init?: RequestInit) => {
       fetched.push(path);
@@ -121,10 +124,16 @@ describe("SessionPage session choice", () => {
         listed.push(second);
         return json(second);
       }
-      if (path === "/sessions") return json(listed);
-      const session = listed.find((s) => path === `/sessions/${s.id}`);
+      if (path === "/sessions")
+        return listing === 200
+          ? json(listed)
+          : new Response(null, { status: listing });
+      const session = [...listed, unlisted].find(
+        (s) => path === `/sessions/${s.id}`,
+      );
       if (session !== undefined) return json({ meta: session, steps: [] });
-      if (path.endsWith("/status")) return json(status(false, null));
+      if (path.endsWith("/status") && !path.includes("gone"))
+        return json(status(false, null));
       if (path === "/projects") return json([]);
       return new Response(null, { status: 404 });
     };
@@ -134,12 +143,31 @@ describe("SessionPage session choice", () => {
 
   afterEach(() => history.replaceState(null, "", "/"));
 
-  it("opens the first session for an id the server does not list", async () => {
+  it("opens another session when the linked one is gone", async () => {
     history.replaceState(null, "", "#token=t&session=gone");
+    serve([meta]);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "t" }).ariaCurrent).toBe(
+        "page",
+      ),
+    );
+    expect(readSession(window.location.hash)).toBe("s1");
+  });
+
+  it("keeps a linked session the list does not show yet", async () => {
+    history.replaceState(null, "", "#token=t&session=s3");
     const fetched = serve([meta]);
     await screen.findByRole("textbox");
-    expect(screen.getByRole("button", { name: "t" }).ariaCurrent).toBe("page");
-    expect(fetched).not.toContain("/sessions/gone");
+    const listedButton = await screen.findByRole("button", { name: "t" });
+    expect(listedButton.ariaCurrent).toBe(null);
+    expect(fetched).toContain("/sessions/s3");
+    expect(readSession(window.location.hash)).toBe("s3");
+  });
+
+  it("keeps a linked session when the list fails", async () => {
+    history.replaceState(null, "", "#token=t&session=s1");
+    serve([meta], 500);
+    await screen.findByRole("textbox");
   });
 
   it("opens a new session once it is created", async () => {
