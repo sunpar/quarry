@@ -110,9 +110,11 @@ Decisions already made are in [decisions.md](context/decisions.md).
   stacks, so with every core in use a small cap kills the kernel as polars
   starts, as 256 MB on 14 cores did. Loud: the kernel dies. `kernel_threads`
   avoids it.
-- **`close()` right after `shutdown()` can cut off a snapshot**: `close()` sends
-  SIGKILL at once, so a snapshot still writing leaves a stray `.tmp` file beside
-  its target. The target keeps its old contents. Silent.
+- **Server shutdown can cut off a pinned save's snapshot**: shutdown closes
+  every kernel with SIGKILL at once, so a pinned save still writing its parquet
+  leaves a stray `.tmp` file beside its target. The target keeps its old
+  contents. `validate_recipe` also closes right after `shutdown()`, but its
+  scratch kernel never snapshots. Silent.
 - **A loader that hangs at import hangs startup**: the server imports loaders to
   describe them to the agent, and each kernel imports them at start. Loud only
   through a stderr notice naming the loader after 10 s.
@@ -148,9 +150,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   such as an NFS home directory stalls all sessions. A failed save also kills
   the kernel under that lock, which can wait up to 5 s for the process to exit.
   Silent.
-- **A kernel never started reads as `starting`**: after a server restart,
-  `/status` reports `starting` for a session whose kernel was never spawned, so
-  a client cannot tell that its namespace is empty. Silent.
 - **Restart shows no progress**: replay runs inside the `/restart` request,
   while spec §6 wants progress in the UI. Silent until it returns.
 - **Every `/status` poll parses every step**: it loads the whole session under
@@ -160,11 +159,13 @@ Decisions already made are in [decisions.md](context/decisions.md).
   a peer connection's ICE traffic or a DNS prefetch, so a generated view can put
   rows in a STUN host name or a prefetched name despite the runtime CSP and the
   host's `frame-src 'self'`. Silent.
-- **The first browser test can time out on load**: in 1 of 5 local full runs,
+- **Browser tests can fail on load**: in 1 of 5 local full runs,
   the session's first Playwright test waited 30 s for the "New session" button
   in `open_session` and failed, before any step ran; reruns passed. The cause is
-  unknown, perhaps a cold first page load. Loud: a red e2e run on that line
-  points here first.
+  unknown, perhaps a cold first page load. On hosted Linux,
+  `test_save_custom_view_to_library` once found no session after
+  `open_session`: the rail listed none and no step ran; the rerun passed. Loud:
+  a red e2e run on either line points here first.
 - **Pivot width is unbounded**: a pivot makes one column per distinct value of
   its `columns` key, which neither `row_cap` nor `limit` bounds, so a heatmap of
   dates by ticker over 5,000 tickers is 5,000 columns wide. A silent cost.
@@ -253,8 +254,6 @@ one up when a researcher needs it.
 
 ### Any time
 
-- Sort group-by and pivot results by the group keys by default. This must land
-  before views page with offsets, or pages will skip or repeat groups.
 - Add a tie-breaker to paged sorts, because DuckDB's parallel `ORDER BY` returns
   rows with tied keys in a different order each run.
 - Explain in the UI why an interrupt may not stop a step at once, and offer the
@@ -286,8 +285,8 @@ one up when a researcher needs it.
 - Add component tests for `SessionPage` (reload keeps the session, 401 message),
   the time series success and "needs a date column" paths, and the canvas's
   debounced layout write and its flush on unmount.
-- Let a cleanly exiting kernel finish before `close()` kills it after
-  `shutdown()`, so an in-flight snapshot completes.
+- Let server shutdown wait for a pinned save's snapshot before it kills the
+  kernel.
 - Give recipe validation a timeout: `validate_recipe` waits on the scratch
   kernel, so a recipe that hangs hangs the save request, which is synchronous so
   that it can show a saving state. The session stays usable, since the hold is
