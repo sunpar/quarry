@@ -18,9 +18,12 @@ from __future__ import annotations
 import ast
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Final, Literal
 
 _ScopeKind = Literal["module", "function", "class", "comprehension"]
+# What `ast.parse` raises for code it cannot parse: RecursionError or MemoryError for code nested
+# deeper than CPython itself can parse.
+PARSE_ERRORS: Final = (SyntaxError, RecursionError, MemoryError)
 
 
 @dataclass(slots=True, frozen=True)
@@ -45,8 +48,8 @@ class CodeNames:
 def analyze(code: str) -> CodeNames:
     """Collect module-level stores, loads, and definitions.
 
-    `ast.parse` errors propagate unchanged: SyntaxError, or RecursionError or MemoryError for code
-    nested deeper than CPython itself can parse. The walk has no depth limit of its own.
+    `ast.parse` errors, `PARSE_ERRORS`, propagate unchanged. The walk has no depth limit of its
+    own.
     """
     tree = ast.parse(code)
     visitor = _ScopeVisitor()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import io
 
+from quarry.kernel.lineage import PARSE_ERRORS
 from quarry.query.source_target import py_comment
 from quarry.server.models import Step
 
@@ -60,9 +61,13 @@ def split_leading_future(code: str) -> tuple[str, str]:
     """`code` up to the end of its leading `from __future__` imports, and the rest. Code put
     before `code` must go after the first part, since Python takes those imports only first,
     after an optional docstring. A later one stays where it is: moving it would change how
-    earlier lines compile."""
+    earlier lines compile. Code that does not parse has none to move."""
+    try:
+        body = ast.parse(code).body
+    except PARSE_ERRORS:
+        return "", code
     end: tuple[int, int] | None = None
-    for i, node in enumerate(ast.parse(code).body):
+    for i, node in enumerate(body):
         docstring = (
             i == 0
             and isinstance(node, ast.Expr)

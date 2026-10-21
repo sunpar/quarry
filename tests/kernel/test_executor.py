@@ -25,7 +25,7 @@ from quarry.kernel.executor import (
 )
 from quarry.query import Agg, Backing, Filter, Json, Pivot, QueryError, QuerySpec, Sort
 from quarry.query.sql_target import relation_view
-from tests.kernel.fixtures import BUSY_LOOP, HEAVY
+from tests.kernel.fixtures import BUSY_LOOP, HEAVY, UNPARSABLE
 
 PIVOT_ROWS = (
     "SELECT * FROM (VALUES ('a', 'x', 1), ('a', 'y', 2), ('b', 'x', 3), ('b', 'y', 40)) t(k, c, v)"
@@ -250,9 +250,9 @@ def test_execute_syntax_error_is_structured() -> None:
     assert result.error.type == "SyntaxError"
 
 
-def test_execute_code_too_deep_to_parse_is_structured() -> None:
-    # ast.parse gives up on this with MemoryError (3.11) or RecursionError, not SyntaxError.
-    result = make().execute("x = " + "-" * 200_000 + "1")
+@pytest.mark.parametrize("code", UNPARSABLE)
+def test_execute_code_too_deep_to_parse_is_structured(code: str) -> None:
+    result = make().execute(code)
     assert result.status == "error"
     assert result.error is not None
     assert result.reads == []
