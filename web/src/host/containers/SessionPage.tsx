@@ -130,7 +130,8 @@ function SessionColumn({
   const held =
     status.data?.busy === true &&
     !steps.some((s) => s.id === status.data?.running_step);
-  const busy = running || held;
+  // Interrupt stops a step wherever it began, but not a save, a recall check or a restart.
+  const stoppable = running || (held && status.data?.running_step !== null);
   const version = dataVersion(steps, status.data?.kernel.pid);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -193,7 +194,8 @@ function SessionColumn({
         </div>
       </div>
       <PromptBox
-        running={busy}
+        running={stoppable}
+        held={held}
         kernelDead={status.data?.kernel.status === "dead"}
         onSubmit={(prompt) => submit.mutateAsync({ prompt })}
         onStop={() => interrupt.mutate()}

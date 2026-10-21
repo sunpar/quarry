@@ -97,6 +97,20 @@ describe("StepActions to code", () => {
       code: "df_1 = 1",
     });
   });
+
+  it("keeps the drawer's edits from a second render until it closes", async () => {
+    setup(stepWith({ snapshots: [snapshot] }), () =>
+      json({ code: "df_1 = df", dropped: [] }),
+    );
+    const toCode = screen.getByRole<HTMLButtonElement>("button", {
+      name: "To code",
+    });
+    fireEvent.click(toCode);
+    await screen.findByRole("textbox", { name: "Python" });
+    expect(toCode.disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(toCode.disabled).toBe(false);
+  });
 });
 
 async function saveToLibrary() {

@@ -74,12 +74,17 @@ function setup(
 }
 
 describe("SessionPage prompt box", () => {
-  it("locks while the server holds the session for a save or restart", async () => {
+  // Interrupt stops only a step, so there is nothing for Stop to do.
+  it("locks without Stop while the server holds the session for a save or restart", async () => {
     setup(true);
     const box = await screen.findByRole("textbox");
     await waitFor(() =>
       expect((box as HTMLTextAreaElement).disabled).toBe(true),
     );
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Run" }).disabled,
+    ).toBe(true);
   });
 
   it("stays open when the session is free", async () => {
@@ -107,6 +112,8 @@ describe("SessionPage prompt box", () => {
     await waitFor(() =>
       expect((box as HTMLTextAreaElement).disabled).toBe(true),
     );
+    // Interrupt stops it wherever it began.
+    expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
   });
 });
 

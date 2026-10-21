@@ -342,9 +342,6 @@ one up when a researcher needs it.
   in Firefox and Safari; the Playwright test runs Chromium only.
 - Review the chart built-ins' visuals and accessibility, which no Stage 5 review
   covered: table header sorts are mouse-only.
-- Small host fixes from the Stage 5 reviews: clicking "To code" again replaces
-  code edited in the drawer, Stop shows during a hold, and a dead
-  `basis-full`/`w-[40rem]` class remains.
 - Tidy Stage 5 code: the library statuses are computed twice at startup
   (`create_app` and `enabled_libraries`); `to_code` builds the importable
   projection twice per relation and runs `_imported_names` twice per polars

@@ -139,9 +139,12 @@ export function StepActions({
           <Button
             variant="ghost"
             size="xs"
-            // Nothing to render until the view reports what it shows.
+            // Nothing to render until the view reports what it shows, and a second render
+            // would replace the code edited in the open drawer.
             disabled={
-              step.view.snapshots.length === 0 || toCodeRequest.isPending
+              step.view.snapshots.length === 0 ||
+              toCodeRequest.isPending ||
+              toCode !== null
             }
             onClick={() =>
               toCodeRequest.mutate(step.id, {
