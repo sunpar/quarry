@@ -112,77 +112,80 @@ export function StepActions({
     );
   };
 
+  // A fragment, so in the view's row the drawer takes a full line of its own below the buttons.
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      {dataset !== undefined && (
-        <Button
-          variant="ghost"
-          size="xs"
-          aria-label={`Save dataset ${dataset}`}
-          disabled={saving}
-          onClick={() => setPending({ kind: "dataset", name: dataset })}
-        >
-          Save
-        </Button>
-      )}
-      {step.view !== null && dataset === undefined && (
-        <>
+    <>
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+        {dataset !== undefined && (
           <Button
             variant="ghost"
             size="xs"
+            aria-label={`Save dataset ${dataset}`}
             disabled={saving}
-            onClick={() =>
-              setPending({ kind: "view", pin: false, snapshotTs: picked })
-            }
+            onClick={() => setPending({ kind: "dataset", name: dataset })}
           >
-            Save view
+            Save
           </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            disabled={saving}
-            onClick={() =>
-              setPending({ kind: "view", pin: true, snapshotTs: picked })
-            }
-          >
-            Pin to canvas
-          </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            // Nothing to render until the view reports what it shows, and a second render
-            // would replace the code edited in the open drawer.
-            disabled={
-              step.view.snapshots.length === 0 ||
-              toCodeRequest.isPending ||
-              toCode !== null
-            }
-            onClick={() =>
-              toCodeRequest.mutate(
-                { stepId: step.id, snapshotTs: picked },
-                {
-                  onSuccess: (rendered) => {
-                    submitManual.reset();
-                    setToCode(rendered);
-                  },
-                  onError,
-                },
-              )
-            }
-          >
-            To code
-          </Button>
-          {step.view.component_id === "inline" && (
+        )}
+        {step.view !== null && dataset === undefined && (
+          <>
             <Button
               variant="ghost"
               size="xs"
-              onClick={() => setToLibrary(step.view)}
+              disabled={saving}
+              onClick={() =>
+                setPending({ kind: "view", pin: false, snapshotTs: picked })
+              }
             >
-              Save to library
+              Save view
             </Button>
-          )}
-        </>
-      )}
+            <Button
+              variant="ghost"
+              size="xs"
+              disabled={saving}
+              onClick={() =>
+                setPending({ kind: "view", pin: true, snapshotTs: picked })
+              }
+            >
+              Pin to canvas
+            </Button>
+            <Button
+              variant="ghost"
+              size="xs"
+              // Nothing to render until the view reports what it shows, and a second render
+              // would replace the code edited in the open drawer.
+              disabled={
+                step.view.snapshots.length === 0 ||
+                toCodeRequest.isPending ||
+                toCode !== null
+              }
+              onClick={() =>
+                toCodeRequest.mutate(
+                  { stepId: step.id, snapshotTs: picked },
+                  {
+                    onSuccess: (rendered) => {
+                      submitManual.reset();
+                      setToCode(rendered);
+                    },
+                    onError,
+                  },
+                )
+              }
+            >
+              To code
+            </Button>
+            {step.view.component_id === "inline" && (
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => setToLibrary(step.view)}
+              >
+                Save to library
+              </Button>
+            )}
+          </>
+        )}
+      </div>
       {toCode !== null && (
         <ToCodeDrawer
           open
@@ -230,6 +233,6 @@ export function StepActions({
           onSave={onSave}
         />
       )}
-    </div>
+    </>
   );
 }

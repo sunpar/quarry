@@ -236,12 +236,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   thread pool, so when two reports of the same state race, the older one can
   replace the newer, and "To code" and "Save view" use stale queries until the
   next report. Silent.
-- **The "To code" drawer can run past the column**: the drawer is 40rem wide
-  inside the actions box, which shares a row that does not wrap with the History
-  slider. Once a view has two or more snapshots, the drawer runs past the column
-  on narrower windows: at a 1280px window its right edge is at 1038px, past the
-  column's 912px. Rendering it below that row at full width would fix it. Loud:
-  the overflow is visible.
 - **A busy session's component save shares a 409**: a busy session's 409 on
   `POST /components` shares its code with an existing id's, though its message
   says the session is busy. The open question on its code covers the fix.
