@@ -7,6 +7,8 @@ import json
 import polars as pl
 import pyarrow as pa
 
+from quarry.kernel.datasets import convert_columns
+
 
 def for_viewer(frame: pl.DataFrame) -> pl.DataFrame:
     """`frame` with every dtype Perspective rejects cast to one it reads.
@@ -17,13 +19,7 @@ def for_viewer(frame: pl.DataFrame) -> pl.DataFrame:
     Duration, Time and Binary become String. Nested columns become one JSON string per row.
     Everything else passes through unchanged.
     """
-    # pl.nth, not pl.col: a column named like a regex (`^a.*$`) or `*` would select others.
-    exprs = [
-        expr.alias(name)
-        for index, (name, dtype) in enumerate(frame.schema.items())
-        if (expr := _viewer_expr(pl.nth(index), dtype)) is not None
-    ]
-    return frame.with_columns(exprs) if exprs else frame
+    return convert_columns(frame, _viewer_expr)
 
 
 def arrow_ipc(frame: pl.DataFrame) -> bytes:

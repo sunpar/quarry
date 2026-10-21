@@ -316,10 +316,7 @@ one up when a researcher needs it.
   `_wasm/scichart.wasm` and nothing else.
 - Export a single view with `quarry projects export`, and import a `.ipynb`.
   Neither is in the spec.
-- Type the op sets in `quarry/query/spec.py` as `frozenset[FilterOp]` rather
-  than `frozenset[str]`.
-- Keep TIMETZ offsets in JSON rows, and fix the Duration comment in
-  `_json_native`, which says milliseconds though the guard covers every unit.
+- Keep TIMETZ offsets in JSON rows.
 - Smoke-test `sql()` against the firm's SQL Server with `VARCHAR(MAX)` columns,
   which may need arrow-odbc's `max_text_size`.
 - Merge canvas layout writes: `CanvasPage` sends the whole card list from its
@@ -342,9 +339,7 @@ one up when a researcher needs it.
   spec, and `_imported_names` repeats the filter rendering's literal coercion;
   the Arrow cache keeps both the base64 and the decoded buffer;
   `PerspectiveViewer` writes `latest.current` during render, as the plan wrote
-  it; `_sql_table_reads` lists `RecursionError` beside `RuntimeError`, its base
-  class; `arrow.py` and `datasets.py` repeat the `enumerate` and `pl.nth` idiom;
-  `tidy._binds` accepts a recipe whose only mention of `df` is an attribute
+  it; `tidy._binds` accepts a recipe whose only mention of `df` is an attribute
   store or `del df["k"]`, which validation still catches; and
   `@types/d3-selection` resolves to 1.0.10 through Perspective, hidden by
   `skipLibCheck`.

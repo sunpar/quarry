@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Final, TypeGuard
 
 import duckdb
@@ -163,14 +163,21 @@ def to_json_rows(df: pl.DataFrame) -> list[dict[str, Json]]:
     Decimals stay exact decimal strings at any depth, as write_json emits them ("1.50"), so
     integer sums (Decimal(38, 0) on every target) arrive as strings; a float would round them.
     """
-    # pl.nth, not pl.col: a column named like a regex (`^a.*$`) or `*` would select others.
-    converted = [
-        expr.alias(name)
-        for index, (name, dtype) in enumerate(df.schema.items())
-        if (expr := _json_native(pl.nth(index), dtype)) is not None
-    ]
-    rows: list[dict[str, Json]] = json.loads(df.with_columns(converted).write_json())
+    rows: list[dict[str, Json]] = json.loads(convert_columns(df, _json_native).write_json())
     return rows
+
+
+def convert_columns(
+    frame: pl.DataFrame, convert: Callable[[pl.Expr, pl.DataType], pl.Expr | None]
+) -> pl.DataFrame:
+    """`frame` with each column replaced by `convert(column, dtype)` where that is not None."""
+    # pl.nth, not pl.col: a column named like a regex (`^a.*$`) or `*` would select others.
+    exprs = [
+        expr.alias(name)
+        for index, (name, dtype) in enumerate(frame.schema.items())
+        if (expr := convert(pl.nth(index), dtype)) is not None
+    ]
+    return frame.with_columns(exprs) if exprs else frame
 
 
 def _relation_row_count(rel: duckdb.DuckDBPyRelation) -> int:
@@ -210,7 +217,7 @@ def _json_native(expr: pl.Expr, dtype: pl.DataType | DataTypeClass) -> pl.Expr |
         case pl.Datetime(time_unit=unit):
             return _representable(expr, ticks_per_day=_TICKS_PER_DAY[unit])
         case pl.Duration():
-            # write_json panics on i64::MIN milliseconds.
+            # i64::MIN becomes null in every unit; write_json panics on it in milliseconds.
             return pl.when(expr.to_physical() != _I64_MIN).then(expr)
         case pl.Object():
             return expr.map_batches(_object_strings, return_dtype=pl.String)
