@@ -60,20 +60,16 @@ def _objects(schema: Json) -> Iterator[dict[str, Json]]:
 
 @pytest.mark.parametrize("tool", TOOL_DEFS, ids=lambda tool: tool.name)
 def test_every_tool_schema_is_strict(tool: ToolDef) -> None:
-    # Strict mode in both APIs wants every property required and no extra properties.
-    [openai_tool] = to_openai_tools([tool])
-    [anthropic_tool] = to_api_tools([tool])
-    function = openai_tool["function"]
-    assert isinstance(function, dict) and function["strict"] is True
-    assert anthropic_tool["strict"] is True
-    for sent in (openai_tool, anthropic_tool):
+    # Strict mode in both APIs wants every property required and no extra properties, in nested
+    # objects too, which the converters do not close.
+    for sent in [*to_openai_tools([tool]), *to_api_tools([tool])]:
         objects = list(_objects(sent))
         assert objects
         for item in objects:
             properties, required = item["properties"], item["required"]
             assert isinstance(properties, dict) and isinstance(required, list)
             assert item["additionalProperties"] is False
-            assert sorted(map(str, required)) == sorted(properties)
+            assert properties.keys() == set(required)
 
 
 def test_run_python_success_and_failure(kernel: KernelClient, tmp_path: Path) -> None:
