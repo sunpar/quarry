@@ -36,7 +36,9 @@ them.
   a Float32 or Float16 column, as the viewer reads those columns; at the
   column's width a stored 0.1 would equal 0.1. SQL renders a fractional number
   as `::DOUBLE` for the same reason, which also compares a Decimal column as
-  Float64, as polars and the viewer do.
+  Float64, as polars and the viewer do. Cost: DuckDB no longer pushes such a
+  filter into a FLOAT column's scan. On 20M rows a native table's filter went
+  from 0.24 to 9.2 ms, and a registered Float32 frame's from 2.6 to 57 ms.
 - **One column-reference check**: `quarry/query/columns.py` checks every column
   a spec names, for every target, since two copies would drift. A pivot's sort
   and select are checked against the pivoted frame, because its columns come
