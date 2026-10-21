@@ -26,12 +26,10 @@ AggFn = Literal["sum", "mean", "min", "max", "count", "median", "std", "first", 
 Backing = Literal["polars", "polars_lazy", "duckdb"]
 Json = JsonValue
 
-LIST_OPS: frozenset[str] = frozenset({"in", "not_in"})
-NULL_OPS: frozenset[str] = frozenset({"is_null", "not_null"})
-SCALAR_OPS: frozenset[str] = frozenset(
-    {"eq", "ne", "lt", "le", "gt", "ge", "contains", "starts_with"}
-)
-TEXT_OPS: frozenset[str] = frozenset({"contains", "starts_with"})
+LIST_OPS: frozenset[FilterOp] = frozenset({"in", "not_in"})
+NULL_OPS: frozenset[FilterOp] = frozenset({"is_null", "not_null"})
+TEXT_OPS: frozenset[FilterOp] = frozenset({"contains", "starts_with"})
+SCALAR_OPS: frozenset[FilterOp] = TEXT_OPS | {"eq", "ne", "lt", "le", "gt", "ge"}
 
 
 class QueryError(Exception):
