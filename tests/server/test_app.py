@@ -570,6 +570,16 @@ def test_interrupt_running_step(tmp_path: Path) -> None:
         assert client.get(f"/sessions/{sid}").json()["steps"][0]["status"] == "interrupted"
 
 
+def test_a_failed_prompt_step_keeps_its_traceback_apart(tmp_path: Path) -> None:
+    with make_client(tmp_path, [py("c1", "1/0"), py("c2", "1/0"), end()]) as client:
+        sid = client.post("/sessions", json={}).json()["id"]
+        client.post(f"/sessions/{sid}/steps", json={"prompt": "divide"})
+        wait_idle(client, sid)
+        error = client.get(f"/sessions/{sid}").json()["steps"][0]["error"]
+        assert (error["type"], error["message"]) == ("ZeroDivisionError", "division by zero")
+        assert error["traceback"].startswith("Traceback")
+
+
 def test_restart_replays_ok_code_of_a_failed_prompt_step(tmp_path: Path) -> None:
     load = "df = pl.DataFrame({'a': [1]})"
     turns = [py("c1", load), py("c2", "1/0"), py("c3", "1/0"), end()]

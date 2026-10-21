@@ -34,7 +34,7 @@ def _run(provider: Provider, tmp_path: Path) -> None:
             tools=tools,
             cancel=threading.Event(),
         )
-        assert out.status == "ok", out.error_message
+        assert out.status == "ok", out.error
         assert any(m.name == "demo" for m in kernel.list_datasets())
     finally:
         kernel.close()

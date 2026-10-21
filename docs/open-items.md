@@ -146,9 +146,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **Every `/status` poll parses every step**: it loads the whole session under
   the service lock, since no route reads one step, and `/datasets` parses every
   step too. A silent cost that grows with the session.
-- **Prompt-step tracebacks land in the message**: a prompt step's error puts the
-  traceback in `error.message` and leaves `traceback` empty, while manual steps
-  fill `traceback`. Silent.
 - **A view can still send rows out over WebRTC or DNS**: no CSP directive covers
   a peer connection's ICE traffic or a DNS prefetch, so a generated view can put
   rows in a STUN host name or a prefetched name despite the runtime CSP and the
@@ -239,7 +236,6 @@ one up when a researcher needs it.
 - Run restart in the background and report replay progress through `/status`, as
   spec §6 asks.
 - Add a route that reads one step, so polling stops parsing the whole session.
-- Put prompt-step tracebacks in `error.traceback`, as manual steps do.
 - Fix filter coercion for Time literals, UUID and other natively imported
   relation columns, strings against integer columns, and datetime-shaped strings
   against Date columns.

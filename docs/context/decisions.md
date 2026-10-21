@@ -572,6 +572,11 @@ them.
   `run_python` calls that succeeded, read as spec §5's "the final Python that
   ran". It is for reading; replay uses `runs`. The output tails join every run's
   tails, keeping the last 4096 characters.
+- **A prompt step ends with its failing run's error**: after a second
+  `run_python` failure, the step's `error` is that run's own type, message and
+  traceback, as a manual step's is. An error the agent loop raises itself, such
+  as a provider error, a cap or an interrupt, has type `StepError` and an empty
+  traceback.
 - **Replay reruns every execution**: each step keeps `runs`, one
   `{code, status}` per execution: every `run_python` call of a prompt step, or a
   manual step's code. Restart reruns them one by one, so a failed run's partial
