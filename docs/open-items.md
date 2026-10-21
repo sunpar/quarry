@@ -289,8 +289,6 @@ one up when a researcher needs it.
 - Add component tests for `SessionPage` (reload keeps the session, 401 message),
   the time series success and "needs a date column" paths, and the canvas's
   debounced layout write and its flush on unmount.
-- A failed view recall keeps its view on the step, so the frame shows a query
-  error under the recall's traceback.
 - Count in-place mutation inside a function as a write of the frame it changes:
   a helper that sets `df.columns` or deletes `df["k"]` is invisible to lineage,
   and a lambda's body is read where it is bound. Module-level attribute and
