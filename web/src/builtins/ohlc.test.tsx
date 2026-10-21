@@ -235,6 +235,22 @@ describe("ohlc built-in", () => {
     }
   });
 
+  it("keeps the only time column over a saved price that differs only in case", () => {
+    query.mockReturnValue({ status: "loading" });
+    renderWith({
+      columns: { time: null, open: null, high: null, low: null, close: "date" },
+      live: [
+        { name: "Date", dtype: "Date" },
+        ...numeric("date", "open", "high", "low", "close"),
+      ],
+    });
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        select: ["Date", "open", "high", "low", "close"],
+      }),
+    );
+  });
+
   it("offers no picker a column that differs only in case from another role's", () => {
     query.mockReturnValue({ status: "loading" });
     renderWith({

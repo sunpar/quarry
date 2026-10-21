@@ -154,7 +154,15 @@ function resolve(chosen: Columns, times: string[], numeric: string[]) {
       : null;
   for (const role of PRICES) out[role] = fit(chosen[role], numeric);
   out.time =
-    fit(chosen.time, times) ?? others(times, Object.values(out))[0] ?? null;
+    fit(chosen.time, times) ??
+    others(times, Object.values(out))[0] ??
+    times[0] ??
+    null;
+  // With no other time column free, a saved price that clashes gives way to the time.
+  for (const role of PRICES) {
+    const price = out[role];
+    if (price !== null && clashes(price, [out.time])) out[role] = null;
+  }
   const guess = (match: (name: string, role: string) => boolean) => {
     for (const role of PRICES)
       out[role] ??=

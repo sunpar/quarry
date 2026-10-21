@@ -1409,12 +1409,13 @@ them.
   The kernel also refuses two names that differ only in case, as `Close` and
   `close`, so saved columns, guesses and picker options compare names ignoring
   case: a saved column that clashes with one resolved before it is guessed like
-  a missing one, the time is resolved after the saved prices, and a picker
-  leaves out a column that clashes with another role's. Cost: a dataset with too
-  few columns distinct ignoring case leaves a role empty and shows the "needs
-  ... columns" message, as one with only three price columns does. The chart
-  effect is keyed on the rows and the five names, so a re-render with the same
-  result keeps the chart.
+  a missing one, the time is resolved after the saved prices but takes the only
+  time column over a saved price that clashes with it, and a picker leaves out a
+  column that clashes with another role's. Cost: a dataset with too few columns
+  distinct ignoring case leaves a role empty and shows the "needs ... columns"
+  message, as one with only three price columns does. The chart effect is keyed
+  on the rows and the five names, so a re-render with the same result keeps the
+  chart.
 
 ### Recharts, Plotly and ECharts
 
