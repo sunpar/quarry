@@ -36,6 +36,13 @@ const PRICES = ["open", "high", "low", "close"] as const;
 const isTime = (dtype: string) =>
   dtype === "Date" || dtype.startsWith("Datetime");
 const isNumeric = (dtype: string) => /^(Int|UInt|Float|Decimal)/.test(dtype);
+// The kernel compares names ignoring case, so it refuses a select holding two names
+// that differ only in case, though it takes one column picked for two roles.
+const clashes = (name: string, taken: (string | null)[]) =>
+  taken.some((t) => t !== name && t?.toLowerCase() === name.toLowerCase());
+// The options no role holds and none clashes with.
+const others = (options: string[], taken: (string | null)[]) =>
+  options.filter((o) => !taken.includes(o) && !clashes(o, taken));
 
 export default function Ohlc({ datasets }: Props) {
   const dataset = datasets[0] ?? "";
@@ -92,7 +99,11 @@ export default function Ohlc({ datasets }: Props) {
 
   if (schema === null)
     return <p className="p-4 text-sm text-muted-foreground">Loading</p>;
-  if (!ready)
+  // Without a time column and four prices distinct ignoring case it can never chart.
+  if (
+    times.length === 0 ||
+    new Set(numeric.map((n) => n.toLowerCase())).size < 4
+  )
     return (
       <p className="p-4 text-sm text-muted-foreground">
         This dataset needs a date column and open, high, low and close columns.
@@ -107,7 +118,13 @@ export default function Ohlc({ datasets }: Props) {
             key={role}
             label={LABELS[role]}
             value={columns[role] ?? ""}
-            options={role === "time" ? times : numeric}
+            options={[
+              // A role no guess could fill shows blank until the researcher picks one.
+              ...(columns[role] === null ? [""] : []),
+              ...(role === "time" ? times : numeric).filter(
+                (o) => !clashes(o, Object.values({ ...columns, [role]: null })),
+              ),
+            ]}
             onChange={(v) => setChosen({ ...columns, [role]: v })}
           />
         ))}
@@ -118,7 +135,11 @@ export default function Ohlc({ datasets }: Props) {
             Showing the first {result.rows.length.toLocaleString()} rows.
           </p>
         )}
-      {result.status === "loading" ? (
+      {!ready ? (
+        <p className="p-4 text-sm text-muted-foreground">
+          Pick a column for each role.
+        </p>
+      ) : result.status === "loading" ? (
         <p className="p-4 text-sm text-muted-foreground">Loading</p>
       ) : result.status === "error" ? (
         <pre className="whitespace-pre-wrap p-4 font-mono text-sm text-destructive">
@@ -132,21 +153,32 @@ export default function Ohlc({ datasets }: Props) {
 }
 
 // Saved columns the live schema still fits, then columns named like the role, then the
-// next numeric one. A guess takes only a column no other role holds.
+// next numeric one. A saved column counts only if it does not clash with one resolved
+// before it, and a guess takes only a column no other role holds. The time comes after
+// the saved prices, so its fallback skips a time column that clashes with one.
 function resolve(chosen: Columns, times: string[], numeric: string[]) {
+  const out: Columns = { ...EMPTY };
   const fit = (saved: string | null, options: string[]) =>
-    saved !== null && options.includes(saved) ? saved : null;
-  const out: Columns = {
-    ...EMPTY,
-    time: fit(chosen.time, times) ?? times[0] ?? null,
-  };
+    saved !== null &&
+    options.includes(saved) &&
+    !clashes(saved, Object.values(out))
+      ? saved
+      : null;
   for (const role of PRICES) out[role] = fit(chosen[role], numeric);
+  out.time =
+    fit(chosen.time, times) ??
+    others(times, Object.values(out))[0] ??
+    times[0] ??
+    null;
+  // With no other time column free, a saved price that clashes gives way to the time.
+  for (const role of PRICES) {
+    const price = out[role];
+    if (price !== null && clashes(price, [out.time])) out[role] = null;
+  }
   const guess = (match: (name: string, role: string) => boolean) => {
     for (const role of PRICES)
       out[role] ??=
-        numeric.find(
-          (n) => match(n, role) && !PRICES.some((r) => out[r] === n),
-        ) ?? null;
+        others(numeric, Object.values(out)).find((n) => match(n, role)) ?? null;
   };
   guess((name, role) => name.toLowerCase().startsWith(role));
   guess(() => true);
