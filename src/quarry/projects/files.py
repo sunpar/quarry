@@ -31,13 +31,16 @@ def write_atomic(path: Path, text: str) -> None:
             Path(temp).replace(path)
         finally:
             Path(temp).unlink(missing_ok=True)
+        # The rename is durable only once the directory entry is.
+        sync_dir(path.parent)
     except OSError as exc:
-        # Callers show this to users, who asked for `path`, not the temp file it would name.
-        if exc.filename is None:
+        # Callers show this to users, who asked for `path`, not the temp file or nothing.
+        # Without an errno it has no `[Errno n] message: path` form to put `path` in.
+        if exc.errno is None:
             raise
-        raise OSError(exc.errno, exc.strerror, str(path)) from exc
-    # The rename is durable only once the directory entry is.
-    sync_dir(path.parent)
+        exc.filename = str(path)
+        del exc.filename2  # `= None` would still print as `-> None`
+        raise
 
 
 def sync_dir(path: Path) -> None:

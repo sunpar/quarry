@@ -234,7 +234,7 @@ def test_an_export_into_a_missing_directory_is_an_export_failure(
     assert main(["projects", "export", "momentum", "--root", str(tmp_path), "--out", out]) == 1
     err = capsys.readouterr().err
     # The write is what failed: the message names the target, not write_atomic's temp file.
-    assert err.startswith("export failed: ") and out in err and ".tmp" not in err
+    assert err.startswith("export failed: ") and out in err and ".out.ipynb." not in err
     assert not (tmp_path / "missing").exists()
 
 
