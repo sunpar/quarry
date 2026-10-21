@@ -29,8 +29,11 @@ def test_token_is_long_and_url_safe() -> None:
     assert len(token) >= 40 and all(c.isalnum() or c in "-_" for c in token)
 
 
-def test_main_without_command_prints_usage(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main([]) == 2
+@pytest.mark.parametrize("argv", [[], ["projects"]], ids=["no_command", "no_project_command"])
+def test_main_without_command_prints_usage(
+    capsys: pytest.CaptureFixture[str], argv: list[str]
+) -> None:
+    assert main(argv) == 2
     assert "serve" in capsys.readouterr().err
 
 
@@ -221,6 +224,16 @@ def test_missing_recipe_is_an_export_failure_for_an_existing_project(
     error = capsys.readouterr().err
     assert "export failed" in error and "no such project" not in error
     assert target.read_text() == "previous export"
+
+
+def test_an_export_into_a_missing_directory_is_an_export_failure(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project_with_saved_items(tmp_path)
+    out = str(tmp_path / "missing" / "out.ipynb")
+    assert main(["projects", "export", "momentum", "--root", str(tmp_path), "--out", out]) == 1
+    assert "export failed" in capsys.readouterr().err
+    assert not (tmp_path / "missing").exists()
 
 
 def test_an_unreadable_config_is_an_export_failure(

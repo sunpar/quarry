@@ -40,7 +40,7 @@ def test_license_without_path_warns_once_and_stays_disabled(
         "entry": None,
     }
     messages = [r.getMessage() for r in caplog.records if r.name == "quarry.server.app"]
-    assert len(messages) == 1 and "scichart" in messages[0]
+    assert messages == ["scichart has a license key but is disabled: scichart_path is not set"]
     assert "sc-key-7f3q" not in caplog.text
     assert "scichart" not in enabled_libraries(config)
 
@@ -71,7 +71,10 @@ def test_enabled_library_is_mounted_with_cors_and_listed(tmp_path: Path) -> None
     )
     assert "k1" not in repr(licensed_libraries(config))
     with make_client(tmp_path, [], config=config) as client:
-        listed = {s["id"]: s for s in client.get("/libraries").json()}
+        statuses = client.get("/libraries", headers={"Origin": "null"})
+        # Only the mounted packages allow other origins; the list carries the license keys.
+        assert "access-control-allow-origin" not in statuses.headers
+        listed = {s["id"]: s for s in statuses.json()}
         assert listed["highcharts"] == {
             "id": "highcharts",
             "enabled": True,

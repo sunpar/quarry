@@ -349,19 +349,10 @@ one up when a researcher needs it.
   `@types/d3-selection` resolves to 1.0.10 through Perspective, hidden by
   `skipLibCheck`.
 - Close Stage 5 test gaps:
-  - Server: no busy test covers a hold. Nothing pins the `RecursionError`
-    suppress in `_sql_table_reads`. The component routes lack tests for a save
-    without a dataset, a team-root 409, the 0700 folder mode and built-ins
-    listed after a save, and the transpile test's skip copies
-    `default_transpiler`'s logic.
-  - CLI: the `quarry projects` no-project-subcommand and CLI write-failure paths
-    remain untested.
-  - Other server tests: the library warning test checks only the library's name,
-    and no test checks that `/libraries` sends no CORS header. The to-code 400
-    test asserts only `"x" in detail`. `kept_default_connection` restores only
-    the uncapped settings, so a capped caller would leak them. There is no
-    regression test for `arrow.py`'s `pl.nth` fix, and no test sends an all-null
-    column to Perspective.
+  - Server: `kept_default_connection` does not restore `memory_limit`, so a
+    capped caller would leak it. `current_setting` rounds the limit, and setting
+    19.1 GiB back reads 19.0 GiB; `RESET memory_limit` restores the default.
+    No test sends an all-null column to Perspective.
   - Web and browser tests: the Perspective cache-hit test checks React's row
     count, not the viewer's table. `ViewHost.test.tsx` is at 240 lines with
     fixed 20 ms sleeps. `state.test.ts` uses fake timers without `try/finally`,

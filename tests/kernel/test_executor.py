@@ -1285,6 +1285,13 @@ def test_a_literal_duckdb_cannot_take_still_returns_the_step() -> None:
     assert result.status == "ok" and result.writes == ["y"] and result.reads == []
 
 
+def test_a_literal_too_deep_for_json_still_returns_the_step() -> None:
+    # DuckDB parses the sum, but its serialized tree nests deeper than `json.loads` recurses.
+    sql = "SELECT " + "1+" * 700 + "1"
+    result = make().execute(f"y = pl.DataFrame({{'a': [1]}}) if True else _conn.sql({sql!r})")
+    assert result.status == "ok" and result.writes == ["y"] and result.reads == []
+
+
 def test_attribute_mutation_is_a_write() -> None:
     ex = make()
     ex.execute("df = pl.DataFrame({'a': [1]})")

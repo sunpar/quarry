@@ -374,6 +374,8 @@ NATIVE_CASES: list[tuple[pl.Series, object]] = [
     (pl.Series("ms_2_62", [2**62, None]).cast(pl.Datetime("ms")), None),
     (pl.Series("ms_2_62_utc", [2**62, None]).cast(pl.Datetime("ms", "UTC")), None),
     (pl.Series("dur_ms_min", [-(2**63), None]).cast(pl.Duration("ms")), None),
+    (pl.Series("dur_us_min", [-(2**63), None]).cast(pl.Duration("us")), None),
+    (pl.Series("dur_ns_min", [-(2**63), None]).cast(pl.Duration("ns")), None),
 ]
 
 

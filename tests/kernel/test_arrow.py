@@ -82,3 +82,17 @@ def test_arrow_ipc_is_a_stream_with_narrow_strings() -> None:
 def test_arrow_ipc_keeps_non_finite_floats() -> None:
     back = pl.read_ipc_stream(io.BytesIO(arrow_ipc(pl.DataFrame({"f": [float("inf")]}))))
     assert back["f"][0] == float("inf")
+
+
+def test_for_viewer_casts_columns_named_like_a_regex_alone() -> None:
+    # As pl.col patterns, `^a.*$` would also select `ab`, and `*` every column.
+    frame = pl.DataFrame(
+        {
+            "^a.*$": pl.Series([255], dtype=pl.UInt8),
+            "ab": [b"x"],
+            "*": pl.Series([4_000_000_000], dtype=pl.UInt32),
+        }
+    )
+    out = for_viewer(frame)
+    assert out.schema == pl.Schema({"^a.*$": pl.Int64(), "ab": pl.String(), "*": pl.Int64()})
+    assert out.row(0) == (255, "eA==", 4_000_000_000)

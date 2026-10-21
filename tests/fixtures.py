@@ -10,8 +10,9 @@ from pathlib import Path
 import duckdb
 import pytest
 
-# The settings an uncapped build_namespace changes on DuckDB's default connection.
-NAMESPACE_SETTINGS = ("python_scan_all_frames", "TimeZone", "temp_directory")
+# The settings build_namespace changes on DuckDB's default connection, but memory_limit:
+# current_setting rounds it, and setting 19.1 GiB back reads 19.0 GiB (probed).
+NAMESPACE_SETTINGS = ("python_scan_all_frames", "TimeZone", "temp_directory", "threads")
 
 root_ignores_modes = pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
 

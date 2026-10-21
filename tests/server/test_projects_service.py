@@ -314,12 +314,14 @@ def test_hold_refuses_steps_and_restarts(tmp_path: Path) -> None:
     sessions, _ = build(tmp_path, FakeProvider([]))
     sid = sessions.create("t").id
     with sessions.hold(sid):
+        assert sessions.status(sid).busy
         with pytest.raises(SessionBusy):
             sessions.start_manual(sid, "x = 1")
         with pytest.raises(SessionBusy):
             sessions.restart(sid)
         with pytest.raises(SessionBusy), sessions.hold(sid):
             pass
+    assert not sessions.status(sid).busy
     sessions.start_manual(sid, "x = 1")
     wait_idle(sessions, sid)
     sessions.shutdown()
