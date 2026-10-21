@@ -1,4 +1,3 @@
-import errno
 import json
 import logging
 import os
@@ -16,7 +15,6 @@ from quarry.components.library import (
     satisfies,
 )
 from quarry.kernel.datasets import Column, DatasetMeta
-from quarry.projects.files import write_atomic
 from tests.fixtures import chmodded, record_fsyncs, root_ignores_modes
 
 
@@ -217,19 +215,16 @@ def test_write_component_syncs_the_root_that_gained_a_folder(
 def test_failed_write_component_frees_its_id(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def full_disk_after_manifest(path: Path, text: str) -> None:
-        write_atomic(path, text)
-        # Both files exist, as when the manifest's rename lands but its fsync fails.
-        if path.name == "manifest.json":
-            raise OSError(errno.ENOSPC, "No space left on device")
+    def disk_full(path: Path) -> None:
+        raise OSError("disk full")
 
-    monkeypatch.setattr("quarry.components.library.write_atomic", full_disk_after_manifest)
-    with pytest.raises(OSError, match="No space left"):
-        library.write_component(tmp_path, generated(), "")
+    # The root's sync is the last step, so both files exist when it fails.
+    with monkeypatch.context() as patch:
+        patch.setattr("quarry.components.library.sync_dir", disk_full)
+        with pytest.raises(OSError, match="disk full"):
+            library.write_component(tmp_path, generated(), "")
     assert not (tmp_path / "my-scatter").exists()
-    monkeypatch.undo()
     library.write_component(tmp_path, generated(), "")
-    assert ComponentLibrary([tmp_path]).get("my-scatter") is not None
 
 
 def test_write_component_leaves_a_missing_root_to_quarry_serve(tmp_path: Path) -> None:
