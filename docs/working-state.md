@@ -48,7 +48,7 @@ Hosted Linux runs passed on each merged head:
 [#56](https://github.com/sunpar/quarry/actions/runs/39636240307),
 [#57](https://github.com/sunpar/quarry/actions/runs/39636594487) and
 [#58](https://github.com/sunpar/quarry/actions/runs/39642833360). The full gate
-on main at `1526241` passed 1,381 Python tests (3 skipped) and 333 frontend
+on main at `1526241` passed 1,381 Python tests (3 skipped) and 334 frontend
 tests.
 
 Running `uv run` in a fresh worktree installs Quarry into `.venv`, and
