@@ -876,7 +876,8 @@ them.
   long-lived view follows a rebound dataset without flashing to "Loading". Each
   request carries a ticket, and only the newest per key may write, so an answer
   from before the refresh cannot overwrite one from after. A saved sort on a
-  column the live schema lacks is dropped from the query.
+  column the live schema lacks still goes out, and the tables show it with a
+  Clear sort action.
 - **Views may ask for Arrow**: `useQuery` with `format: "arrow"` returns the IPC
   stream bytes as an `ArrayBuffer` in `arrow`, with `rows` empty, for
   Perspective.
