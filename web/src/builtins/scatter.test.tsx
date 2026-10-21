@@ -157,5 +157,7 @@ describe("scatter built-in", () => {
     for (const label of ["X", "Y", "Color"])
       expect(screen.getByLabelText(label)).toBeTruthy();
     expect(screen.getByText("unknown column")).toBeTruthy();
+    expect(screen.queryByTestId("plot")).toBeNull();
+    expect(screen.queryByText(/Showing the first/)).toBeNull();
   });
 });

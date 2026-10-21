@@ -51,7 +51,9 @@ def test_bar_line_to_code_runs_as_a_step(serve: Serve, page: Page) -> None:
     open_session(page, server, "bar chart")
     expect(page.get_by_text("bars", exact=True)).to_be_visible(timeout=30_000)
     frame = page.frame_locator("iframe[title='View for step 1']")
-    expect(frame.get_by_label("Aggregate")).to_be_visible(timeout=30_000)
+    # The pickers show while the grouped query loads or fails; the chart only once it succeeds.
+    expect(frame.locator(".recharts-wrapper")).to_be_visible(timeout=30_000)
+    expect(frame.locator("pre")).to_have_count(0)
     box = code_for_view(page)
     expect(box).to_have_value(re.compile("group_by"))
     # Only the grouped query: the view's `{dataset, limit: 1}` placeholder is not recorded.

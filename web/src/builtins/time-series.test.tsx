@@ -87,9 +87,12 @@ describe("time-series built-in", () => {
 
   it("keeps its pickers above a query error", () => {
     query.mockReturnValue({ status: "error", message: "unknown column" });
+    setData.mockClear();
     render(<TimeSeries datasets={["px"]} />);
     expect(screen.getByLabelText("Time")).toBeTruthy();
     expect(screen.getByLabelText("Value")).toBeTruthy();
     expect(screen.getByText("unknown column")).toBeTruthy();
+    expect(setData).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Showing the first/)).toBeNull();
   });
 });

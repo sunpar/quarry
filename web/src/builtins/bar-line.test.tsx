@@ -183,5 +183,7 @@ describe("bar-line built-in", () => {
     for (const label of ["Chart", "Category", "Value", "Aggregate"])
       expect(screen.getByLabelText(label)).toBeTruthy();
     expect(screen.getByText("unknown column")).toBeTruthy();
+    expect(screen.queryByTestId("chart")).toBeNull();
+    expect(screen.queryByText(/Showing the first/)).toBeNull();
   });
 });

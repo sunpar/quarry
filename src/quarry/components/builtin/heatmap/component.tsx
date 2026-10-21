@@ -107,7 +107,7 @@ export default function Heatmap({ datasets }: Props) {
             Pick a {row === null ? "row" : "column"} key.
           </p>
         ) : result.status === "error" ? (
-          <pre className="p-4 font-mono text-sm text-destructive">
+          <pre className="whitespace-pre-wrap p-4 font-mono text-sm text-destructive">
             {result.message}
           </pre>
         ) : (

@@ -118,8 +118,10 @@ export default function Ohlc({ datasets }: Props) {
             Showing the first {result.rows.length.toLocaleString()} rows.
           </p>
         )}
-      {result.status === "error" ? (
-        <pre className="p-4 font-mono text-sm text-destructive">
+      {result.status === "loading" ? (
+        <p className="p-4 text-sm text-muted-foreground">Loading</p>
+      ) : result.status === "error" ? (
+        <pre className="whitespace-pre-wrap p-4 font-mono text-sm text-destructive">
           {result.message}
         </pre>
       ) : (

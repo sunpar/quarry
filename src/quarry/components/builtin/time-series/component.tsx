@@ -101,7 +101,7 @@ export default function TimeSeries({ datasets }: Props) {
       {result.status === "loading" ? (
         <p className="p-4 text-sm text-muted-foreground">Loading</p>
       ) : result.status === "error" ? (
-        <pre className="p-4 font-mono text-sm text-destructive">
+        <pre className="whitespace-pre-wrap p-4 font-mono text-sm text-destructive">
           {result.message}
         </pre>
       ) : (
