@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import type { SessionMeta, SessionStatus, Step } from "@/shared/api-types";
 import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
@@ -100,5 +100,60 @@ describe("SessionPage prompt box", () => {
     await waitFor(() =>
       expect((box as HTMLTextAreaElement).disabled).toBe(true),
     );
+  });
+});
+
+describe("SessionPage session choice", () => {
+  const second: SessionMeta = { ...meta, id: "s2", title: "second" };
+
+  // The sessions the server lists, which a create adds to, and the paths the page fetched.
+  function serve(listed: SessionMeta[]) {
+    const fetched: string[] = [];
+    const fetchImpl = async (path: string, init?: RequestInit) => {
+      fetched.push(path);
+      if (path === "/sessions" && init?.method === "POST") {
+        listed.push(second);
+        return json(second);
+      }
+      if (path === "/sessions") return json(listed);
+      const session = listed.find((s) => path === `/sessions/${s.id}`);
+      if (session !== undefined) return json({ meta: session, steps: [] });
+      if (path.endsWith("/status")) return json(status(false, null));
+      if (path === "/projects") return json([]);
+      return new Response(null, { status: 404 });
+    };
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={qc}>
+        <ApiProvider client={new ApiClient("t", fetchImpl)}>
+          <SessionPage token="t" />
+        </ApiProvider>
+      </QueryClientProvider>,
+    );
+    return fetched;
+  }
+
+  afterEach(() => history.replaceState(null, "", "/"));
+
+  it("opens the first session for an id the server does not list", async () => {
+    history.replaceState(null, "", "#token=t&session=gone");
+    const fetched = serve([meta]);
+    await screen.findByRole("textbox");
+    expect(screen.getByRole("button", { name: "t" }).ariaCurrent).toBe("page");
+    expect(fetched).not.toContain("/sessions/gone");
+  });
+
+  it("opens a new session once it is created", async () => {
+    const fetched = serve([meta]);
+    await screen.findByRole("textbox");
+    fireEvent.click(screen.getByRole("button", { name: "New session" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "second" }).ariaCurrent).toBe(
+        "page",
+      ),
+    );
+    expect(fetched).toContain("/sessions/s2");
   });
 });

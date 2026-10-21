@@ -40,7 +40,11 @@ export function SessionPage({ token }: SessionPageProps) {
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
-  const current = activeId ?? sessions.data?.[0]?.id ?? null;
+  // An id the server does not list, as from a stale link, falls back to the first session.
+  const listed = sessions.data;
+  const current = listed?.some((s) => s.id === activeId)
+    ? activeId
+    : (listed?.[0]?.id ?? null);
   const [page, setPage] = useState<Page>({ kind: "session" });
   const select = (id: string) => {
     setActiveId(id);
