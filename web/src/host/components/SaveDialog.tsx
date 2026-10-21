@@ -42,7 +42,7 @@ export function SaveDialog({
   onClose,
   onSave,
 }: SaveDialogProps) {
-  // The list can arrive after the dialog opens, so until a project is picked the first one is.
+  // The list can load after the dialog opens, so use the first project until one is picked.
   const [picked, setPicked] = useState("");
   const slug = projects.some((p) => p.slug === picked)
     ? picked

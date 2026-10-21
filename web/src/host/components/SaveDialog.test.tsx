@@ -1,8 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { ProjectMeta } from "@/shared/api-types";
 import { SaveDialog } from "./SaveDialog";
 
-const momentum = {
+const momentum: ProjectMeta = {
   slug: "p",
   name: "Momentum",
   description: "",
@@ -12,12 +13,12 @@ const momentum = {
 };
 const projects = [momentum];
 
-const viewDialog = (list: (typeof momentum)[], onSave: () => void) => (
+const viewDialog = (list: ProjectMeta[], onSave: () => void) => (
   <SaveDialog
     open
     kind="view"
     projects={list}
-    defaultName="closes"
+    defaultName="step-3-view"
     onClose={() => undefined}
     onSave={onSave}
   />
@@ -26,16 +27,7 @@ const viewDialog = (list: (typeof momentum)[], onSave: () => void) => (
 describe("SaveDialog", () => {
   it("submits project, name, mode and description", () => {
     const onSave = vi.fn();
-    render(
-      <SaveDialog
-        open
-        kind="view"
-        projects={projects}
-        defaultName="step-3-view"
-        onClose={() => undefined}
-        onSave={onSave}
-      />,
-    );
+    render(viewDialog(projects, onSave));
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "closes" },
     });
@@ -54,16 +46,7 @@ describe("SaveDialog", () => {
 
   it("slugifies the name and blocks empty names", () => {
     const onSave = vi.fn();
-    render(
-      <SaveDialog
-        open
-        kind="view"
-        projects={projects}
-        defaultName=""
-        onClose={() => undefined}
-        onSave={onSave}
-      />,
-    );
+    render(viewDialog(projects, onSave));
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "My Closes!" },
     });
