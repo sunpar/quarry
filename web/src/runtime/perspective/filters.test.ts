@@ -7,6 +7,7 @@ const schema: Column[] = [
   { name: "i8", dtype: "Int8" },
   { name: "i16", dtype: "Int16" },
   { name: "i32", dtype: "Int32" },
+  { name: "u8", dtype: "UInt8" },
   { name: "u", dtype: "UInt64" },
   { name: "f", dtype: "Float64" },
   { name: "b", dtype: "Boolean" },
@@ -180,6 +181,16 @@ describe("perspectiveToSpec filters", () => {
     );
     expect(spec.filters).toBeUndefined();
     expect(dropped).toEqual(['filter i32 ">"']);
+  });
+
+  it("keeps an item past an unsigned column's width, which the engine reads as Int64", () => {
+    const { spec, dropped } = perspectiveToSpec(
+      "t",
+      { filter: [["u8", "in", ["300"]]] },
+      schema,
+    );
+    expect(spec.filters).toEqual([{ col: "u8", op: "in", value: [300] }]);
+    expect(dropped).toEqual([]);
   });
 
   it("turns epoch milliseconds into the UTC time the kernel reads", () => {
