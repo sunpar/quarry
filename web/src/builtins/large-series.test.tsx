@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { QueryHookResult } from "@/runtime/hooks";
 import type { Row } from "@/shared/api-types";
@@ -11,16 +11,20 @@ interface Option {
 const query = vi.fn<(spec: unknown) => QueryHookResult>();
 const chart = vi.hoisted(() => vi.fn<(option: Option) => void>());
 const saved = vi.hoisted((): Record<string, unknown> => ({}));
+const live = vi.hoisted(() => ({
+  current: null as { name: string; dtype: string }[] | null,
+}));
 vi.mock("@quarry/hooks", () => ({
   useQuery: (spec: unknown) => query(spec),
   useViewState: <T,>(key: string, initial: T) => [
     key in saved ? (saved[key] as T) : initial,
     () => undefined,
   ],
-  useDatasetSchema: () => [
-    { name: "ts", dtype: "Datetime(time_unit='us', time_zone=None)" },
-    { name: "px", dtype: "Float64" },
-  ],
+  useDatasetSchema: () =>
+    live.current ?? [
+      { name: "ts", dtype: "Datetime(time_unit='us', time_zone=None)" },
+      { name: "px", dtype: "Float64" },
+    ],
 }));
 vi.mock("echarts-for-react", () => ({
   default: (props: { option: Option }) => {
@@ -30,6 +34,27 @@ vi.mock("echarts-for-react", () => ({
 }));
 
 import LargeSeries from "@builtin/large-series/component";
+
+// Renders with `columns` saved and the live schema replaced, then puts both back.
+function renderWith(
+  schema: { name: string; dtype: string }[],
+  columns?: object,
+) {
+  if (columns !== undefined) saved.columns = columns;
+  live.current = schema;
+  try {
+    return render(<LargeSeries datasets={["ticks"]} />);
+  } finally {
+    delete saved.columns;
+    live.current = null;
+  }
+}
+
+const options = (label: string) =>
+  Array.from(
+    screen.getByLabelText<HTMLSelectElement>(label).options,
+    (o) => o.value,
+  );
 
 const success = (
   rows: Row[],
@@ -99,6 +124,43 @@ describe("large-series built-in", () => {
         line_reduce: { time: "ts", value: "px", max_rows: 50000 },
       }),
     );
+  });
+
+  it("never pairs the time with a value that differs only in case", () => {
+    // The kernel refuses two names that differ only in case.
+    query.mockReturnValue({ status: "loading" });
+    renderWith([
+      { name: "Date", dtype: "Date" },
+      { name: "date", dtype: "Int64" },
+      { name: "px", dtype: "Float64" },
+    ]);
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        line_reduce: { time: "Date", value: "px", max_rows: 50000 },
+      }),
+    );
+    expect(options("Value")).toEqual(["px"]);
+  });
+
+  it("takes a time column that leaves a value", () => {
+    query.mockReturnValue({ status: "loading" });
+    for (const time of [null, "Date"]) {
+      cleanup();
+      renderWith(
+        [
+          { name: "Date", dtype: "Date" },
+          { name: "ts", dtype: "Datetime" },
+          { name: "date", dtype: "Int64" },
+        ],
+        { time, value: null },
+      );
+      expect(query).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          line_reduce: { time: "ts", value: "date", max_rows: 50000 },
+        }),
+      );
+      expect(options("Time")).toEqual(["ts"]);
+    }
   });
 
   it("distinguishes whole-domain reduction from prefix truncation", () => {

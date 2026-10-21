@@ -152,10 +152,11 @@ export default function Ohlc({ datasets }: Props) {
   );
 }
 
-// Saved columns the live schema still fits, then columns named like the role, then the
-// next numeric one. A saved column counts only if it does not clash with one resolved
-// before it, and a guess takes only a column no other role holds. The time comes after
-// the saved prices, so its fallback skips a time column that clashes with one.
+// Saved columns the live schema still fits, then columns named as the role, then ones
+// starting with it, then the next numeric one. A saved column counts only if it does not
+// clash with one resolved before it, and a guess takes only a column no other role holds.
+// The time comes after the saved prices, so its fallback skips a time column that clashes
+// with one.
 function resolve(chosen: Columns, times: string[], numeric: string[]) {
   const out: Columns = { ...EMPTY };
   const fit = (saved: string | null, options: string[]) =>
@@ -180,6 +181,7 @@ function resolve(chosen: Columns, times: string[], numeric: string[]) {
       out[role] ??=
         others(numeric, Object.values(out)).find((n) => match(n, role)) ?? null;
   };
+  guess((name, role) => name.toLowerCase() === role);
   guess((name, role) => name.toLowerCase().startsWith(role));
   guess(() => true);
   return out;

@@ -14,6 +14,14 @@ type Columns = {
 const isTime = (dtype: string) =>
   dtype === "Date" || dtype.startsWith("Datetime");
 const isNumeric = (dtype: string) => /^(Int|UInt|Float|Decimal)/.test(dtype);
+// A saved column counts only while the live schema still offers it.
+const fit = (saved: string | null, options: string[]) =>
+  saved !== null && options.includes(saved) ? saved : null;
+// The options no earlier role holds; the kernel refuses a select name repeated in any case.
+const others = (options: string[], taken: (string | null)[]) =>
+  options.filter(
+    (o) => !taken.some((t) => t?.toLowerCase() === o.toLowerCase()),
+  );
 
 export default function LargeSeries({ datasets }: Props) {
   const dataset = datasets[0] ?? "";
@@ -22,13 +30,14 @@ export default function LargeSeries({ datasets }: Props) {
     time: null,
     value: null,
   });
-  // A saved column counts only while the live schema still has it with a fitting dtype.
-  const pick = (saved: string | null, fits: (dtype: string) => boolean) =>
-    schema?.find((c) => c.name === saved && fits(c.dtype))?.name ??
-    schema?.find((c) => fits(c.dtype))?.name ??
-    null;
-  const time = pick(chosen.time, isTime);
-  const value = pick(chosen.value, isNumeric);
+  const names = (fits: (dtype: string) => boolean) =>
+    (schema ?? []).filter((c) => fits(c.dtype)).map((c) => c.name);
+  const numeric = names(isNumeric);
+  // A time column fits only if it leaves a value: `Date` beside a lone `date` does not.
+  const times = names(isTime).filter((t) => others(numeric, [t]).length > 0);
+  const time = fit(chosen.time, times) ?? times[0] ?? null;
+  const values = others(numeric, [time]);
+  const value = fit(chosen.value, values) ?? values[0] ?? null;
   const ready = time !== null && value !== null;
   const result = useQuery(
     ready
@@ -73,13 +82,13 @@ export default function LargeSeries({ datasets }: Props) {
         <Select
           label="Time"
           value={time}
-          options={schema.filter((c) => isTime(c.dtype)).map((c) => c.name)}
+          options={times}
           onChange={(v) => setChosen({ time: v, value })}
         />
         <Select
           label="Value"
           value={value}
-          options={schema.filter((c) => isNumeric(c.dtype)).map((c) => c.name)}
+          options={values}
           onChange={(v) => setChosen({ time, value: v })}
         />
       </div>
