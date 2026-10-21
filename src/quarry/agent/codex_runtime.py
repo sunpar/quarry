@@ -26,6 +26,7 @@ from quarry.config import QuarryConfig
 from quarry.kernel.client import kill_group
 
 _VERSION: Final = "0.162.1"
+_SIGKILL_WAIT: Final = 5.0  # seconds
 _DISABLED: Final = (
     "shell_tool",
     "stable_environment_tools",
@@ -181,17 +182,19 @@ class _Connection:
                     continue
                 if isinstance(response, ProviderError) or response.get("id") == self.serial:
                     break
-        kill_group(self.process, signal.SIGTERM)
+        # Not once the poll above reaped it: its pid, the group's id, may name another group.
+        if self.process.returncode is None:
+            kill_group(self.process, signal.SIGTERM)
+        self.outgoing.put(None)  # the writer ends even if the app-server outlives SIGKILL
         try:
             self.process.wait(timeout=1)
         except subprocess.TimeoutExpired:
             kill_group(self.process)
             try:
-                self.process.wait(timeout=5)
+                self.process.wait(timeout=_SIGKILL_WAIT)
             except subprocess.TimeoutExpired:
                 # Refused, or outlived, SIGKILL. Closing its pipes would wait for it too.
                 raise ProviderError("Codex app-server outlived SIGKILL", retryable=False) from None
-        self.outgoing.put(None)
         self.writer.join(timeout=1)
         for stream in (self.process.stdin, self.process.stdout):
             if stream is not None:

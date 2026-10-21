@@ -695,8 +695,11 @@ def test_close_fails_for_an_app_server_it_cannot_signal(
     try:
         # A refused signal, as macOS answers for a process another user owns: no endless wait.
         monkeypatch.setattr(codex_runtime, "kill_group", lambda process, sig=0: None)
+        monkeypatch.setattr(codex_runtime, "_SIGKILL_WAIT", 0.1)
         with pytest.raises(ProviderError, match="outlived SIGKILL"):
             connection.close(None, None)
+        connection.writer.join(timeout=1)
+        assert not connection.writer.is_alive()
     finally:
         os.killpg(connection.process.pid, signal.SIGKILL)
         connection.process.wait()
