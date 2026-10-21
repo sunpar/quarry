@@ -28,10 +28,8 @@ Json = JsonValue
 
 LIST_OPS: frozenset[FilterOp] = frozenset({"in", "not_in"})
 NULL_OPS: frozenset[FilterOp] = frozenset({"is_null", "not_null"})
-SCALAR_OPS: frozenset[FilterOp] = frozenset(
-    {"eq", "ne", "lt", "le", "gt", "ge", "contains", "starts_with"}
-)
 TEXT_OPS: frozenset[FilterOp] = frozenset({"contains", "starts_with"})
+SCALAR_OPS: frozenset[FilterOp] = TEXT_OPS | {"eq", "ne", "lt", "le", "gt", "ge"}
 
 
 class QueryError(Exception):

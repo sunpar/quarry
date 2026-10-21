@@ -213,6 +213,12 @@ Decisions already made are in [decisions.md](context/decisions.md).
   stream that is still valid base64 decodes, so `client.table` rejects inside
   `PerspectiveViewer`'s load effect. The runtime reports the unhandled rejection
   to the host, and the pivot stays empty. Loud.
+- **Float16 and extension columns break the pivot**: `for_viewer` leaves a
+  Float16 column as Arrow `halffloat` and passes an extension column's storage
+  type through unconverted. Perspective 3.8.0 refuses `halffloat` and an
+  extension over Duration or Struct, so the pivot stays empty, and reads an
+  extension over UInt64 as signed, so 2^64 - 1 shows as -1. `to_json_rows`
+  handles both. Loud, except the UInt64 case, which is silent.
 - **A hung `GET /libraries` never mounts a view**: `ViewHost` waits for that one
   answer with no timeout. Silent: the frame stays empty.
 - **An outgoing view's cleanup error replaces the incoming view**: the frame

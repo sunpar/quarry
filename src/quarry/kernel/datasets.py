@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Final, TypeGuard
 
 import duckdb
@@ -12,6 +12,7 @@ from duckdb.sqltypes import DuckDBPyType
 from polars.datatypes import DataTypeClass
 from pydantic import BaseModel, ConfigDict, Field
 
+from quarry.kernel.arrow import convert_columns
 from quarry.query.spec import Backing, Json
 from quarry.query.sql_target import quote_ident
 
@@ -167,19 +168,6 @@ def to_json_rows(df: pl.DataFrame) -> list[dict[str, Json]]:
     return rows
 
 
-def convert_columns(
-    frame: pl.DataFrame, convert: Callable[[pl.Expr, pl.DataType], pl.Expr | None]
-) -> pl.DataFrame:
-    """`frame` with each column replaced by `convert(column, dtype)` where that is not None."""
-    # pl.nth, not pl.col: a column named like a regex (`^a.*$`) or `*` would select others.
-    exprs = [
-        expr.alias(name)
-        for index, (name, dtype) in enumerate(frame.schema.items())
-        if (expr := convert(pl.nth(index), dtype)) is not None
-    ]
-    return frame.with_columns(exprs) if exprs else frame
-
-
 def _relation_row_count(rel: duckdb.DuckDBPyRelation) -> int:
     (count,) = rel.aggregate("count(*)").fetchall()[0]
     return int(count)
@@ -216,8 +204,8 @@ def _json_native(expr: pl.Expr, dtype: pl.DataType | DataTypeClass) -> pl.Expr |
             return in_range.dt.to_string(_NAIVE_ISO_FORMAT)
         case pl.Datetime(time_unit=unit):
             return _representable(expr, ticks_per_day=_TICKS_PER_DAY[unit])
-        case pl.Duration():
-            # i64::MIN becomes null in every unit; write_json panics on it in milliseconds.
+        case pl.Duration(time_unit="ms"):
+            # write_json panics on i64::MIN milliseconds.
             return pl.when(expr.to_physical() != _I64_MIN).then(expr)
         case pl.Object():
             return expr.map_batches(_object_strings, return_dtype=pl.String)
