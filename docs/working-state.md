@@ -1,63 +1,72 @@
 # Working state
 
-Checkpoint as of 2026-10-17, after PRs #26, #28 and #29 merged. This page
-records current work and verification. The [docs index](README.md) describes the
+Checkpoint as of 2026-10-20, after PRs #30 to #35 merged. This page records
+current work and verification. The [docs index](README.md) describes the
 permanent context and [open-items.md](open-items.md) holds unresolved work.
 
 ## Recent merges
 
-[PR #26](https://github.com/sunpar/quarry/pull/26) merged as `daead98`. A saved
-recipe now keeps every step that bound or changed an input it reads: `defines`
-lists every non-dataset name a step binds, later loads of those names are reads,
-and a statement that calls a method and drops the result binds its object. A
-load after the step's own module-body store of a name is not a read, so steps
-that reuse `cols` or `import json` stay out of each other's recipes. The rules
-and their costs are in [decisions](context/decisions.md#lineage), and spec §6 is
-amended. Lineage follows names, not objects; the open items record that as a
-known problem, beside the remaining blind spots.
+Six backlog items merged by squash, each from its own branch:
 
-GitHub Codex raised fifteen findings on #26 over eleven rounds; thirteen are
-fixed and two documented, and Claude's last GitHub review was clean at
-`45920cc`. The local Opus review on `45920cc` raised fourteen: `a24281f` fixes
-its main one, recipes that replayed most of a session, plus three smaller ones,
-and documents the rest. Astra found nothing actionable, and Muse timed out at 20
-minutes. `make check` on `a24281f` passed with 1,287 Python tests (3 skipped)
-and 272 frontend tests, and hosted Linux
-[run 39065891972](https://github.com/sunpar/quarry/actions/runs/39065891972)
-passed on the same head.
+- [PR #30](https://github.com/sunpar/quarry/pull/30) as `75b100d`: Arrow bytes
+  that fail to decode become the query's error state, not an unhandled
+  rejection.
+- [PR #31](https://github.com/sunpar/quarry/pull/31) as `6894832`: the config
+  loader checks the permissions of the file it read, through one open handle,
+  and an unreadable or non-UTF-8 config is a `ConfigError`.
+- [PR #32](https://github.com/sunpar/quarry/pull/32) as `2db51e6`: a failed
+  Perspective engine start is forgotten, so the next pivot retries it, and its
+  worker and script URL are released.
+- [PR #33](https://github.com/sunpar/quarry/pull/33) as `4caed85`: a prompt step
+  that ends on a second `run_python` failure records that run's type, message
+  and traceback as its `error`.
+- [PR #34](https://github.com/sunpar/quarry/pull/34) as `efe9b27`: every SDK
+  `APIError`, including a response that fails validation, becomes a
+  `ProviderError`.
+- [PR #35](https://github.com/sunpar/quarry/pull/35) as `fe92f3a`: step output
+  tails keep the last 4096 UTF-8 bytes, as the spec's "last 4 KB" says.
 
-[PR #28](https://github.com/sunpar/quarry/pull/28) merged as `2514219`. Grouped
-and pivoted rows sort by `sort`, then by each group key or pivot index column it
-leaves out, on every target and in generated code, so paging through them is
-stable. Hosted
-[run 39070046585](https://github.com/sunpar/quarry/actions/runs/39070046585)
-passed on its merge with main.
+Each branch ran Opus 5.5 (xhigh), Astra 6 (medium) and Muse Wonder (high) once
+before its PR. Opus raised findings on all six; Astra found nothing on five and
+Muse nothing on two. Valid findings were fixed or recorded in the open items. On
+GitHub, Claude's first review was clean on every PR. Codex's opening review was
+clean except on #32, whose one finding was fixed in `9610fd7`; on #30 it had not
+finished when the PR merged.
 
-[PR #29](https://github.com/sunpar/quarry/pull/29) rejects nested filter items
-and repeated pivot index columns, and a pivot value named like an index column
-is now a query error; aggregate type errors still surface raw. Its pre-push gate
-on the merge with main passed 1,295 Python tests (3 skipped) and 272 frontend
-tests.
+Hosted Linux runs passed on each merged head:
+[#30](https://github.com/sunpar/quarry/actions/runs/39535140872),
+[#31](https://github.com/sunpar/quarry/actions/runs/39534906370),
+[#32](https://github.com/sunpar/quarry/actions/runs/39536010256),
+[#33](https://github.com/sunpar/quarry/actions/runs/39536012321),
+[#34](https://github.com/sunpar/quarry/actions/runs/39536014121) and
+[#35](https://github.com/sunpar/quarry/actions/runs/39536871479). The pre-push
+gate on #35's merge with main passed 1,309 Python tests (3 skipped) and 277
+frontend tests. One gate run failed once in
+`test_native_cleanup_finishes_while_real_python_is_still_executing[True]` and
+passed on rerun; the open items record it.
 
 Running `uv run` in a fresh worktree installs Quarry into `.venv`, and
 `make check` then stops at its dependency check; rerun `make deps` to recover.
 
 ## Earlier merges
 
+PRs #26 to #29 merged on 2026-10-17.
+[PR #26](https://github.com/sunpar/quarry/pull/26) (`daead98`) keeps every step
+that bound or changed an input a recipe reads;
+[PR #28](https://github.com/sunpar/quarry/pull/28) (`2514219`) orders grouped
+and pivoted rows by their keys;
+[PR #29](https://github.com/sunpar/quarry/pull/29) (`dd611ab`) rejects nested
+filter items and pivot value clashes. Their gate on #29's merge with main passed
+1,295 Python tests (3 skipped) and 272 frontend tests.
+
 [PR #27](https://github.com/sunpar/quarry/pull/27) merged as `3572008`. Both
 table built-ins keep their last answer under a "Loading" status line while a
-changed sort or filter loads, and the AG Grid table stays mounted. `make check`
-on `cf3e01f` passed with 1,238 Python tests (3 skipped), 272 frontend and 25
-gate/transport tests; Codex and Claude found nothing to fix at `d62a299`.
+changed sort or filter loads, and the AG Grid table stays mounted.
 
 PRs #18–#25 merged before it. Their combined head `4bbbeb4` passed full gates on
 Mac and hosted Ubuntu with 1,238 Python, 270 frontend and 25 gate/transport
 tests
 ([run 38664668771](https://github.com/sunpar/quarry/actions/runs/38664668771)).
-Each source PR completed its saved review workflow at its original head, but the
-combined head received no further review round. PRs #19–#23 exhausted their
-GitHub bot budgets without a clean verdict after all known findings were
-addressed.
 
 ## Remaining work
 

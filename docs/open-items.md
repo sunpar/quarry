@@ -12,11 +12,10 @@ Decisions already made are in [decisions.md](context/decisions.md).
   `symbols = params["symbols"]`, a later `symbols.append("B")` is not a producer
   of `params`, and an instance of a subclass reads what its own class's methods
   read, not inherited ones. Before recipe input lineage, such a recipe lacked
-  the binding
-  step and replay failed with `NameError`. Now it keeps that step, so replay can
-  rebuild data from before a later step changed it, and validation, which
-  compares schema and row count, can pass it. Catching it needs tracking which
-  objects each name reaches. Silent.
+  the binding step and replay failed with `NameError`. Now it keeps that step,
+  so replay can rebuild data from before a later step changed it, and
+  validation, which compares schema and row count, can pass it. Catching it
+  needs tracking which objects each name reaches. Silent.
 - **`in` on zoned columns of frame-backed relations**: an `in` filter with two
   or more items on a tz-aware column of a relation over an in-memory frame needs
   `pytz`. DuckDB imports it for the scan, and Quarry does not depend on it.
@@ -72,11 +71,11 @@ Decisions already made are in [decisions.md](context/decisions.md).
   result is used (`x = lst.pop()`), that runs inside an expression such as a
   comprehension kept for its effects, or that a statement calls on a dataset
   (`df.extend(other)`) or a module (`random.seed(0)`, so replay draws unseeded
-  values). Changes through aliases are under the entry above. A
-  literal reading `FROM RECENT` is not matched to dataset `recent`, though
-  DuckDB's catalog ignores case. A step that reads `__annotations__` depends on
-  the step that created it, not on later steps that annotated, since counting
-  those would chain every annotated step to every earlier one; Python 3.14, which
+  values). Changes through aliases are under the entry above. A literal reading
+  `FROM RECENT` is not matched to dataset `recent`, though DuckDB's catalog
+  ignores case. A step that reads `__annotations__` depends on the step that
+  created it, not on later steps that annotated, since counting those would
+  chain every annotated step to every earlier one; Python 3.14, which
   `requires-python` allows but CI does not run, binds `__annotate__` instead.
   Silent: a saved recipe can miss a source step.
 - **Lineage approximations**: a failed step's in-place mutation is not a write.
@@ -85,11 +84,11 @@ Decisions already made are in [decisions.md](context/decisions.md).
   recipe. Class bodies report every name they load as a read, and a SQL
   literal's CTE named like a dataset (`WITH df AS (...) SELECT * FROM df`) reads
   that dataset, since DuckDB's parser does not resolve CTEs. A loop variable
-  that ends on the same cached integer, a statement calling a method on a
-  logger or `loaders`, and a dead `def` beside another value for its name (whose
-  body's reads still count) chain steps too, and a docstring or warning binds
-  `__doc__` or `__warningregistry__`. All but the first only add steps to a
-  recipe. Silent; see [decisions](context/decisions.md#lineage).
+  that ends on the same cached integer, a statement calling a method on a logger
+  or `loaders`, and a dead `def` beside another value for its name (whose body's
+  reads still count) chain steps too, and a docstring or warning binds `__doc__`
+  or `__warningregistry__`. All but the first only add steps to a recipe.
+  Silent; see [decisions](context/decisions.md#lineage).
 - **Interrupts stop only the kernel's DuckDB connection**: DuckDB workers for a
   relation on a researcher's own `duckdb.connect()` can keep running after an
   interrupt. Silent: they hold CPU and delay that connection's next query.
@@ -117,10 +116,15 @@ Decisions already made are in [decisions.md](context/decisions.md).
   validate responses, so a 200 whose body is not JSON raises `JSONDecodeError`
   inside the call, and one missing fields fails while the adapter converts it,
   outside its `try`. Neither is a `ProviderError`, so a save's tidy step fails
-  instead of falling back to the raw recipe, and a prompt step fails without
-  its transcript. The Anthropic adapter reads a `text/html` 200 as an empty turn
-  that succeeded.
-  Loud, except the last.
+  instead of falling back to the raw recipe, and a prompt step fails without its
+  transcript. The Anthropic adapter reads a `text/html` 200 as an empty turn
+  that succeeded. Loud, except the last.
+- **Closing a Codex runtime can raise `PermissionError` on macOS**: cleanup
+  signals the app-server's process group and catches only `ProcessLookupError`.
+  One gate run failed this way in
+  `test_native_cleanup_finishes_while_real_python_is_still_executing[True]` and
+  passed on rerun; a group whose processes have exited but are not yet reaped
+  may answer `EPERM`. Loud.
 - **Cancel waits for the model**: `/interrupt` and `/restart` stop a prompt step
   only once the provider answers the call in flight, bounded only by the
   provider client's timeout. Meanwhile `/restart` holds its request, a second
@@ -203,10 +207,10 @@ Decisions already made are in [decisions.md](context/decisions.md).
   script fails to run, or a server wasm that is not wasm, leaves
   `perspective.worker` waiting with no error or timeout, so the start never
   fails and is never retried. Silent: the pivot stays empty.
-- **Arrow bytes Perspective cannot read leave the pivot blank**: a corrupt
-  Arrow stream that is still valid base64 decodes, so `client.table` rejects
-  inside `PerspectiveViewer`'s load effect. The runtime reports the unhandled
-  rejection to the host, and the pivot stays empty. Loud.
+- **Arrow bytes Perspective cannot read leave the pivot blank**: a corrupt Arrow
+  stream that is still valid base64 decodes, so `client.table` rejects inside
+  `PerspectiveViewer`'s load effect. The runtime reports the unhandled rejection
+  to the host, and the pivot stays empty. Loud.
 - **A hung `GET /libraries` never mounts a view**: `ViewHost` waits for that one
   answer with no timeout. Silent: the frame stays empty.
 - **OHLC fails on a case-only name clash**: `Close` and `close` in one dataset
