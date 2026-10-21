@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from typing import Final
+from typing import Any, Final
 
 import openai
 
@@ -54,7 +54,15 @@ class OpenAIProvider:
             raise ProviderError(str(exc), retryable=True) from exc
         except openai.APIError as exc:
             raise ProviderError(str(exc), retryable=False) from exc
-        return from_openai_response(response)
+        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
+            # A 200 whose body is not JSON, or nests too deep, fails to decode in the SDK.
+            raise ProviderError(f"malformed provider response: {exc}", retryable=False) from exc
+        try:
+            return from_openai_response(response)
+        except (ValueError, TypeError, AttributeError, IndexError, KeyError, RecursionError) as exc:
+            # The SDK fills a missing field with None and leaves tool arguments
+            # undecoded, so a body of the wrong shape fails here.
+            raise ProviderError(f"malformed provider response: {exc}", retryable=False) from exc
 
 
 def to_openai_messages(system: str, messages: list[Message]) -> list[dict[str, Json]]:
@@ -97,19 +105,17 @@ def to_openai_tools(tools: list[ToolDef]) -> list[dict[str, Json]]:
     ]
 
 
-def from_openai_response(response: object) -> AssistantTurn:
-    choice = response.choices[0]  # type: ignore[attr-defined]
+def from_openai_response(response: Any) -> AssistantTurn:
+    choice = response.choices[0]
     message = choice.message
-    stop = FINISH_MAP.get(str(choice.finish_reason), "end")
+    stop = FINISH_MAP.get(choice.finish_reason, "end")
     refusal = getattr(message, "refusal", None) or (FILTER_REASON if stop == "refusal" else None)
     if refusal:
         return AssistantTurn(text="", tool_calls=[], stop="refusal", refusal_reason=str(refusal))
     if stop == "max_tokens":
-        return AssistantTurn(text=str(message.content or ""), tool_calls=[], stop="max_tokens")
+        return AssistantTurn(text=message.content or "", tool_calls=[], stop="max_tokens")
     calls = [
-        ToolCall(
-            id=str(c.id), name=str(c.function.name), input=json.loads(c.function.arguments or "{}")
-        )
+        ToolCall(id=c.id, name=c.function.name, input=json.loads(c.function.arguments or "{}"))
         for c in (message.tool_calls or [])
     ]
-    return AssistantTurn(text=str(message.content or ""), tool_calls=calls, stop=stop)
+    return AssistantTurn(text=message.content or "", tool_calls=calls, stop=stop)

@@ -112,13 +112,11 @@ Decisions already made are in [decisions.md](context/decisions.md).
   unreadable directory without a log line, and misses a dataset whose parquet
   files sit only in nested directories not named `key=value`. A dangling
   `*.parquet` symlink still lists its dataset. Silent.
-- **Malformed provider responses escape the adapters**: the SDK clients do not
-  validate responses, so a 200 whose body is not JSON raises `JSONDecodeError`
-  inside the call, and one missing fields fails while the adapter converts it,
-  outside its `try`. Neither is a `ProviderError`, so a save's tidy step fails
-  instead of falling back to the raw recipe, and a prompt step fails without its
-  transcript. The Anthropic adapter reads a `text/html` 200 as an empty turn
-  that succeeded. Loud, except the last.
+- **Some malformed provider responses still pass**: the SDKs fill a missing
+  field with None, so a 200 without a stop reason reads as a turn that ended
+  normally. An Anthropic reply whose content is empty or holds only block types
+  the adapter does not know, or an OpenAI message with neither content nor tool
+  calls, reads as an empty turn that succeeded. Silent.
 - **Cancel waits for the model**: `/interrupt` and `/restart` stop a prompt step
   only once the provider answers the call in flight, bounded only by the
   provider client's timeout. Meanwhile `/restart` holds its request, a second
