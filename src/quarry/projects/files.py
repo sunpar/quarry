@@ -21,15 +21,21 @@ def child(parent: Path, name: str) -> Path:
 def write_atomic(path: Path, text: str) -> None:
     # A crash leaves at most a stray temp file, which the steps/*.json glob never matches.
     # Created private, never chmodded after, so it is not readable by others even briefly.
-    fd, temp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-            f.flush()
-            os.fsync(f.fileno())
-        Path(temp).replace(path)
-    finally:
-        Path(temp).unlink(missing_ok=True)
+        fd, temp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(text)
+                f.flush()
+                os.fsync(f.fileno())
+            Path(temp).replace(path)
+        finally:
+            Path(temp).unlink(missing_ok=True)
+    except OSError as exc:
+        # Callers show this to users, who asked for `path`, not the temp file it would name.
+        if exc.filename is None:
+            raise
+        raise OSError(exc.errno, exc.strerror, str(path)) from exc
     # The rename is durable only once the directory entry is.
     sync_dir(path.parent)
 
