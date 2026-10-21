@@ -134,11 +134,14 @@ def test_integer_sums_agree_exactly(spec: QuerySpec, dtype: pl.DataType) -> None
     ],
     ids=lambda f: f.model_dump_json(),
 )
-def test_a_float32_column_compares_as_float64_on_polars_targets(filter_: Filter) -> None:
-    # The viewer reads Float32 as Float64, where a stored 0.1 is not 0.1. Not to_sql or duckdb:
-    # a relation still compares the column at its own width, an open item.
+@pytest.mark.parametrize("dtype", [pl.Float32, pl.Float16], ids=str)
+def test_a_narrow_float_column_compares_as_float64_on_polars_targets(
+    filter_: Filter, dtype: pl.DataType
+) -> None:
+    # The viewer reads narrow floats as Float64, where a stored 0.1 is not 0.1. Not to_sql or
+    # duckdb: a relation still compares a Float32 column at its own width, an open item.
     spec = QuerySpec(dataset="t", filters=[filter_], select=["n"], sort=[Sort(col="n")])
-    frame = pl.DataFrame({"n": [1, 2, 3], "x": pl.Series([0.05, 0.1, 0.2], dtype=pl.Float32)})
+    frame = pl.DataFrame({"n": [1, 2, 3], "x": pl.Series([0.05, 0.1, 0.2], dtype=dtype)})
     wide = to_polars(spec, frame.cast({"x": pl.Float64})).collect()["n"].to_list()
     assert to_polars(spec, frame).collect()["n"].to_list() == wide
     for backing in ("polars", "polars_lazy"):
