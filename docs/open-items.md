@@ -328,8 +328,6 @@ one up when a researcher needs it.
   `_wasm/scichart.wasm` and nothing else.
 - Export a single view with `quarry projects export`, and import a `.ipynb`.
   Neither is in the spec.
-- Name the target path in a failed export's message, which names its temporary
-  file (`.out.ipynb.<random>.tmp`) instead.
 - Keep TIMETZ offsets in JSON rows.
 - Smoke-test `sql()` against the firm's SQL Server with `VARCHAR(MAX)` columns,
   which may need arrow-odbc's `max_text_size`.

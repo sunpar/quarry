@@ -89,7 +89,12 @@ def run_projects_export(
         text = (
             report_html(project, store) if format_name == "html" else notebook_json(project, store)
         )
-        write_atomic(target, text)
+        try:
+            write_atomic(target, text)
+        except OSError as exc:
+            # The OS error names write_atomic's temp file, which the user never asked for.
+            print(f"export failed: cannot write {target}: {exc.strerror}", file=sys.stderr)
+            return 1
     except (ConfigError, ReportError, OSError, ValueError, KeyError) as exc:
         print(f"export failed: {exc}", file=sys.stderr)
         return 1
