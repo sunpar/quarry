@@ -6,8 +6,10 @@ export function readSession(hash: string): string | null {
   return readParam(hash, "session");
 }
 
-export function sessionHash(token: string, session: string): string {
-  return `#${new URLSearchParams({ token, session }).toString()}`;
+export function sessionHash(token: string, session: string | null): string {
+  const params = new URLSearchParams({ token });
+  if (session !== null) params.set("session", session);
+  return `#${params.toString()}`;
 }
 
 function readParam(hash: string, name: string): string | null {

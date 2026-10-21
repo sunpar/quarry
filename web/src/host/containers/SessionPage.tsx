@@ -82,14 +82,42 @@ export function SessionPage({ token }: SessionPageProps) {
       ) : current === null ? (
         <main className="flex-1" />
       ) : (
-        <SessionColumn key={current} id={current} />
+        <SessionColumn
+          key={current}
+          id={current}
+          // A session the server lacks, as a stale link names, gives way to another from a fresh
+          // list: the cached one can still hold it, or not have arrived. Unless the researcher
+          // picked one meanwhile, which the hash would name.
+          onMissing={() =>
+            void sessions.refetch().then(({ data, isError }) => {
+              const linked = readSession(window.location.hash);
+              // A failed list leaves only the cached one, which can still name it.
+              if (isError || (linked !== null && linked !== current)) return;
+              const other = data?.find((s) => s.id !== current)?.id ?? null;
+              setActiveId(other);
+              history.replaceState(null, "", sessionHash(token, other));
+            })
+          }
+        />
       )}
     </div>
   );
 }
 
-function SessionColumn({ id }: { id: string }) {
+function SessionColumn({
+  id,
+  onMissing,
+}: {
+  id: string;
+  onMissing: () => void;
+}) {
   const session = useSession(id);
+  const missing =
+    session.error instanceof ApiError && session.error.status === 404;
+  // Once, when the 404 arrives: `onMissing` is a new function on every render.
+  useEffect(() => {
+    if (missing) onMissing();
+  }, [missing]);
   const submit = useSubmitPrompt(id);
   const interrupt = useInterrupt(id);
   const restart = useRestart(id);
