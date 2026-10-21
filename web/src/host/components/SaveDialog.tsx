@@ -22,7 +22,8 @@ export interface SaveChoice {
 interface SaveDialogProps {
   open: boolean;
   kind: RecallRequest["kind"];
-  projects: ProjectMeta[];
+  projects: ProjectMeta[] | undefined;
+  error: string | null;
   defaultName: string;
   onClose: () => void;
   onSave: (choice: SaveChoice) => void;
@@ -38,19 +39,26 @@ export function SaveDialog({
   open,
   kind,
   projects,
+  error,
   defaultName,
   onClose,
   onSave,
 }: SaveDialogProps) {
-  const [slug, setSlug] = useState(projects[0]?.slug ?? "");
+  const [slug, setSlug] = useState(projects?.[0]?.slug ?? "");
   // The list can load after the dialog opens, so its first project is the default then.
-  if (slug === "" && projects[0] !== undefined) setSlug(projects[0].slug);
+  if (slug === "" && projects?.[0] !== undefined) setSlug(projects[0].slug);
   const [name, setName] = useState(defaultName);
   const [mode, setMode] = useState<SaveMode>("live");
   const [description, setDescription] = useState("");
   const cleanName = kind === "view" ? slugifyName(name) : name;
   const canSave = slug !== "" && cleanName !== "";
   const label = kind === "view" ? "Save view" : "Save dataset";
+  const hint =
+    projects === undefined
+      ? (error ?? "Loading")
+      : projects.length === 0
+        ? "Create a project in the rail first."
+        : null;
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="flex flex-col gap-4">
@@ -59,10 +67,8 @@ export function SaveDialog({
         </DialogHeader>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="save-project">Project</Label>
-          {projects.length === 0 && (
-            <p className="text-xs text-muted-foreground">
-              Create a project in the rail first.
-            </p>
+          {hint !== null && (
+            <p className="text-xs text-muted-foreground">{hint}</p>
           )}
           <select
             id="save-project"
@@ -70,7 +76,7 @@ export function SaveDialog({
             onChange={(e) => setSlug(e.target.value)}
             className="h-8 rounded-md border border-input bg-background px-2 text-sm"
           >
-            {projects.map((p) => (
+            {projects?.map((p) => (
               <option key={p.slug} value={p.slug}>
                 {p.name}
               </option>

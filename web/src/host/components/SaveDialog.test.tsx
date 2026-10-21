@@ -13,11 +13,16 @@ const momentum: ProjectMeta = {
 };
 const projects = [momentum];
 
-const viewDialog = (list: ProjectMeta[], onSave: () => void) => (
+const viewDialog = (
+  list: ProjectMeta[] | undefined,
+  onSave: () => void,
+  error: string | null = null,
+) => (
   <SaveDialog
     open
     kind="view"
     projects={list}
+    error={error}
     defaultName="step-3-view"
     onClose={() => undefined}
     onSave={onSave}
@@ -61,6 +66,23 @@ describe("SaveDialog", () => {
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({ name: "my-closes" }),
     );
+  });
+
+  it("says Loading, not the create hint, while the list loads", () => {
+    render(viewDialog(undefined, vi.fn()));
+    screen.getByText("Loading");
+    expect(
+      screen.queryByText("Create a project in the rail first."),
+    ).toBeNull();
+    expect(saveButton().disabled).toBe(true);
+  });
+
+  it("shows why the list failed to load", () => {
+    render(viewDialog(undefined, vi.fn(), "boom"));
+    screen.getByText("boom");
+    expect(
+      screen.queryByText("Create a project in the rail first."),
+    ).toBeNull();
   });
 
   it("chooses the first project when the list arrives after opening", () => {

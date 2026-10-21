@@ -94,7 +94,7 @@ async function pin() {
   fireEvent.click(screen.getByRole("button", { name: "Pin to canvas" }));
   const dialog = screen.getByRole("dialog");
   // The dialog opens before the project list arrives.
-  within(dialog).getByText("Create a project in the rail first.");
+  within(dialog).getByText("Loading");
   fireEvent.change(within(dialog).getByLabelText("Name"), {
     target: { value: "closes" },
   });
