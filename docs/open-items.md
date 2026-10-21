@@ -229,10 +229,9 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **Snapshots can repeat**: switching a view A to B to A within one report
   window appends a duplicate snapshot, and an inline view that queries from
   local state appends one per change. Silent cost toward the 500 cap.
-- **Component save messages mislead**: a busy session answers `POST /components`
-  with 409, the code an existing id gets; `<root>/components` as a regular file
-  makes every save a 409 "folder already exists"; and "Save to library" stays
-  disabled with no message for an id over 64 characters. Loud but misleading.
+- **A busy session's component save shares a 409**: a busy session's 409 on
+  `POST /components` shares its code with an existing id's, though its message
+  says the session is busy. Giving it another code is a decision to make.
 
 ## Deferred work
 
@@ -333,8 +332,7 @@ one up when a researcher needs it.
   covered: table header sorts are mouse-only, and OHLC shows a blank pane while
   loading.
 - Small host fixes from the Stage 5 reviews: clicking "To code" again replaces
-  code edited in the drawer, a 409's message stays while the id is edited, Stop
-  shows during a hold, "Save to library" keeps duplicate tags, and a dead
+  code edited in the drawer, Stop shows during a hold, and a dead
   `basis-full`/`w-[40rem]` class remains.
 - Tidy Stage 5 code: the library statuses are computed twice at startup
   (`create_app` and `enabled_libraries`); `to_code` builds the importable

@@ -29,14 +29,15 @@ interface SaveComponentDialogProps {
   onSave: (choice: ComponentChoice) => void;
 }
 
-const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
-
-// Unlike a view name, a component id has no underscores.
+// Unlike a view name, a component id has no underscores, and the server takes
+// at most 64 characters.
 const normaliseId = (value: string): string =>
   value
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/^-+/, "")
+    .slice(0, 64)
+    .replace(/-+$/, "");
 
 export function SaveComponentDialog({
   open,
@@ -50,18 +51,26 @@ export function SaveComponentDialog({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
+  // A refusal is about the id the last save sent, not one typed since.
+  const [triedId, setTriedId] = useState<string | null>(null);
   const cleanId = normaliseId(id);
-  const canSave = !pending && ID.test(cleanId) && name.trim() !== "";
-  const save = () =>
+  const canSave = !pending && cleanId !== "" && name.trim() !== "";
+  const save = () => {
+    setTriedId(cleanId);
     onSave({
       id: cleanId,
       name: name.trim(),
       description,
-      tags: tags
-        .split(",")
-        .map((t) => t.trim())
-        .filter((t) => t !== ""),
+      tags: [
+        ...new Set(
+          tags
+            .split(",")
+            .map((t) => t.trim())
+            .filter((t) => t !== ""),
+        ),
+      ],
     });
+  };
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="flex flex-col gap-4">
@@ -107,7 +116,9 @@ export function SaveComponentDialog({
             onChange={(e) => setTags(e.target.value)}
           />
         </div>
-        {error !== null && <p className="text-sm text-destructive">{error}</p>}
+        {error !== null && cleanId === triedId && (
+          <p className="text-sm text-destructive">{error}</p>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel

@@ -75,6 +75,13 @@ def test_save_component_leaves_an_existing_folder_alone(tmp_path: Path, manifest
     assert {p.name: p.read_bytes() for p in folder.iterdir()} == before
 
 
+def test_components_root_as_a_file_stops_the_server_starting(tmp_path: Path) -> None:
+    # Not a 409 "folder already exists" on every save.
+    (tmp_path / "components").write_text("")
+    with pytest.raises(FileExistsError):
+        make_client(tmp_path, [])
+
+
 def test_save_component_needs_session_and_dataset_together(tmp_path: Path) -> None:
     with make_client(tmp_path, []) as client:
         body = {"id": "half", "name": "Half", "source": SOURCE}
