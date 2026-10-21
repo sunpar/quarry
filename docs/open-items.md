@@ -120,7 +120,8 @@ Decisions already made are in [decisions.md](context/decisions.md).
   inside the call, and one missing fields fails while the adapter converts it,
   outside its `try`. Neither is a `ProviderError`, so a save's tidy step fails
   instead of falling back to the raw recipe, and a prompt step fails without
-  its transcript. A `text/html` 200 reads as an empty turn that succeeded.
+  its transcript. The Anthropic adapter reads a `text/html` 200 as an empty turn
+  that succeeded.
   Loud, except the last.
 - **Cancel waits for the model**: `/interrupt` and `/restart` stop a prompt step
   only once the provider answers the call in flight, bounded only by the
