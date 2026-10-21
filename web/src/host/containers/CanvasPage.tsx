@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import GridLayout, { useContainerWidth, type Layout } from "react-grid-layout";
+import { Button } from "@/components/ui/button";
 import type { CanvasCard, Project } from "@/shared/api-types";
 import {
   dataVersion,
@@ -90,7 +91,9 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
     datasets.data === undefined
       ? undefined
       : new Set(datasets.data.map((d) => d.name));
-  const error = recall.error ?? setCanvas.error ?? datasets.error;
+  // A failed recall or layout write stays until dismissed; a datasets error clears on refetch.
+  const dismissable = recall.error ?? setCanvas.error;
+  const error = dismissable ?? datasets.error;
 
   // react-grid-layout fires onLayoutChange once on mount after compaction; only a real
   // change in positions or sizes is worth a PUT.
@@ -121,7 +124,21 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
           </p>
         )}
         {error !== null && (
-          <p className="text-sm text-destructive">{error.message}</p>
+          <div className="flex items-center gap-4 text-sm">
+            <span className="text-destructive">{error.message}</span>
+            {dismissable !== null && (
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => {
+                  recall.reset();
+                  setCanvas.reset();
+                }}
+              >
+                Dismiss
+              </Button>
+            )}
+          </div>
         )}
         {mounted && (
           <GridLayout
@@ -132,17 +149,17 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
             onLayoutChange={onLayoutChange}
           >
             {layout.map((item) => {
+              // A view deleted from the project keeps its card, so it can still be removed.
               const view = project.views.find((v) => v.name === item.i);
-              if (view === undefined) return <div key={item.i} />;
               // Until the kernel answers, a card shows neither its view nor "Load".
               const missing =
-                present === undefined
+                view === undefined || present === undefined
                   ? []
                   : view.datasets.filter((d) => !present.has(d));
               return (
                 <div key={item.i}>
                   <CanvasCardFrame
-                    title={view.name}
+                    title={item.i}
                     missing={missing}
                     loading={recall.isPending || running}
                     onLoad={() =>
@@ -150,19 +167,25 @@ export function CanvasPage({ project, sessionId }: CanvasPageProps) {
                         sessionId,
                         project: slug,
                         kind: "view",
-                        name: view.name,
+                        name: item.i,
                       })
                     }
-                    onRemove={() => remove(view.name)}
+                    onRemove={() => remove(item.i)}
                   >
-                    {present !== undefined && (
-                      <CanvasCardView
-                        slug={slug}
-                        view={view.name}
-                        sessionId={sessionId}
-                        dataVersion={version}
-                        hub={hub}
-                      />
+                    {view === undefined ? (
+                      <p className="p-4 text-sm text-muted-foreground">
+                        No longer in this project.
+                      </p>
+                    ) : (
+                      present !== undefined && (
+                        <CanvasCardView
+                          slug={slug}
+                          view={item.i}
+                          sessionId={sessionId}
+                          dataVersion={version}
+                          hub={hub}
+                        />
+                      )
                     )}
                   </CanvasCardFrame>
                 </div>
@@ -191,7 +214,12 @@ function CanvasCardView({
   hub,
 }: CanvasCardViewProps) {
   const saved = useSavedView(slug, view);
-  if (saved.data === undefined) return null;
+  if (saved.data === undefined)
+    return (
+      <p className="p-4 text-sm text-muted-foreground">
+        {saved.error?.message ?? "Loading"}
+      </p>
+    );
   return (
     <ViewHost
       key={JSON.stringify([sessionId, `canvas:${view}`])}

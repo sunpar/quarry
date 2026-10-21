@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { DatasetMeta, Project, Session, Step } from "@/shared/api-types";
 import { ApiClient } from "../api/client";
@@ -79,7 +79,12 @@ const session: Session = {
   steps: [wrote as Step],
 };
 
-function renderCanvas(listed: string[], shown: Project = project) {
+// A path in `refused` answers 500 with its detail.
+function renderCanvas(
+  listed: string[],
+  shown: Project = project,
+  refused: Record<string, string> = {},
+) {
   const datasets: Partial<DatasetMeta>[] = listed.map((name) => ({ name }));
   const answers: Record<string, unknown> = {
     "/sessions/s1": session,
@@ -98,8 +103,15 @@ function renderCanvas(listed: string[], shown: Project = project) {
       queries: [],
     },
   };
-  const fetchImpl = async (path: string) =>
-    new Response(JSON.stringify(answers[path] ?? {}));
+  const puts: string[] = [];
+  const fetchImpl = async (path: string, init?: RequestInit) => {
+    if (init?.method === "PUT") puts.push(`${path} ${String(init.body)}`);
+    if (path in refused)
+      return new Response(JSON.stringify({ detail: refused[path] }), {
+        status: 500,
+      });
+    return new Response(JSON.stringify(answers[path] ?? {}));
+  };
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const page = (p: Project) => (
     <QueryClientProvider client={qc}>
@@ -109,7 +121,7 @@ function renderCanvas(listed: string[], shown: Project = project) {
     </QueryClientProvider>
   );
   const { rerender } = render(page(shown));
-  return Object.assign(qc, { show: (p: Project) => rerender(page(p)) });
+  return Object.assign(qc, { puts, show: (p: Project) => rerender(page(p)) });
 }
 
 describe("CanvasPage availability", () => {
@@ -133,5 +145,43 @@ describe("CanvasPage availability", () => {
     renderCanvas(["df"]);
     expect(await screen.findByText("Canvas card table mounted")).toBeDefined();
     expect(screen.queryByRole("button", { name: "Load" })).toBeNull();
+  });
+});
+
+describe("CanvasPage failures", () => {
+  it("shows a saved view's load failure inside its card", async () => {
+    renderCanvas(["df"], project, {
+      "/projects/p/views/table": "view file unreadable",
+    });
+    expect(await screen.findByText("500: view file unreadable")).toBeDefined();
+    expect(screen.queryByText("Canvas card table mounted")).toBeNull();
+  });
+
+  it("lets a card whose view left the project be removed", async () => {
+    const card = { view: "gone", x: 6, y: 0, w: 6, h: 8 };
+    const shown = {
+      ...project,
+      meta: { ...project.meta, canvas: [...project.meta.canvas, card] },
+    };
+    const canvas = renderCanvas(["df"], shown);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Remove gone from canvas" }),
+    );
+    expect(screen.queryByText("gone")).toBeNull();
+    await waitFor(() =>
+      expect(canvas.puts).toEqual([
+        `/projects/p/canvas ${JSON.stringify(project.meta.canvas)}`,
+      ]),
+    );
+  });
+
+  it("dismisses a failed recall", async () => {
+    renderCanvas([], project, { "/sessions/s1/recall": "kernel died" });
+    fireEvent.click(await screen.findByRole("button", { name: "Load" }));
+    expect(await screen.findByText("500: kernel died")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    await waitFor(() =>
+      expect(screen.queryByText("500: kernel died")).toBeNull(),
+    );
   });
 });
