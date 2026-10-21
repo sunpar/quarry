@@ -207,8 +207,11 @@ def test_tail_writer_holds_at_most_twice_its_limit_while_written() -> None:
 
 
 def test_joined_tail_keeps_runs_before_a_cut_tail_out() -> None:
-    cut = last_bytes("😀" * 2000)  # 4093 bytes: the cut split an emoji
+    cut = last_bytes("😀" * 2000 + "a")  # the cut splits an emoji and drops 3 of its bytes
+    assert len(cut.encode()) == TAIL_BYTES - 3
     assert joined_tail(["ok\n", cut]) == cut
+    whole = "x" * (TAIL_BYTES - 4)  # too short to have been cut
+    assert joined_tail(["ok\n", whole]) == "ok\n" + whole
     assert joined_tail(["one\n", "two\n"]) == "one\ntwo\n"
     assert joined_tail(["x" * TAIL_BYTES, "two\n"]) == ("x" * TAIL_BYTES + "two\n")[-TAIL_BYTES:]
 
