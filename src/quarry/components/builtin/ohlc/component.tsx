@@ -132,7 +132,8 @@ export default function Ohlc({ datasets }: Props) {
 }
 
 // Saved columns the live schema still fits, then columns named like the role, then the
-// next numeric one. A guess takes only a column no other role holds.
+// next numeric one. A guess takes only a column no other role holds, compared ignoring
+// case as the kernel compares selected names.
 function resolve(chosen: Columns, times: string[], numeric: string[]) {
   const fit = (saved: string | null, options: string[]) =>
     saved !== null && options.includes(saved) ? saved : null;
@@ -145,7 +146,11 @@ function resolve(chosen: Columns, times: string[], numeric: string[]) {
     for (const role of PRICES)
       out[role] ??=
         numeric.find(
-          (n) => match(n, role) && !PRICES.some((r) => out[r] === n),
+          (n) =>
+            match(n, role) &&
+            !Object.values(out).some(
+              (t) => t?.toLowerCase() === n.toLowerCase(),
+            ),
         ) ?? null;
   };
   guess((name, role) => name.toLowerCase().startsWith(role));

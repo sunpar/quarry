@@ -168,6 +168,33 @@ describe("ohlc built-in", () => {
     );
   });
 
+  it("never guesses a column that differs only in case from a taken one", () => {
+    // The kernel refuses two selected names that differ only in case.
+    query.mockReturnValue({ status: "loading" });
+    renderWith({
+      live: [
+        { name: "ts", dtype: "Date" },
+        ...numeric("open", "high", "Close", "close", "volume"),
+      ],
+    });
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        select: ["ts", "open", "high", "volume", "Close"],
+      }),
+    );
+    renderWith({
+      live: [
+        { name: "Date", dtype: "Date" },
+        ...numeric("date", "open", "high", "close", "volume"),
+      ],
+    });
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        select: ["Date", "open", "high", "volume", "close"],
+      }),
+    );
+  });
+
   it("drops a saved column the live schema no longer has", () => {
     query.mockReturnValue({ status: "loading" });
     renderWith({

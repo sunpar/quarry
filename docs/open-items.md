@@ -223,9 +223,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   an effect cleanup as the next view mounts, the boundary shows that error
   instead of the new view and posts it under the new mount, which brings back
   the host's "Fix this view". Loud.
-- **OHLC fails on a case-only name clash**: `Close` and `close` in one dataset
-  make its select fail. Loud. A table's saved sort also goes out before the
-  schema loads, so a sort on a dropped column fails that first query.
 - **Arrowing through a chart picker runs a query per option**: the pickers stay
   mounted while a query loads, and on Windows and Linux a closed `<select>`
   fires a change for each option the arrow keys pass. Nothing cancels a running
