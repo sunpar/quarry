@@ -132,6 +132,31 @@ describe("runtime mount", () => {
     );
   });
 
+  it("drops a render error when the same view id mounts again", async () => {
+    const { runtime } = setup();
+    await act(async () => {
+      runtime.handle({
+        type: "mount",
+        viewId: "v5",
+        source: `export default function V() { throw new Error("broken-view"); }`,
+        initialState: {},
+        datasets: [],
+      });
+    });
+    await waitFor(() => expect(screen.getByText("broken-view")).toBeTruthy());
+    await act(async () => {
+      runtime.handle({
+        type: "mount",
+        viewId: "v5",
+        source: `export default () => <p>repaired-view</p>;`,
+        initialState: {},
+        datasets: [],
+      });
+    });
+    await waitFor(() => expect(screen.getByText("repaired-view")).toBeTruthy());
+    expect(screen.queryByText("broken-view")).toBeNull();
+  });
+
   it("posts error when an import is refused", async () => {
     const { runtime, sent } = setup();
     const source = `import d3 from "d3"; export default () => null;`;

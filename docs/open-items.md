@@ -257,7 +257,6 @@ one up when a researcher needs it.
   render only from a production build today.
 - Disable the view's "Fix this view" after a successful repair, and clear a
   replay-failure banner once a later restart succeeds.
-- `ErrorBoundary` resets only when the view id changes.
 - The Lightweight Charts attribution link is inert under the sandbox (no
   popups).
 - Add component tests for `SessionPage` (reload keeps the session, 401 message),
