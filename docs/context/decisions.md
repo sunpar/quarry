@@ -1384,7 +1384,8 @@ them.
   the button is pressed, so a report while the save dialog is open does not
   change what is saved. Without such a pick they send none, and the server reads
   its latest snapshot when the request arrives, or the initial state before the
-  view has reported. The server stamps each snapshot under its lock with a
+  view has reported. Picking the latest clears the pick, so the scrubber follows
+  newer snapshots. The server stamps each snapshot under its lock with a
   microsecond `ts`, and a report of the same state replaces the last snapshot
   under a fresh one, so a `ts` names one snapshot of a view. Some views send
   such a report on every query change, so a `ts` taken for the latest at a press

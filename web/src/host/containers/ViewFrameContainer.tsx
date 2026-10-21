@@ -63,9 +63,7 @@ export function ViewFrameContainer({
     setPick(null);
     setRestoreState(snapshots.at(-1)?.state ?? null);
   }
-  // A pick of the latest counts as none, so the actions send no ts and the server reads its latest:
-  // a report of the same state restamps the latest, and its old ts would then name nothing.
-  const picked = snapshots.slice(0, -1).findIndex((s) => s.ts === pick);
+  const picked = snapshots.findIndex((s) => s.ts === pick);
   return (
     <div className="flex flex-col gap-2">
       <ViewHost
@@ -104,7 +102,9 @@ export function ViewFrameContainer({
           value={picked === -1 ? snapshots.length - 1 : picked}
           onPick={(at) => {
             const shown = snapshots[at];
-            setPick(shown?.ts ?? null);
+            // A pick of the latest is none: the view then follows newer snapshots, and the actions
+            // send no ts, since a report of the same state restamps the latest.
+            setPick(at === snapshots.length - 1 ? null : (shown?.ts ?? null));
             setRestoreState(shown?.state ?? null);
           }}
         />

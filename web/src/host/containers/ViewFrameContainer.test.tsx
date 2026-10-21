@@ -416,6 +416,16 @@ describe("ViewFrameContainer", () => {
       ]);
     });
 
+    it("follows the latest after a pick of the latest when a newer snapshot arrives", async () => {
+      const { qc } = mount();
+      await cache(qc, [a, b]);
+      pickFirst();
+      fireEvent.change(screen.getByRole("slider"), { target: { value: "1" } });
+      await cache(qc, [a, b, c]);
+      expect(screen.getByText("3 of 3")).toBeTruthy();
+      expect(screen.getByText("picked none")).toBeTruthy();
+    });
+
     it("follows the picked snapshot when a refetch drops older ones", async () => {
       const { iframe, send, qc } = mount();
       const posted: HostToRuntime[] = [];
