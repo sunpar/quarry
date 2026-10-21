@@ -112,13 +112,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   unreadable directory without a log line, and misses a dataset whose parquet
   files sit only in nested directories not named `key=value`. A dangling
   `*.parquet` symlink still lists its dataset. Silent.
-- **Malformed provider responses escape the adapters**: the SDK clients do not
-  validate responses, so a 200 whose body is not JSON raises `JSONDecodeError`
-  inside the call, and one missing fields fails while the adapter converts it,
-  outside its `try`. Neither is a `ProviderError`, so a save's tidy step fails
-  instead of falling back to the raw recipe, and a prompt step fails without its
-  transcript. The Anthropic adapter reads a `text/html` 200 as an empty turn
-  that succeeded. Loud, except the last.
 - **The Codex version check matches a substring**: the runtime accepts any
   app-server whose `userAgent` contains `0.162.1`, so 0.162.10 or 10.162.1 pass.
   Silent: an untested Codex release runs.

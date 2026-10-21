@@ -45,7 +45,7 @@ class OpenAIProvider:
         if tools:
             kwargs["tools"] = to_openai_tools(tools)
         try:
-            response = self._create(**kwargs)
+            return from_openai_response(self._create(**kwargs))
         except (
             openai.RateLimitError,
             openai.InternalServerError,
@@ -54,7 +54,10 @@ class OpenAIProvider:
             raise ProviderError(str(exc), retryable=True) from exc
         except openai.APIError as exc:
             raise ProviderError(str(exc), retryable=False) from exc
-        return from_openai_response(response)
+        except (ValueError, TypeError, AttributeError, IndexError) as exc:
+            # The SDK does not validate a 200's body, so one that is not JSON
+            # fails to decode and one missing fields fails to convert.
+            raise ProviderError(f"malformed provider response: {exc}", retryable=False) from exc
 
 
 def to_openai_messages(system: str, messages: list[Message]) -> list[dict[str, Json]]:

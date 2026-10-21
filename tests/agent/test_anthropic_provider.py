@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import anthropic
@@ -6,6 +7,7 @@ import pytest
 
 from quarry.agent.anthropic_provider import (
     AnthropicProvider,
+    CreateFn,
     from_api_response,
     to_api_messages,
     to_api_tools,
@@ -183,3 +185,22 @@ def test_complete_maps_sdk_errors() -> None:
     with pytest.raises(ProviderError) as info3:
         AnthropicProvider(model="m", create=malformed).complete(system="s", messages=[], tools=[])
     assert info3.value.retryable is False
+
+
+def _not_json(**kwargs: object) -> object:
+    raise json.JSONDecodeError("Expecting value", "<html>", 0)
+
+
+@pytest.mark.parametrize(
+    "create",
+    [
+        lambda **kwargs: "<html>oops</html>",
+        lambda **kwargs: SimpleNamespace(stop_reason=None, stop_details=None, content=None),
+        _not_json,
+    ],
+    ids=["html", "missing fields", "not json"],
+)
+def test_complete_maps_malformed_responses(create: CreateFn) -> None:
+    with pytest.raises(ProviderError) as info:
+        AnthropicProvider(model="m", create=create).complete(system="s", messages=[], tools=[])
+    assert info.value.retryable is False

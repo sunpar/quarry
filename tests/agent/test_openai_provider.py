@@ -6,6 +6,7 @@ import openai
 import pytest
 
 from quarry.agent.openai_provider import (
+    CreateFn,
     OpenAIProvider,
     from_openai_response,
     to_openai_messages,
@@ -180,3 +181,23 @@ def test_complete_maps_errors() -> None:
     with pytest.raises(ProviderError) as info2:
         OpenAIProvider(model="gpt", create=malformed).complete(system="s", messages=[], tools=[])
     assert info2.value.retryable is False
+
+
+def _not_json(**kwargs: object) -> object:
+    raise json.JSONDecodeError("Expecting value", "<html>", 0)
+
+
+@pytest.mark.parametrize(
+    "create",
+    [
+        lambda **kwargs: "<html>oops</html>",
+        lambda **kwargs: SimpleNamespace(choices=None),
+        lambda **kwargs: SimpleNamespace(choices=[]),
+        _not_json,
+    ],
+    ids=["html", "missing fields", "no choices", "not json"],
+)
+def test_complete_maps_malformed_responses(create: CreateFn) -> None:
+    with pytest.raises(ProviderError) as info:
+        OpenAIProvider(model="gpt", create=create).complete(system="s", messages=[], tools=[])
+    assert info.value.retryable is False

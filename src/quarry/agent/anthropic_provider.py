@@ -53,6 +53,7 @@ class AnthropicProvider:
                 fallbacks="default",
                 **extra,
             )
+            return from_api_response(response)
         except (
             anthropic.RateLimitError,
             anthropic.InternalServerError,
@@ -61,7 +62,10 @@ class AnthropicProvider:
             raise ProviderError(str(exc), retryable=True) from exc
         except anthropic.APIError as exc:
             raise ProviderError(str(exc), retryable=False) from exc
-        return from_api_response(response)
+        except (ValueError, TypeError, AttributeError) as exc:
+            # The SDK does not validate a 200's body, so one that is not JSON
+            # fails to decode and one missing fields fails to convert.
+            raise ProviderError(f"malformed provider response: {exc}", retryable=False) from exc
 
 
 def to_api_messages(messages: list[Message]) -> list[dict[str, Json]]:
@@ -109,11 +113,11 @@ def to_api_tools(tools: list[ToolDef]) -> list[dict[str, Json]]:
 
 
 def from_api_response(response: object) -> AssistantTurn:
-    stop_reason = str(getattr(response, "stop_reason", "end_turn"))
+    stop_reason = str(response.stop_reason)  # type: ignore[attr-defined]
     stop = STOP_MAP.get(stop_reason, "end")
     text_parts: list[str] = []
     calls: list[ToolCall] = []
-    for block in getattr(response, "content", []):
+    for block in response.content:  # type: ignore[attr-defined]
         kind = getattr(block, "type", "")
         if kind == "text":
             text_parts.append(str(block.text))
