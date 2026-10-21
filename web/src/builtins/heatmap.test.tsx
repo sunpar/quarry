@@ -159,4 +159,32 @@ describe("heatmap built-in", () => {
     render(<Heatmap datasets={["rets"]} />);
     expect(screen.getByText("Showing the first 500 rows.")).toBeTruthy();
   });
+
+  it("keeps its pickers above a query error", () => {
+    query.mockReturnValue({ status: "error", message: "unknown column" });
+    render(<Heatmap datasets={["rets"]} />);
+    for (const label of ["Row", "Column", "Value", "Aggregate"])
+      expect(screen.getByLabelText(label)).toBeTruthy();
+    expect(screen.getByText("unknown column")).toBeTruthy();
+    expect(screen.queryByTestId("plot")).toBeNull();
+    expect(screen.queryByText(/Showing the first/)).toBeNull();
+  });
+
+  it("lets the researcher re-pick a saved column the kernel refuses", () => {
+    const refused = pivotOf("ticker", "date", "ret");
+    query.mockImplementation((s) =>
+      JSON.stringify(s) === JSON.stringify(refused)
+        ? { status: "error", message: "cannot pivot on date" }
+        : { status: "loading" },
+    );
+    renderWith({ columns: { row: "ticker", column: "date", value: "ret" } });
+    expect(query).toHaveBeenLastCalledWith(refused);
+    expect(screen.getByText("cannot pivot on date")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Row"), {
+      target: { value: "date" },
+    });
+    expect(query).toHaveBeenLastCalledWith(pivotOf("date", "ticker", "ret"));
+    expect(screen.getByLabelText("Row")).toBeTruthy();
+    expect(screen.getByText("Loading")).toBeTruthy();
+  });
 });

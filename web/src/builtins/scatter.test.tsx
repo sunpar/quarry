@@ -150,4 +150,14 @@ describe("scatter built-in", () => {
       expect.objectContaining({ select: ["x", "y"] }),
     );
   });
+
+  it("keeps its pickers above a query error", () => {
+    query.mockReturnValue({ status: "error", message: "unknown column" });
+    render(<Scatter datasets={["pts"]} />);
+    for (const label of ["X", "Y", "Color"])
+      expect(screen.getByLabelText(label)).toBeTruthy();
+    expect(screen.getByText("unknown column")).toBeTruthy();
+    expect(screen.queryByTestId("plot")).toBeNull();
+    expect(screen.queryByText(/Showing the first/)).toBeNull();
+  });
 });

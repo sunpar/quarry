@@ -80,18 +80,10 @@ export default function BarLine({ datasets }: Props) {
         This dataset needs a category column and a numeric column.
       </p>
     );
-  if (result.status === "loading")
-    return <p className="p-4 text-sm text-muted-foreground">Loading</p>;
-  if (result.status === "error")
-    return (
-      <pre className="p-4 font-mono text-sm text-destructive">
-        {result.message}
-      </pre>
-    );
 
   // Integer sums arrive as exact decimal strings, and a group with no values aggregates
   // to null, which Recharts leaves a gap for.
-  const data = result.rows.map((row) => {
+  const data = (result.status === "success" ? result.rows : []).map((row) => {
     const v = parseValue(row[key] ?? null);
     return { ...row, [key]: Number.isFinite(v) ? v : null };
   });
@@ -124,25 +116,34 @@ export default function BarLine({ datasets }: Props) {
           onChange={(v) => setAgg(v as Agg["fn"])}
         />
       </div>
-      {(result.truncated || result.rows.length >= LIMIT) && (
-        <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
-          Showing the first {result.rows.length.toLocaleString()} rows.
-        </p>
+      {result.status === "success" &&
+        (result.truncated || result.rows.length >= LIMIT) && (
+          <p className="border-b border-border px-3 py-1 text-sm text-muted-foreground">
+            Showing the first {result.rows.length.toLocaleString()} rows.
+          </p>
+        )}
+      {result.status === "loading" ? (
+        <p className="p-4 text-sm text-muted-foreground">Loading</p>
+      ) : result.status === "error" ? (
+        <pre className="whitespace-pre-wrap p-4 font-mono text-sm text-destructive">
+          {result.message}
+        </pre>
+      ) : (
+        <div className="min-h-0 flex-1 p-2">
+          <ResponsiveContainer width="100%" height="100%">
+            <Chart data={data}>
+              <XAxis dataKey={category} />
+              <YAxis />
+              <Tooltip />
+              {kind === "bar" ? (
+                <Bar dataKey={key} fill="#1e6e63" />
+              ) : (
+                <Line dataKey={key} stroke="#1e6e63" dot={false} />
+              )}
+            </Chart>
+          </ResponsiveContainer>
+        </div>
       )}
-      <div className="min-h-0 flex-1 p-2">
-        <ResponsiveContainer width="100%" height="100%">
-          <Chart data={data}>
-            <XAxis dataKey={category} />
-            <YAxis />
-            <Tooltip />
-            {kind === "bar" ? (
-              <Bar dataKey={key} fill="#1e6e63" />
-            ) : (
-              <Line dataKey={key} stroke="#1e6e63" dot={false} />
-            )}
-          </Chart>
-        </ResponsiveContainer>
-      </div>
     </div>
   );
 }

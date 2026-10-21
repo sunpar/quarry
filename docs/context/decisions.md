@@ -1442,7 +1442,8 @@ them.
   line chart resolves the value first and skips `<value>_<fn>`, the aggregate's
   name, as a category; with no other column left it groups by a numeric one,
   then by the value itself, which the kernel accepts, because the manifest's
-  `any` role matches all-numeric datasets.
+  `any` role matches all-numeric datasets. A loading or failed query never hides
+  the pickers either: its message shows under them.
 - **The heatmap never defaults to a numeric key**: the pivot runs eagerly and
   makes one column per distinct value of its column key, which `row_cap` and
   `limit` do not bound, so a float key made a grid thousands of columns wide on
