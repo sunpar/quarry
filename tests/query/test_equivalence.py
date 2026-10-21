@@ -123,6 +123,32 @@ def test_integer_sums_agree_exactly(spec: QuerySpec, dtype: pl.DataType) -> None
     assert via_polars.rows() == [("a", 2 * top), ("b", None)]
 
 
+@pytest.mark.parametrize(
+    "filter_",
+    [
+        Filter(col="x", op="eq", value=0.1),
+        Filter(col="x", op="le", value=0.1),
+        Filter(col="x", op="gt", value=0.1),
+        Filter(col="x", op="in", value=[0.1]),
+        Filter(col="x", op="between", value=[0.1, 0.2]),
+    ],
+    ids=lambda f: f.model_dump_json(),
+)
+@pytest.mark.parametrize("dtype", [pl.Float32, pl.Float16], ids=str)
+def test_a_narrow_float_column_compares_as_float64_on_polars_targets(
+    filter_: Filter, dtype: pl.DataType
+) -> None:
+    # The viewer reads narrow floats as Float64, where a stored 0.1 is not 0.1. Not to_sql or
+    # duckdb: a relation still compares a Float32 column at its own width, an open item.
+    spec = QuerySpec(dataset="t", filters=[filter_], select=["n"], sort=[Sort(col="n")])
+    frame = pl.DataFrame({"n": [1, 2, 3], "x": pl.Series([0.05, 0.1, 0.2], dtype=dtype)})
+    wide = to_polars(spec, frame.cast({"x": pl.Float64})).collect()["n"].to_list()
+    assert to_polars(spec, frame).collect()["n"].to_list() == wide
+    for backing in ("polars", "polars_lazy"):
+        out = execute(to_source(spec, backing, schema=frame.schema), {"t": bind(frame, backing)})
+        assert out["n"].to_list() == wide
+
+
 @pytest.mark.parametrize(("filter_", "selected"), ZONED_FILTERS, ids=ZONED_IDS)
 def test_iso_strings_against_a_zoned_column_agree(filter_: Filter, selected: list[int]) -> None:
     spec = QuerySpec(dataset="t", filters=[filter_], select=["n"], sort=[Sort(col="n")])

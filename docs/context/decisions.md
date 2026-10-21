@@ -32,7 +32,15 @@ them.
   to the column dtype for `to_polars` and for schema-aware `to_source`. JSON
   from JavaScript drops the `.0` of whole floats, and polars 2.0 `is_in` is
   strictly typed, so `ret in [0]` failed on a float column. A fractional number
-  against an integer column compares as Float64.
+  against an integer column compares as Float64, and so does any number against
+  a Float32 or Float16 column, as the viewer reads those columns; at the
+  column's width a stored 0.1 would equal 0.1. Relations still compare at the
+  column's type until `to_sql` knows column types: see "Relations compare
+  Float32 and Decimal filters at their own type" in the
+  [open items](../open-items.md#known-problems). Cost: the `.cast(pl.Float64)`
+  stops parquet row-group statistics pruning on lazy scans (1.2 to 8.2 ms for
+  `eq 5.0` on a 20M-row Float32 column) and builds a Float64 copy per filter on
+  eager frames.
 - **One column-reference check**: `quarry/query/columns.py` checks every column
   a spec names, for every target, since two copies would drift. A pivot's sort
   and select are checked against the pivoted frame, because its columns come

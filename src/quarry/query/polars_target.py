@@ -18,6 +18,7 @@ CompareOp = Literal["eq", "ne", "lt", "le", "gt", "ge", "in", "not_in", "between
 _UP_TO_64_BIT_INTEGERS: Final = frozenset(
     {pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64}
 )
+_NARROW_FLOATS: Final = frozenset({pl.Float16, pl.Float32})
 LINE_INTEGER_TYPES: Final[dict[pl.DataType, str]] = {
     pl.Int128(): "HUGEINT",
     pl.UInt128(): "UHUGEINT",
@@ -110,10 +111,14 @@ def coerce_literal(value: Json, dtype: pl.DataType) -> CoercedLiteral:
 
     polars 2.0 `is_in` is strictly typed, and JSON from JS drops the `.0` of whole floats.
     An integer column compared with a fractional number must be compared as Float64,
-    which `compare_as_float` signals; whole floats against it simply become ints.
+    which `compare_as_float` signals; whole floats against it simply become ints. A Float32
+    or Float16 column is always compared as Float64, as the viewer reads it; polars would
+    round the literal to the column's width instead.
     """
     items = value if isinstance(value, list) else [value]
-    as_float = dtype.is_integer() and any(_is_fractional(item) for item in items)
+    as_float = dtype in _NARROW_FLOATS or (
+        dtype.is_integer() and any(_is_fractional(item) for item in items)
+    )
     target = pl.Float64() if as_float else dtype
     coerced = [_coerce_item(item, target) for item in items]
     return CoercedLiteral(coerced if isinstance(value, list) else coerced[0], as_float)

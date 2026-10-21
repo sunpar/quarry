@@ -242,10 +242,20 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **A busy session's component save shares a 409**: a busy session's 409 on
   `POST /components` shares its code with an existing id's, though its message
   says the session is busy. The open question on its code covers the fix.
-- **Pivot filters on Float32 and Float16 compare at different precisions**:
-  the viewer reads those columns as doubles, while the kernel rounds the filter
-  literal to the column's width, so for a stored 0.1 the viewer's `== 0.1`
-  keeps no rows and "To code"'s keeps the row. Silent.
+- **Relations compare Float32 and Decimal filters at their own type**: polars
+  and the viewer compare a Float32 column, and a fraction against a Decimal
+  column, as Float64, but a relation's query compares the Float32 column at
+  float width and the Decimal column exactly. So on a relation `== 0.1` keeps a
+  stored Float32 0.1 the viewer drops, and on a Decimal column `> 0.3` keeps a
+  stored 0.30000000000000000001 that polars drops. The fix needs column types
+  in `to_sql`: cast a FLOAT column to DOUBLE and render the literal as a quoted
+  string cast (`'0.1'::DOUBLE`), since a bare numeric `::DOUBLE` parses through
+  DECIMAL and can land 1 ULP off. DuckDB's own DECIMAL to DOUBLE cast is not
+  correctly rounded either, so a Decimal column needs more than a cast. Silent.
+- **Whole floats from 1e16 compare rounded on relations**: `quote_literal`
+  renders a whole float of 1e16 or more through `repr` as `1e+16`, which DuckDB
+  types as DOUBLE, so on a relation `== 1e16` against an integer column keeps
+  10^16 + 1, which polars drops. Silent.
 - **Extension columns load into the pivot but not into its queries**: polars
   refuses comparisons, `is_in`, sums, means, min, max and a string cast on an
   extension column, so a pivot that filters, aggregates or splits on one shows

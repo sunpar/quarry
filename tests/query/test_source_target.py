@@ -293,6 +293,13 @@ def test_schema_compares_an_integer_column_with_a_fraction_as_float() -> None:
     assert 'pl.col("volume").cast(pl.Float64) < 300.5' in src
 
 
+@pytest.mark.parametrize("dtype", [pl.Float32(), pl.Float16()], ids=str)
+def test_schema_compares_a_narrow_float_column_as_float64(dtype: pl.DataType) -> None:
+    spec = QuerySpec(dataset="t", filters=[Filter(col="x", op="eq", value=0.1)])
+    src = to_source(spec, "polars", schema={"x": dtype})
+    assert 'pl.col("x").cast(pl.Float64) == 0.1' in src
+
+
 # Not duckdb: a relation's filters run in its SQL, which test_equivalence checks.
 @pytest.mark.parametrize("backing", ["polars", "polars_lazy"])
 @pytest.mark.parametrize(("filter_", "selected"), ZONED_FILTERS, ids=ZONED_IDS)
