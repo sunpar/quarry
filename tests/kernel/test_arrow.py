@@ -40,6 +40,7 @@ def mixed() -> pl.DataFrame:
             "es": pl.Series([{"a": 1}, None]).ext.to(
                 pl.Extension("x.s", pl.Struct({"a": pl.Int64}))
             ),
+            "ei": pl.Series([1, None]).ext.to(pl.Extension("x.i", pl.Int64)),
             "null": pl.Series([None, None], dtype=pl.Null),
         }
     )
@@ -70,6 +71,7 @@ def test_for_viewer_casts_every_unsupported_dtype() -> None:
             "eu": pl.Float64(),
             "ed": pl.String(),
             "es": pl.String(),
+            "ei": pl.Int64(),
             "null": pl.Null(),
         }
     )
