@@ -1,5 +1,7 @@
+import errno
 import json
 import logging
+import os
 from pathlib import Path
 
 import pytest
@@ -14,7 +16,8 @@ from quarry.components.library import (
     satisfies,
 )
 from quarry.kernel.datasets import Column, DatasetMeta
-from tests.fixtures import chmodded, root_ignores_modes
+from quarry.projects.files import write_atomic
+from tests.fixtures import chmodded, record_fsyncs, root_ignores_modes
 
 
 def write_component(
@@ -182,17 +185,19 @@ def test_requirements_for_lists_each_dtype_class_present() -> None:
     assert requirements_for(meta([])) == []
 
 
-def test_write_component_then_library_finds_it(tmp_path: Path) -> None:
-    manifest = ComponentManifest(
+def generated() -> ComponentManifest:
+    return ComponentManifest(
         id="my-scatter",
         name="My scatter",
         description="",
-        tags=["scatter"],
         origin="generated",
         created_at="2026-10-09T00:00:00Z",
     )
+
+
+def test_write_component_then_library_finds_it(tmp_path: Path) -> None:
     path = library.write_component(
-        tmp_path, manifest, "export default function V() { return null }"
+        tmp_path, generated(), "export default function V() { return null }"
     )
     assert path == tmp_path / "my-scatter"
     entry = ComponentLibrary([tmp_path]).get("my-scatter")
@@ -200,16 +205,36 @@ def test_write_component_then_library_finds_it(tmp_path: Path) -> None:
     assert entry.source_path.read_text().startswith("export default")
 
 
+def test_write_component_syncs_the_root_that_gained_a_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    synced = record_fsyncs(monkeypatch)
+    library.write_component(tmp_path, generated(), "")
+    # A new folder is durable only once the directory holding its entry is synced.
+    assert any(os.path.samestat(s, tmp_path.stat()) for s in synced)
+
+
+def test_failed_write_component_frees_its_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def full_disk_after_manifest(path: Path, text: str) -> None:
+        write_atomic(path, text)
+        # Both files exist, as when the manifest's rename lands but its fsync fails.
+        if path.name == "manifest.json":
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr("quarry.components.library.write_atomic", full_disk_after_manifest)
+    with pytest.raises(OSError, match="No space left"):
+        library.write_component(tmp_path, generated(), "")
+    assert not (tmp_path / "my-scatter").exists()
+    monkeypatch.undo()
+    library.write_component(tmp_path, generated(), "")
+    assert ComponentLibrary([tmp_path]).get("my-scatter") is not None
+
+
 def test_write_component_leaves_a_missing_root_to_quarry_serve(tmp_path: Path) -> None:
-    manifest = ComponentManifest(
-        id="my-scatter",
-        name="My scatter",
-        description="",
-        origin="generated",
-        created_at="2026-10-09T00:00:00Z",
-    )
     with pytest.raises(FileNotFoundError):
-        library.write_component(tmp_path / "gone" / "components", manifest, "")
+        library.write_component(tmp_path / "gone" / "components", generated(), "")
     assert not (tmp_path / "gone").exists()
 
 

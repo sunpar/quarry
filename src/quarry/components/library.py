@@ -6,13 +6,14 @@ import json
 import logging
 import re
 from collections import Counter
+from contextlib import suppress
 from pathlib import Path
 from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 from quarry.kernel.datasets import DatasetMeta
-from quarry.projects.files import PRIVATE_DIR, child, write_atomic
+from quarry.projects.files import PRIVATE_DIR, child, sync_dir, write_atomic
 
 DtypeClass = Literal["datetime", "numeric", "string", "other"]
 _TYPED: Final[tuple[Literal["datetime", "numeric", "string"], ...]] = (
@@ -124,12 +125,24 @@ def write_component(root: Path, manifest: ComponentManifest, source: str) -> Pat
     """Write `manifest` and `source` into a new `root/<id>/`, returning that directory. A folder
     already there is a FileExistsError: the library skips one with a bad manifest, so it may
     hold files a researcher wrote. The library lists a component once both files exist, so
-    the manifest goes last."""
+    the manifest goes last. A save that fails removes what it wrote, so the id stays free;
+    only a crash can leave the folder behind."""
     root.mkdir(mode=PRIVATE_DIR, exist_ok=True)
     target = child(root, manifest.id)
     target.mkdir(mode=PRIVATE_DIR)
-    write_atomic(target / "component.tsx", source)
-    write_atomic(target / "manifest.json", manifest.model_dump_json(by_alias=True, indent=2))
+    try:
+        write_atomic(target / "component.tsx", source)
+        write_atomic(target / "manifest.json", manifest.model_dump_json(by_alias=True, indent=2))
+        # The new folder is durable only once its entry in `root` is.
+        sync_dir(root)
+    except BaseException:
+        for name in ("component.tsx", "manifest.json"):
+            (target / name).unlink(missing_ok=True)
+        # Not rmtree: a file someone else put here stays, and the save's own error is the one
+        # reported.
+        with suppress(OSError):
+            target.rmdir()
+        raise
     return target
 
 
