@@ -57,12 +57,17 @@ class View(BaseModel):
     datasets: list[str] = Field(default_factory=list)
     snapshots: list[Snapshot] = Field(default_factory=list)
 
-    def latest(self) -> tuple[dict[str, Json], list[dict[str, Json]]]:
-        """The state and queries the view shows now: its latest snapshot's, or its initial state
-        before it has reported one."""
-        if self.snapshots:
-            return self.snapshots[-1].state, self.snapshots[-1].queries
-        return self.initial_state, []
+    def shown(self, back: int = 0) -> tuple[dict[str, Json], list[dict[str, Json]]]:
+        """The state and queries of the snapshot `back` before the latest: 0 is what the view shows
+        now, its initial state before it has reported one, and more is one the researcher picked
+        in the history. Counted back because the oldest drop off past the cap while the host's
+        cached list keeps them until a refetch. ValueError when there is no such snapshot."""
+        if back == 0 and not self.snapshots:
+            return self.initial_state, []
+        if not 0 <= back < len(self.snapshots):
+            raise ValueError(f"no snapshot {back} back")
+        picked = self.snapshots[-1 - back]
+        return picked.state, picked.queries
 
     @classmethod
     def from_pending(cls, pending: PendingView) -> View:

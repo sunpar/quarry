@@ -176,9 +176,14 @@ function SessionColumn({
                     repair,
                   })
                 }
-                actions={
-                  <StepActions sessionId={id} step={step} onDone={setNotice} />
-                }
+                actions={(picked) => (
+                  <StepActions
+                    sessionId={id}
+                    step={step}
+                    picked={picked}
+                    onDone={setNotice}
+                  />
+                )}
               />
             )}
             renderDatasetAction={(step, name) => (

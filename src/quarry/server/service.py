@@ -232,14 +232,16 @@ class SessionService:
     def query(self, session_id: str, spec: QuerySpec) -> QueryResult:
         return self._kernel(session_id).query(spec)
 
-    def to_code(self, session_id: str, step_id: str) -> tuple[str, builtins.list[str]]:
-        """The step's view as Python, from what it shows now, and what that leaves out.
-        StepNotFound for a step without a view; ValueError when the view has run no query or one
-        of its queries is malformed."""
+    def to_code(
+        self, session_id: str, step_id: str, snapshots_back: int
+    ) -> tuple[str, builtins.list[str]]:
+        """The step's view as Python, from the snapshot `snapshots_back` before the latest, and
+        what that leaves out. StepNotFound for a step without a view; ValueError when there is no
+        such snapshot, it has run no query or one of its queries is malformed."""
         view = self.step(session_id, step_id).view
         if view is None:
             raise StepNotFound(step_id)
-        queries, dropped = to_code_input(*view.latest())
+        queries, dropped = to_code_input(*view.shown(snapshots_back))
         if not queries:
             raise ValueError("the view has run no query yet")
         specs = [QuerySpec.model_validate(q) for q in queries]

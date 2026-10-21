@@ -21,16 +21,21 @@ import { ToCodeDrawer } from "../components/ToCodeDrawer";
 interface StepActionsProps {
   sessionId: string;
   step: Step;
+  /** The position of the snapshot picked in the view's history, absent without a pick. */
+  picked?: number;
   dataset?: string;
   onDone: (message: string) => void;
 }
 
 type Pending =
-  { kind: "dataset"; name: string } | { kind: "view"; pin: boolean } | null;
+  | { kind: "dataset"; name: string }
+  | { kind: "view"; pin: boolean; picked?: number }
+  | null;
 
 export function StepActions({
   sessionId,
   step,
+  picked,
   dataset,
   onDone,
 }: StepActionsProps) {
@@ -46,6 +51,11 @@ export function StepActions({
   const saveComponent = useSaveComponent();
   const [toLibrary, setToLibrary] = useState<View | null>(null);
   const refusal = saveComponent.error;
+  // The server counts back from the latest, since it drops the oldest past its cap. A save keeps
+  // the position picked when its button was pressed and counts back only when it sends, so it
+  // still names that snapshot after the view reports another while the dialog is open.
+  const snapshotsBack = (at?: number) =>
+    at === undefined ? 0 : (step.view?.snapshots.length ?? 0) - 1 - at;
 
   const onSave = (choice: SaveChoice) => {
     const { slug } = choice;
@@ -78,6 +88,7 @@ export function StepActions({
             step_id: step.id,
             name: choice.name,
             pin: pending.pin,
+            snapshots_back: snapshotsBack(pending.picked),
           },
         },
         { onSuccess: (meta) => onDone(`Saved view ${meta.name}`), onError },
@@ -124,7 +135,7 @@ export function StepActions({
             variant="ghost"
             size="xs"
             disabled={saving}
-            onClick={() => setPending({ kind: "view", pin: false })}
+            onClick={() => setPending({ kind: "view", pin: false, picked })}
           >
             Save view
           </Button>
@@ -132,7 +143,7 @@ export function StepActions({
             variant="ghost"
             size="xs"
             disabled={saving}
-            onClick={() => setPending({ kind: "view", pin: true })}
+            onClick={() => setPending({ kind: "view", pin: true, picked })}
           >
             Pin to canvas
           </Button>
@@ -144,13 +155,16 @@ export function StepActions({
               step.view.snapshots.length === 0 || toCodeRequest.isPending
             }
             onClick={() =>
-              toCodeRequest.mutate(step.id, {
-                onSuccess: (rendered) => {
-                  submitManual.reset();
-                  setToCode(rendered);
+              toCodeRequest.mutate(
+                { stepId: step.id, snapshotsBack: snapshotsBack(picked) },
+                {
+                  onSuccess: (rendered) => {
+                    submitManual.reset();
+                    setToCode(rendered);
+                  },
+                  onError,
                 },
-                onError,
-              })
+              )
             }
           >
             To code

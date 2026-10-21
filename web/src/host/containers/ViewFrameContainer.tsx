@@ -19,7 +19,8 @@ interface ViewFrameContainerProps {
   /** Changes whenever kernel data may have: a step finished or a new kernel started. */
   dataVersion: string;
   onRepair: (repair: RepairRequest) => void;
-  actions?: ReactNode;
+  /** Given the position of the snapshot picked in the history, absent without a pick. */
+  actions?: (picked?: number) => ReactNode;
 }
 
 // An updater that leaves an uncached session (undefined) as it is.
@@ -49,12 +50,23 @@ export function ViewFrameContainer({
   const api = useApi();
   const queryClient = useQueryClient();
   const [restoreState, setRestoreState] = useState<JsonObject | null>(null);
-  // Each report from the view drops the scrubber's pick: the view has left the picked state even
-  // when its report replaces the last snapshot and the count holds. A restore sends no report,
-  // and a refetch alone keeps the pick. A prop rather than a key, so the slider keeps its focus.
+  // A pick in the scrubber holds only while the snapshot count and the view's report count it was
+  // made at both hold. Each report drops it: the view has left the picked state even when its
+  // report replaces the last snapshot and the count holds. A restore sends no report, and a
+  // refetch alone keeps the pick. Counted here, not keyed on the scrubber, so it keeps its focus.
   const [reports, setReports] = useState(0);
+  const [pick, setPick] = useState<{
+    at: number;
+    of: number;
+    reports: number;
+  } | null>(null);
   const view = step.view;
   if (view === null) return null;
+  const { snapshots } = view;
+  const picked =
+    pick !== null && pick.of === snapshots.length && pick.reports === reports
+      ? pick.at
+      : undefined;
   return (
     <div className="flex flex-col gap-2">
       <ViewHost
@@ -91,11 +103,17 @@ export function ViewFrameContainer({
       />
       <div className="flex items-center gap-4 empty:hidden">
         <SnapshotScrubber
-          snapshots={view.snapshots}
-          reports={reports}
-          onPick={setRestoreState}
+          count={snapshots.length}
+          value={picked ?? snapshots.length - 1}
+          onPick={(at) => {
+            setPick({ at, of: snapshots.length, reports });
+            const shown = snapshots[at];
+            if (shown !== undefined) setRestoreState(shown.state);
+          }}
         />
-        {actions !== undefined && <div className="ml-auto">{actions}</div>}
+        {actions !== undefined && (
+          <div className="ml-auto">{actions(picked)}</div>
+        )}
       </div>
     </div>
   );

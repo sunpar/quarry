@@ -99,7 +99,13 @@ export function useSubmitManual(id: string) {
 export function useToCode(sessionId: string) {
   const api = useApi();
   return useMutation({
-    mutationFn: (stepId: string) => api.toCode(sessionId, stepId),
+    mutationFn: ({
+      stepId,
+      snapshotsBack,
+    }: {
+      stepId: string;
+      snapshotsBack: number;
+    }) => api.toCode(sessionId, stepId, snapshotsBack),
   });
 }
 

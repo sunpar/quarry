@@ -50,7 +50,7 @@ const step: Step = {
 
 const json = (body: unknown) => new Response(JSON.stringify(body));
 
-function setup(saveFails = false) {
+function setup(saveFails = false, shown = step, picked?: number) {
   const calls: string[] = [];
   const bodies = new Map<string, unknown>();
   let finishSave = () => {};
@@ -70,14 +70,23 @@ function setup(saveFails = false) {
   };
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onDone = vi.fn();
-  render(
+  const api = new ApiClient("t", fetchImpl);
+  const tree = (s: Step, p?: number) => (
     <QueryClientProvider client={qc}>
-      <ApiProvider client={new ApiClient("t", fetchImpl)}>
-        <StepActions sessionId="s1" step={step} onDone={onDone} />
+      <ApiProvider client={api}>
+        <StepActions sessionId="s1" step={s} picked={p} onDone={onDone} />
       </ApiProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
-  return { calls, bodies, finishSave, onDone, qc };
+  const { rerender } = render(tree(shown, picked));
+  return {
+    calls,
+    bodies,
+    finishSave,
+    onDone,
+    qc,
+    rerender: (s: Step, p?: number) => rerender(tree(s, p)),
+  };
 }
 
 async function pin() {
@@ -119,8 +128,48 @@ describe("StepActions pin to canvas", () => {
     expect(bodies.get("POST /projects/p/views")).toMatchObject({
       name: "closes",
       pin: true,
+      snapshots_back: 0,
     });
     expect(calls.filter((c) => c.startsWith("PUT"))).toEqual([]);
+  });
+
+  it("saves the snapshot picked when the button was pressed", async () => {
+    const withSnapshots = (count: number): Step => ({
+      ...step,
+      view: step.view && {
+        ...step.view,
+        snapshots: Array.from({ length: count }, (_, n) => ({
+          ts: `t${n}`,
+          state: { n },
+          queries: [],
+        })),
+      },
+    });
+    const { bodies, finishSave, onDone, rerender } = setup(
+      false,
+      withSnapshots(3),
+      0,
+    );
+    finishSave();
+    fireEvent.click(screen.getByRole("button", { name: "Save view" }));
+    // A report while the dialog is open adds a snapshot and drops the pick.
+    rerender(withSnapshots(4));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Name"), {
+      target: { value: "closes" },
+    });
+    const save = within(dialog).getByRole<HTMLButtonElement>("button", {
+      name: "Save view",
+    });
+    await waitFor(() => expect(save.disabled).toBe(false));
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(onDone).toHaveBeenCalledWith("Saved view closes"),
+    );
+    expect(bodies.get("POST /projects/p/views")).toMatchObject({
+      pin: false,
+      snapshots_back: 3,
+    });
   });
 
   it("marks the project stale when the save fails", async () => {

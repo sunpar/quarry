@@ -56,7 +56,7 @@ const cachedSession = (snapshots: Snapshot[]): Session => ({
 });
 
 // Passes the step from the cached session once there is one, as the session page does, so
-// recorded snapshots and refetches reach the scrubber.
+// recorded snapshots and refetches reach the scrubber. Its actions show the pick they are given.
 function CachedStep(props: { dataVersion: string; onRepair: () => void }) {
   const { data } = useQuery<Session>({
     queryKey: keys.session("sess"),
@@ -67,6 +67,7 @@ function CachedStep(props: { dataVersion: string; onRepair: () => void }) {
       sessionId="sess"
       step={data?.steps[0] ?? step}
       running={false}
+      actions={(picked) => <output>picked {picked ?? "none"}</output>}
       {...props}
     />
   );
@@ -336,6 +337,38 @@ describe("ViewFrameContainer", () => {
     const pickFirst = () =>
       fireEvent.change(screen.getByRole("slider"), { target: { value: "0" } });
 
+    it("restores the picked snapshot's state and hands the pick to its actions", async () => {
+      const { iframe, send, qc } = mount();
+      const posted: HostToRuntime[] = [];
+      vi.spyOn(
+        iframe.contentWindow as Window,
+        "postMessage",
+      ).mockImplementation((m: HostToRuntime) => posted.push(m));
+      await cache(qc, [a, b]);
+      expect(screen.getByText("picked none")).toBeTruthy();
+      pickFirst();
+      expect(screen.getByText("picked 0")).toBeTruthy();
+      // The restore waits for the mount.
+      await act(async () => iframe.dispatchEvent(new Event("load")));
+      const connection = posted[0];
+      if (connection?.type !== "connect") throw new Error("not connected");
+      await act(async () => send({ type: "ready", id: connection.id }));
+      expect(posted).toContainEqual({
+        type: "restore",
+        viewId: "s1",
+        state: a.state,
+      });
+    });
+
+    it("moves to the latest when a new snapshot arrives", async () => {
+      const { qc } = mount();
+      await cache(qc, [a, b]);
+      pickFirst();
+      await cache(qc, [a, b, { ts: "t2", state: { k: "c" }, queries: [] }]);
+      expect(screen.getByText("3 of 3")).toBeTruthy();
+      expect(screen.getByText("picked none")).toBeTruthy();
+    });
+
     it("moves to the latest when the view reports the last state again", async () => {
       const { send, qc } = mount();
       await cache(qc, [a, b]);
@@ -356,6 +389,7 @@ describe("ViewFrameContainer", () => {
         expect(cached?.steps[0]?.view?.snapshots[1]?.ts).not.toBe("t1");
         expect(screen.getByText("2 of 2")).toBeTruthy();
       });
+      expect(screen.getByText("picked none")).toBeTruthy();
       // The same input, so a report that lands mid-drag keeps the drag and focus.
       expect(screen.getByRole("slider")).toBe(slider);
     });
@@ -367,6 +401,7 @@ describe("ViewFrameContainer", () => {
       // The server stamps its own ts, so a refetch after a recorded snapshot changes the last one's.
       await cache(qc, [a, { ...b, ts: "t1-server" }]);
       expect(screen.getByText("1 of 2")).toBeTruthy();
+      expect(screen.getByText("picked 0")).toBeTruthy();
     });
   });
 

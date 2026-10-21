@@ -134,11 +134,17 @@ export class ApiClient {
     return this.request("GET", "/libraries");
   }
 
-  /** The step's view as Python, from what it shows now; the server picks the queries. */
-  toCode(sessionId: string, stepId: string): Promise<ToCodeResponse> {
+  /** The step's view as Python, from the snapshot `snapshotsBack` before the latest; the server
+   * picks the queries. */
+  toCode(
+    sessionId: string,
+    stepId: string,
+    snapshotsBack: number,
+  ): Promise<ToCodeResponse> {
     return this.request(
       "POST",
       `/sessions/${sessionId}/steps/${stepId}/to-code`,
+      { snapshots_back: snapshotsBack },
     );
   }
 

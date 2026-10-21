@@ -235,6 +235,8 @@ export interface SaveViewRequest {
   mode: SaveMode;
   /** Also put the view on the project's canvas. */
   pin?: boolean;
+  /** The snapshot picked in the history, counted back from the latest; absent or 0 is the latest. */
+  snapshots_back?: number;
 }
 
 export interface RecallRequest {

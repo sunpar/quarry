@@ -317,6 +317,13 @@ def test_to_code_route_renders_what_the_view_shows_and_rejects(tmp_path: Path) -
         show({"spec": spec, "dropped": ["expression e"]}, [{"dataset": "df", "limit": 1}])
         pivot = client.post(route).json()
         assert "group_by" in pivot["code"] and pivot["dropped"] == ["expression e"]
+        # A snapshot picked in the history, counted back from the latest.
+        picked = client.post(route, json={"snapshots_back": 1}).json()
+        assert "df_1 = (" in picked["code"] and "group_by" not in picked["code"]
+        assert picked["dropped"] == []
+        for back in (2, -1):
+            gone = client.post(route, json={"snapshots_back": back})
+            assert gone.status_code == 400 and gone.json()["detail"] == f"no snapshot {back} back"
         show({}, [{"dataset": "df", "filters": [{"col": "x", "op": "eq", "value": 1}]}])
         bad = client.post(route)
         assert bad.status_code == 400

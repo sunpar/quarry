@@ -987,19 +987,22 @@ them.
   which relied on every caller memoising too, and took schemas from an
   `ownDatasets` prop of step metadata, which would have brought stale schemas
   back. Cost if wrong: one extra datasets fetch per schema request.
-- **The snapshot scrubber follows the latest**: `SnapshotScrubber` keeps the
+- **The snapshot scrubber follows the latest**: `ViewFrameContainer` keeps the
   researcher's pick only while the snapshot count and the view's report count it
   was made at both hold, so a new snapshot or a report that replaces the last
-  one at the same count moves it to the latest. `ViewFrameContainer` passes the
-  report count as a prop, not a key, so a report that lands mid-drag keeps the
-  slider and its focus. A restore sends no report, and a refetch alone keeps the
-  pick; a key on the latest `ts` would not, since the cache stamps a posted
-  snapshot with the browser's time, not the server's. Each posted snapshot goes
-  into the cached session by the server's rule, replacing a last snapshot of the
-  same state, so new snapshots reach it during a visit without a refetch. The
-  plan's scrubber read the count once, so a view that gained snapshots while
-  mounted showed "1 of N". Cost if wrong: the cached list can pass the server's
-  cap of 500 until the next refetch.
+  one at the same count moves it to the latest. `SnapshotScrubber` is
+  controlled: it shows the position it is given and reports a new one. The
+  container counts reports rather than keying the scrubber, so a report that
+  lands mid-drag keeps the slider and its focus. A restore sends no report, and
+  a refetch alone keeps the pick; a key on the latest `ts` would not, since the
+  cache stamps a posted snapshot with the browser's time, not the server's. The
+  container hands the pick's position to its `actions` render prop, so "To
+  code", "Save view" and "Pin to canvas" use the picked snapshot. Each posted
+  snapshot goes into the cached session by the server's rule, replacing a last
+  snapshot of the same state, so new snapshots reach it during a visit without a
+  refetch. The plan's scrubber read the count once, so a view that gained
+  snapshots while mounted showed "1 of N". Cost if wrong: the cached list can
+  pass the server's cap of 500 until the next refetch.
 - **The dev proxy forwards `/projects`**: `web/vite.config.ts` proxies it beside
   `/sessions` and `/healthz`. The plan added project routes without it, so
   `npm run dev` answered 404. Stage 5 adds `/components`, `/libraries` and
@@ -1363,13 +1366,23 @@ them.
   A saved view's export reads its saved state the same way and notes what
   `dropped` lists; it had rendered the probe, so an exported pivot gave one row.
 - **The server picks what "To code" renders**: the host posts to
-  `POST /sessions/{id}/steps/{step_id}/to-code` with no body, and the server
-  reads the step's view as it shows now, its latest snapshot or its initial
-  state before one, through `to_code_input` in `quarry.server.models`, then
-  answers `{code, dropped}`; a view that has run no query is a 400. The export
-  reads a saved view through the same function. The spec's §9 has the host send
-  the snapshot's queries, so the host's `toCodeSource` and the export each held
-  the `spec` rule and had to change together.
+  `POST /sessions/{id}/steps/{step_id}/to-code` with `{snapshots_back}`, and
+  the server reads that snapshot of the step's view through `View.shown` and
+  `to_code_input` in `quarry.server.models`, then answers `{code, dropped}`; a
+  view that has run no query is a 400. The export reads a saved view through
+  the same function. The spec's §9 has the host send the snapshot's queries, so
+  the host's `toCodeSource` and the export each held the `spec` rule and had to
+  change together.
+- **A picked snapshot is counted back from the latest**: "To code" and "Save
+  view" send `snapshots_back`, 0 for the latest and so the default, which is
+  the initial state before the view has reported. The server keeps only the
+  last 500 snapshots and drops the oldest, while the host's cached list keeps
+  them until a refetch, so a position counted from the front could name a
+  different snapshot on the server. A count past the oldest is a 400, and a
+  save refuses it before it saves any dataset. "Save view" and "Pin to canvas"
+  keep the position picked when the button was pressed and count back when the
+  dialog sends, so a report while the dialog is open, which drops the pick,
+  still saves that snapshot.
 
 ### TanStack table and OHLC
 

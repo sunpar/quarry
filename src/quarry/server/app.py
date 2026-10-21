@@ -60,6 +60,10 @@ class SnapshotRequest(BaseModel):
     queries: list[dict[str, Json]] = Field(default_factory=list)
 
 
+class ToCodeRequest(BaseModel):
+    snapshots_back: int = 0  # the snapshot picked in the history, counted back from the latest
+
+
 class ToCode(BaseModel):
     code: str
     dropped: list[str]
@@ -194,10 +198,11 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @api.post("/sessions/{session_id}/steps/{step_id}/to-code")
-    def to_code(session_id: str, step_id: str) -> ToCode:
+    def to_code(session_id: str, step_id: str, body: ToCodeRequest | None = None) -> ToCode:
         session_or_404(session_id)
+        back = 0 if body is None else body.snapshots_back
         try:
-            code, dropped = service.to_code(session_id, step_id)
+            code, dropped = service.to_code(session_id, step_id, back)
         except StepNotFound as exc:
             raise HTTPException(status_code=404, detail=f"no view on step {exc}") from exc
         except (ValueError, QueryError, RpcFailure) as exc:  # a ValidationError is a ValueError

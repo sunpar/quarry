@@ -231,8 +231,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   fires a change for each option the arrow keys pass. Nothing cancels a running
   query, so each option runs its own kernel query to the end. Large-series and
   the table built-ins already did this. Silent cost.
-- **Picked snapshots are not what "To code" and "Save view" use**: after a pick
-  in the scrubber, both use the newest snapshot. Silent.
 - **Snapshot reports are not ordered**: the server handles each report in a
   thread pool, so when two reports of the same state race, the older one can
   replace the newer, and "To code" and "Save view" use stale queries until the

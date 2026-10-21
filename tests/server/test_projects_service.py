@@ -286,7 +286,7 @@ def test_save_view_saves_missing_datasets_first(tmp_path: Path) -> None:
     sessions.shutdown()
 
 
-def test_save_view_keeps_the_latest_snapshot(tmp_path: Path) -> None:
+def test_save_view_keeps_the_latest_or_the_picked_snapshot(tmp_path: Path) -> None:
     provider = FakeProvider(
         [
             py("c1", PRICES),
@@ -301,11 +301,17 @@ def test_save_view_keeps_the_latest_snapshot(tmp_path: Path) -> None:
     sessions.record_snapshot(sid, step_id, {"limit": 3}, [])
     sessions.record_snapshot(sid, step_id, {"limit": 9}, queries)
     slug = projects.create("p", "").slug
-    projects.save_view(
-        slug, SaveViewRequest(session_id=sid, step_id=step_id, name="table", mode="live")
-    )
-    saved = ProjectStore(tmp_path).read_view(slug, "table")
+    latest = SaveViewRequest(session_id=sid, step_id=step_id, name="table", mode="live")
+    # Refused before it saves the view's datasets.
+    with pytest.raises(ValueError, match="no snapshot 2 back"):
+        projects.save_view(slug, latest.model_copy(update={"snapshots_back": 2}))
+    assert projects.get(slug).datasets == []
+    projects.save_view(slug, latest)
+    projects.save_view(slug, latest.model_copy(update={"name": "first", "snapshots_back": 1}))
+    store = ProjectStore(tmp_path)
+    saved, first = store.read_view(slug, "table"), store.read_view(slug, "first")
     assert saved.state == {"limit": 9} and saved.queries == queries
+    assert first.state == {"limit": 3} and first.queries == []
     sessions.shutdown()
 
 
