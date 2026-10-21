@@ -6,6 +6,7 @@ import openai
 import pytest
 
 from quarry.agent.openai_provider import (
+    CreateFn,
     OpenAIProvider,
     from_openai_response,
     to_openai_messages,
@@ -180,3 +181,68 @@ def test_complete_maps_errors() -> None:
     with pytest.raises(ProviderError) as info2:
         OpenAIProvider(model="gpt", create=malformed).complete(system="s", messages=[], tools=[])
     assert info2.value.retryable is False
+
+
+def _called(call_id: str | None, name: str | None, arguments: str) -> SimpleNamespace:
+    call = SimpleNamespace(id=call_id, function=SimpleNamespace(name=name, arguments=arguments))
+    message = SimpleNamespace(content=None, tool_calls=[call])
+    return SimpleNamespace(choices=[SimpleNamespace(finish_reason="tool_calls", message=message)])
+
+
+@pytest.mark.parametrize(
+    "create",
+    [
+        lambda **kwargs: "<html>oops</html>",
+        lambda **kwargs: SimpleNamespace(choices=None),
+        lambda **kwargs: SimpleNamespace(choices=[]),
+        lambda **kwargs: SimpleNamespace(choices={}),
+        lambda **kwargs: _called(None, "run_python", "{}"),
+        lambda **kwargs: _called("c1", None, "{}"),
+        lambda **kwargs: _called("c1", "run_python", "[" * 100000),
+        lambda **kwargs: SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason="stop", message=SimpleNamespace(content=["x"], tool_calls=None)
+                )
+            ]
+        ),
+        lambda **kwargs: json.loads("<html>oops</html>"),
+        lambda **kwargs: json.loads("[" * 100000),
+        lambda **kwargs: json.loads(b"\xff"),
+    ],
+    ids=[
+        "html",
+        "missing fields",
+        "no choices",
+        "choices object",
+        "no id",
+        "no name",
+        "arguments too deep",
+        "content list",
+        "not json",
+        "too deep",
+        "not utf-8",
+    ],
+)
+def test_complete_maps_malformed_responses(create: CreateFn) -> None:
+    with pytest.raises(ProviderError) as info:
+        OpenAIProvider(model="gpt", create=create).complete(system="s", messages=[], tools=[])
+    assert info.value.retryable is False
+
+
+def test_complete_lets_client_errors_through() -> None:
+    def streaming_required(**kwargs: object) -> object:
+        raise ValueError("Streaming is required for operations that may take longer than 10 min")
+
+    with pytest.raises(ValueError, match="Streaming is required"):
+        OpenAIProvider(model="gpt", create=streaming_required).complete(
+            system="s", messages=[], tools=[]
+        )
+
+    def renamed_keyword(**kwargs: object) -> object:
+        raise TypeError("create() got an unexpected keyword argument 'max_completion_tokens'")
+
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        OpenAIProvider(model="gpt", create=renamed_keyword).complete(
+            system="s", messages=[], tools=[]
+        )
