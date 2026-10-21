@@ -34,11 +34,13 @@ them.
   strictly typed, so `ret in [0]` failed on a float column. A fractional number
   against an integer column compares as Float64, and so does any number against
   a Float32 or Float16 column, as the viewer reads those columns; at the
-  column's width a stored 0.1 would equal 0.1. SQL renders a fractional number
-  as `::DOUBLE` for the same reason, which also compares a Decimal column as
-  Float64, as polars and the viewer do. Cost: DuckDB no longer pushes such a
-  filter into a FLOAT column's scan. On 20M rows a native table's filter went
-  from 0.24 to 9.2 ms, and a registered Float32 frame's from 2.6 to 57 ms.
+  column's width a stored 0.1 would equal 0.1. Relations still compare at the
+  column's type until `to_sql` knows column types: see "Relations compare
+  Float32 and Decimal filters at their own type" in the
+  [open items](../open-items.md#known-problems). Cost: the `.cast(pl.Float64)`
+  stops parquet row-group statistics pruning on lazy scans (1.2 to 8.2 ms for
+  `eq 5.0` on a 20M-row Float32 column) and builds a Float64 copy per filter on
+  eager frames.
 - **One column-reference check**: `quarry/query/columns.py` checks every column
   a spec names, for every target, since two copies would drift. A pivot's sort
   and select are checked against the pivoted frame, because its columns come
