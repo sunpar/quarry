@@ -81,14 +81,13 @@ def test_grouped_rows_follow_their_keys_on_every_target(
     frame = pl.DataFrame(
         {"k": ["b", None, "a", "c", "b", "a"], "g": [1, 1, 2, 2, 1, 2], "v": [1, 2, 3, 4, 5, 6]}
     )
-    results = _column_on_every_target(spec, frame, col)
-    assert results == dict.fromkeys(results, expected)
+    _assert_column_on_every_target(spec, frame, col, expected)
 
 
-def _column_on_every_target(
-    spec: QuerySpec, frame: pl.DataFrame, col: str
-) -> dict[str, list[object]]:
-    """`col` of `spec`'s result over `frame`, registered as `t`, from each target."""
+def _assert_column_on_every_target(
+    spec: QuerySpec, frame: pl.DataFrame, col: str, expected: list[object]
+) -> None:
+    """`col` of `spec`'s result over `frame`, registered as `t`, is `expected` on each target."""
     conn = utc_connection()
     conn.register("t", frame)
     results: dict[str, pl.DataFrame] = {
@@ -99,7 +98,9 @@ def _column_on_every_target(
             for b in BACKINGS
         },
     }
-    return {target: df[col].to_list() for target, df in results.items()}
+    assert {target: df[col].to_list() for target, df in results.items()} == dict.fromkeys(
+        results, expected
+    )
 
 
 # Each integer dtype DuckDB can read from polars, with its largest value.
@@ -147,8 +148,7 @@ def test_a_float32_column_compares_as_float64_on_every_target(filter_: Filter) -
     spec = QuerySpec(dataset="t", filters=[filter_], select=["n"], sort=[Sort(col="n")])
     frame = pl.DataFrame({"n": [1, 2, 3], "x": pl.Series([0.05, 0.1, 0.2], dtype=pl.Float32)})
     wide = to_polars(spec, frame.cast({"x": pl.Float64})).collect()["n"].to_list()
-    results = _column_on_every_target(spec, frame, "n")
-    assert results == dict.fromkeys(results, wide)
+    _assert_column_on_every_target(spec, frame, "n", wide)
 
 
 @pytest.mark.parametrize("op", ["eq", "le", "gt"])
@@ -162,8 +162,7 @@ def test_a_fraction_against_a_decimal_column_compares_as_float64_on_every_target
     exact = [Decimal("0.3"), Decimal("0.30000000000000000001")]
     frame = pl.DataFrame({"n": [1, 2], "x": pl.Series(exact, dtype=pl.Decimal(38, 20))})
     wide = to_polars(spec, frame.cast({"x": pl.Float64})).collect()["n"].to_list()
-    results = _column_on_every_target(spec, frame, "n")
-    assert results == dict.fromkeys(results, wide)
+    _assert_column_on_every_target(spec, frame, "n", wide)
 
 
 @pytest.mark.parametrize(("filter_", "selected"), ZONED_FILTERS, ids=ZONED_IDS)
