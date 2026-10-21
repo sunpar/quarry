@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen } from "@testing-library/react";
 import { StrictMode, useLayoutEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Session, Step } from "@/shared/api-types";
+import type { Session, Snapshot, Step } from "@/shared/api-types";
 import type { HostToRuntime } from "@/shared/bridge-types";
 import type { JsonObject } from "@/shared/json";
 import { ApiClient } from "../api/client";
@@ -39,6 +39,16 @@ const step: Step = {
   created_at: "",
   duration_ms: 0,
 };
+
+const cachedSession = (snapshots: Snapshot[]): Session => ({
+  meta: {
+    id: "sess",
+    title: "t",
+    created_at: "",
+    provider: { name: "f", model: "m" },
+  },
+  steps: [{ ...step, view: step.view && { ...step.view, snapshots } }],
+});
 
 function mount(onRepair = vi.fn()) {
   const fetchImpl = vi.fn(async (url: string) => {
@@ -244,16 +254,7 @@ describe("ViewFrameContainer", () => {
 
   it("appends a saved snapshot to the cached session without refetching", async () => {
     const { send, qc } = mount();
-    const session: Session = {
-      meta: {
-        id: "sess",
-        title: "t",
-        created_at: "",
-        provider: { name: "f", model: "m" },
-      },
-      steps: [step],
-    };
-    qc.setQueryData(keys.session("sess"), session);
+    qc.setQueryData(keys.session("sess"), cachedSession([]));
     qc.setQueryData(keys.status("sess"), {});
     await act(async () => {
       send({
@@ -275,20 +276,10 @@ describe("ViewFrameContainer", () => {
 
   it("replaces the cached last snapshot when the state repeats", async () => {
     const { send, qc } = mount();
-    const view = step.view && {
-      ...step.view,
-      snapshots: [{ ts: "t0", state: { k: 1 }, queries: [] }],
-    };
-    const session: Session = {
-      meta: {
-        id: "sess",
-        title: "t",
-        created_at: "",
-        provider: { name: "f", model: "m" },
-      },
-      steps: [{ ...step, view }],
-    };
-    qc.setQueryData(keys.session("sess"), session);
+    qc.setQueryData(
+      keys.session("sess"),
+      cachedSession([{ ts: "t0", state: { k: 1 }, queries: [] }]),
+    );
     const cached = () =>
       qc.getQueryData<Session>(keys.session("sess"))?.steps[0]?.view?.snapshots;
     const report = (state: JsonObject) =>
