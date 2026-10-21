@@ -115,6 +115,14 @@ Decisions already made are in [decisions.md](context/decisions.md).
   unreadable directory without a log line, and misses a dataset whose parquet
   files sit only in nested directories not named `key=value`. A dangling
   `*.parquet` symlink still lists its dataset. Silent.
+- **Malformed provider responses escape the adapters**: the SDK clients do not
+  validate responses, so a 200 whose body is not JSON raises `JSONDecodeError`
+  inside the call, and one missing fields fails while the adapter converts it,
+  outside its `try`. Neither is a `ProviderError`, so a save's tidy step fails
+  instead of falling back to the raw recipe, and a prompt step fails without
+  its transcript. The Anthropic adapter reads a `text/html` 200 as an empty turn
+  that succeeded.
+  Loud, except the last.
 - **Cancel waits for the model**: `/interrupt` and `/restart` stop a prompt step
   only once the provider answers the call in flight, bounded only by the
   provider client's timeout. Meanwhile `/restart` holds its request, a second
@@ -263,9 +271,6 @@ one up when a researcher needs it.
   debounced layout write and its flush on unmount.
 - Let a cleanly exiting kernel finish before `close()` kills it after
   `shutdown()`, so an in-flight snapshot completes.
-- Map `anthropic.APIError` and `openai.APIError` to a non-retryable
-  `ProviderError` at the provider boundary. Until then, an unmapped SDK error
-  escapes a save after its pinned snapshot is staged.
 - Give recipe validation a timeout: `validate_recipe` waits on the scratch
   kernel, so a recipe that hangs hangs the save request, which is synchronous so
   that it can show a saving state. The session stays usable, since the hold is
