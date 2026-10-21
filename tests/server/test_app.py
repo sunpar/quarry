@@ -834,6 +834,7 @@ def test_static_assets_allow_opaque_origin_but_api_does_not(tmp_path: Path) -> N
     (static / "index.html").write_text("<!doctype html>")
     (static / "assets" / "x.js").write_text("export {};")
     config = QuarryConfig(root=tmp_path / "root")
+    config.root.mkdir(mode=0o700)  # as `quarry serve` does
     app = create_app(
         config=config,
         token=TOKEN,

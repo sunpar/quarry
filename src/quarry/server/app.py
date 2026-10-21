@@ -75,8 +75,9 @@ def create_app(
     static = static_dir or Path(__file__).parent.parent / "static"
     licensed = licensed_libraries(config)
     researcher_root = config.root / "components"
-    # Here, not per save: a file in its place stops the server instead of failing every save.
-    researcher_root.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
+    # A save makes it again if it is deleted; made here too, a file in its place stops the
+    # server instead of failing every save. No `parents`: the root is `quarry serve`'s to create.
+    researcher_root.mkdir(mode=PRIVATE_DIR, exist_ok=True)
     roots = [builtin_root(), researcher_root]
     if config.libraries.team_components is not None:
         roots.append(config.libraries.team_components)

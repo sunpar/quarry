@@ -51,7 +51,8 @@ export function SaveComponentDialog({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
-  // A refusal is about the id the last save sent, not one typed since.
+  // Editing the id hides the last save's refusal, whatever it was about; the
+  // next save shows any refusal that still applies.
   const [triedId, setTriedId] = useState<string | null>(null);
   const cleanId = normaliseId(id);
   const canSave = !pending && cleanId !== "" && name.trim() !== "";
@@ -61,9 +62,10 @@ export function SaveComponentDialog({
       id: cleanId,
       name: name.trim(),
       description,
-      tags: [...new Set(tags.split(",").map((t) => t.trim()))].filter(
-        (t) => t !== "",
-      ),
+      tags: tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter((t) => t !== ""),
     });
   };
   return (
@@ -82,6 +84,11 @@ export function SaveComponentDialog({
           {cleanId !== id && cleanId !== "" && (
             <p className="text-xs text-muted-foreground">
               Saved as <code className="font-mono">{cleanId}</code>
+            </p>
+          )}
+          {cleanId === "" && id.trim() !== "" && (
+            <p className="text-xs text-muted-foreground">
+              An id needs a letter or a digit.
             </p>
           )}
         </div>

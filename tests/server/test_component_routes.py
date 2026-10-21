@@ -1,3 +1,4 @@
+import json
 import shutil
 from pathlib import Path
 
@@ -80,6 +81,39 @@ def test_components_root_as_a_file_stops_the_server_starting(tmp_path: Path) -> 
     (tmp_path / "components").write_text("")
     with pytest.raises(FileExistsError):
         make_client(tmp_path, [])
+
+
+def test_save_component_recreates_a_components_folder_deleted_while_serving(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path, []) as client:
+        shutil.rmtree(tmp_path / "components")
+        body = {"id": "back", "name": "Back", "source": SOURCE}
+        assert client.post("/components", json=body).status_code == 201
+    assert (tmp_path / "components" / "back" / "component.tsx").read_text() == SOURCE
+
+
+def test_save_component_names_the_whole_id_rule(tmp_path: Path) -> None:
+    with make_client(tmp_path, []) as client:
+        body = {"id": "a" * 65, "name": "Long", "source": SOURCE}
+        refused = client.post("/components", json=body)
+    assert refused.status_code == 400
+    assert "64" in refused.json()["detail"]
+
+
+def test_save_component_trims_tags_and_drops_blanks_and_repeats(tmp_path: Path) -> None:
+    with make_client(tmp_path, []) as client:
+        body = {
+            "id": "tagged",
+            "name": "Tagged",
+            "tags": ["a", " a", "", "b", "a"],
+            "source": SOURCE,
+        }
+        saved = client.post("/components", json=body)
+    assert saved.status_code == 201, saved.text
+    assert saved.json()["tags"] == ["a", "b"]
+    manifest = json.loads((tmp_path / "components" / "tagged" / "manifest.json").read_text())
+    assert manifest["tags"] == ["a", "b"]
 
 
 def test_save_component_needs_session_and_dataset_together(tmp_path: Path) -> None:

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { SaveComponentDialog } from "./SaveComponentDialog";
 
 describe("SaveComponentDialog", () => {
-  it("normalises the id and splits tags without repeats", () => {
+  it("normalises the id and splits tags", () => {
     const onSave = vi.fn();
     render(
       <SaveComponentDialog
@@ -21,7 +21,7 @@ describe("SaveComponentDialog", () => {
       target: { value: "My scatter" },
     });
     fireEvent.change(screen.getByLabelText("Tags"), {
-      target: { value: "scatter, returns ,, scatter" },
+      target: { value: "scatter, returns ,, " },
     });
     expect(screen.getByText("my-scatter")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Save to library" }));
@@ -74,7 +74,60 @@ describe("SaveComponentDialog", () => {
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ id: short }));
   });
 
-  it("shows the server's refusal for the id it was about", () => {
+  it("says why an id with no letter or digit cannot be saved", () => {
+    const hint = "An id needs a letter or a digit.";
+    render(
+      <SaveComponentDialog
+        open
+        defaultId=""
+        onClose={() => undefined}
+        onSave={() => undefined}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Mine" },
+    });
+    expect(screen.queryByText(hint)).toBeNull();
+    for (const value of ["日本語", "___", "!!!"]) {
+      fireEvent.change(screen.getByLabelText("Id"), { target: { value } });
+      expect(screen.getByText(hint)).toBeTruthy();
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", {
+          name: "Save to library",
+        }).disabled,
+      ).toBe(true);
+    }
+    fireEvent.change(screen.getByLabelText("Id"), { target: { value: "  " } });
+    expect(screen.queryByText(hint)).toBeNull();
+  });
+
+  it("only ever saves an id the server accepts", () => {
+    render(
+      <SaveComponentDialog
+        open
+        defaultId=""
+        onClose={() => undefined}
+        onSave={() => undefined}
+      />,
+    );
+    const inputs = [
+      `--${"a".repeat(70)}`,
+      "a-".repeat(40),
+      "  Ünïcode  ",
+      "___",
+    ];
+    const shown = inputs.map((value) => {
+      fireEvent.change(screen.getByLabelText("Id"), { target: { value } });
+      return (
+        screen.queryByText(/^Saved as/)?.querySelector("code")?.textContent ??
+        ""
+      );
+    });
+    const valid = expect.stringMatching(/^[a-z0-9][a-z0-9-]{0,63}$/);
+    expect(shown).toEqual([valid, valid, valid, ""]);
+  });
+
+  it("shows the last save's refusal until the id is edited", () => {
     const refusal = "component 'my-scatter' already exists";
     const props = {
       open: true,
@@ -82,17 +135,26 @@ describe("SaveComponentDialog", () => {
       onClose: () => undefined,
       onSave: () => undefined,
     };
+    const saveButton = () =>
+      screen.getByRole<HTMLButtonElement>("button", {
+        name: "Save to library",
+      });
     const { rerender } = render(<SaveComponentDialog {...props} />);
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "My scatter" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save to library" }));
-    rerender(<SaveComponentDialog {...props} pending error={refusal} />);
+    fireEvent.click(saveButton());
+    rerender(<SaveComponentDialog {...props} pending />);
+    expect(saveButton().disabled).toBe(true);
+    rerender(<SaveComponentDialog {...props} error={refusal} />);
     expect(screen.getByText(refusal)).toBeTruthy();
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Save to library" })
-        .disabled,
-    ).toBe(true);
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Another name" },
+    });
+    fireEvent.change(screen.getByLabelText("Tags"), {
+      target: { value: "scatter" },
+    });
+    expect(screen.getByText(refusal)).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Id"), {
       target: { value: "my-other-scatter" },
     });
