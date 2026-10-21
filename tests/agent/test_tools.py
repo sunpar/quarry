@@ -50,7 +50,11 @@ def _objects(schema: Json) -> Iterator[dict[str, Json]]:
     """Every object schema in `schema`, nested ones included."""
     if isinstance(schema, dict):
         kind = schema.get("type")
-        if kind == "object" or (isinstance(kind, list) and "object" in kind):
+        if (
+            kind == "object"
+            or (isinstance(kind, list) and "object" in kind)
+            or "properties" in schema
+        ):
             yield schema
         for value in schema.values():
             yield from _objects(value)
@@ -69,6 +73,7 @@ def test_every_tool_schema_is_strict(tool: ToolDef) -> None:
         for item in objects:
             properties, required = item.get("properties"), item.get("required")
             assert isinstance(properties, dict) and isinstance(required, list), item
+            assert all(isinstance(name, str) for name in required), item
             assert item.get("additionalProperties") is False, item
             assert sorted(map(str, required)) == sorted(properties), item
 
