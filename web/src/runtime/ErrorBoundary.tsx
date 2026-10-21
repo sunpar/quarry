@@ -2,18 +2,29 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 
 interface Props {
   onError: (error: Error) => void;
+  resetKey: object;
   children: ReactNode;
 }
 
 interface State {
   error: Error | null;
+  resetKey: object;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null };
+  state: State = { error: null, resetKey: this.props.resetKey };
 
   static getDerivedStateFromError(error: Error): Partial<State> {
     return { error };
+  }
+
+  static getDerivedStateFromProps(
+    props: Props,
+    state: State,
+  ): Partial<State> | null {
+    return props.resetKey === state.resetKey
+      ? null
+      : { error: null, resetKey: props.resetKey };
   }
 
   componentDidCatch(error: Error, _info: ErrorInfo): void {
