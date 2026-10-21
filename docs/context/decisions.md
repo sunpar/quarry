@@ -875,9 +875,7 @@ them.
   marks every answer stale and keeps showing it until the refetch lands, so a
   long-lived view follows a rebound dataset without flashing to "Loading". Each
   request carries a ticket, and only the newest per key may write, so an answer
-  from before the refresh cannot overwrite one from after. A saved sort on a
-  column the live schema lacks still goes out, and the tables show it with a
-  Clear sort action.
+  from before the refresh cannot overwrite one from after.
 - **Views may ask for Arrow**: `useQuery` with `format: "arrow"` returns the IPC
   stream bytes as an `ArrayBuffer` in `arrow`, with `rows` empty, for
   Perspective.
@@ -1384,7 +1382,8 @@ them.
   refuses `enableSorting` without that feature. The numeric flag is typed
   through the `columnMeta: metaHelper<…>()` slot instead of a cast. As the AG
   Grid table does, it keeps a saved sort visible with a Clear sort action when
-  the live schema loses its column, and shows "Showing the first N rows." when a
+  the live schema loses its column. Cost: the sort still goes out, so the query
+  fails until Clear sort is pressed. It shows "Showing the first N rows." when a
   page is full; the plan's "N of M rows" would repeat the page size, since
   `row_count` counts the rows returned.
 - **Both tables keep their last answer while a changed query loads**: a new sort
@@ -1407,8 +1406,15 @@ them.
   then takes the first free numeric column named like it, then the first free
   numeric column. A column the researcher picks for two roles keeps both, and
   the query selects it once, since the kernel refuses a repeated `select` name.
-  The chart effect is keyed on the rows and the five names, so a re-render with
-  the same result keeps the chart.
+  The kernel also refuses two names that differ only in case, as `Close` and
+  `close`, so saved columns, guesses and picker options compare names ignoring
+  case: a saved column that clashes with one resolved before it is guessed like
+  a missing one, the time is resolved after the saved prices, and a picker
+  leaves out a column that clashes with another role's. Cost: a dataset with too
+  few columns distinct ignoring case leaves a role empty and shows the "needs
+  ... columns" message, as one with only three price columns does. The chart
+  effect is keyed on the rows and the five names, so a re-render with the same
+  result keeps the chart.
 
 ### Recharts, Plotly and ECharts
 

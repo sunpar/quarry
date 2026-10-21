@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { QueryHookResult } from "@/runtime/hooks";
 import type { Row } from "@/shared/api-types";
@@ -195,6 +195,74 @@ describe("ohlc built-in", () => {
     );
   });
 
+  it("drops a saved column that differs only in case from one resolved before it", () => {
+    query.mockReturnValue({ status: "loading" });
+    renderWith({
+      columns: {
+        time: null,
+        open: null,
+        high: null,
+        low: "close",
+        close: "Close",
+      },
+      live: [
+        { name: "ts", dtype: "Date" },
+        ...numeric("open", "high", "close", "Close", "volume"),
+      ],
+    });
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        select: ["ts", "open", "high", "close", "volume"],
+      }),
+    );
+    // The time is resolved after the saved prices, so neither a fallback nor a
+    // saved time sits next to a saved price that differs only in case.
+    const live = [
+      { name: "Date", dtype: "Date" },
+      { name: "ts", dtype: "Datetime" },
+      ...numeric("date", "open", "high", "low"),
+    ];
+    for (const time of [null, "Date"]) {
+      renderWith({
+        columns: { time, open: null, high: null, low: null, close: "date" },
+        live,
+      });
+      expect(query).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          select: ["ts", "open", "high", "low", "date"],
+        }),
+      );
+    }
+  });
+
+  it("offers no picker a column that differs only in case from another role's", () => {
+    query.mockReturnValue({ status: "loading" });
+    renderWith({
+      live: [
+        { name: "Date", dtype: "Date" },
+        { name: "ts", dtype: "Datetime" },
+        ...numeric("open", "high", "low", "close", "Close", "date"),
+      ],
+      columns: { time: null, open: "date", high: null, low: null, close: null },
+    });
+    const options = (label: string) =>
+      Array.from(
+        screen.getByLabelText<HTMLSelectElement>(label).options,
+        (o) => o.value,
+      );
+    expect(options("Time")).toEqual(["ts"]);
+    // One column may hold two roles, so Low keeps the close column but not Close.
+    expect(options("Low")).toEqual(["open", "high", "low", "close", "date"]);
+    expect(options("Close")).toEqual([
+      "open",
+      "high",
+      "low",
+      "close",
+      "Close",
+      "date",
+    ]);
+  });
+
   it("drops a saved column the live schema no longer has", () => {
     query.mockReturnValue({ status: "loading" });
     renderWith({
@@ -231,12 +299,19 @@ describe("ohlc built-in", () => {
 
   it("asks for the columns it needs when the dataset lacks them", () => {
     query.mockReturnValue({ status: "loading" });
+    const needs =
+      "This dataset needs a date column and open, high, low and close columns.";
     renderWith({ live: [{ name: "ts", dtype: "Date" }, ...numeric("px")] });
-    expect(
-      screen.getByText(
-        "This dataset needs a date column and open, high, low and close columns.",
-      ),
-    ).toBeTruthy();
+    expect(screen.getByText(needs)).toBeTruthy();
+    cleanup();
+    // Four price columns, but only three distinct ignoring case.
+    renderWith({
+      live: [
+        { name: "ts", dtype: "Date" },
+        ...numeric("open", "high", "Close", "close"),
+      ],
+    });
+    expect(screen.getByText(needs)).toBeTruthy();
   });
 
   it("shows Loading below its pickers", () => {

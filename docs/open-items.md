@@ -225,7 +225,11 @@ Decisions already made are in [decisions.md](context/decisions.md).
   the host's "Fix this view". Loud.
 - **Time-series and large-series can guess a case-only clash**: each picks the
   first datetime column and the first numeric one, which can differ only in
-  case, as `Date` and `date`, so the select fails. Loud.
+  case, as `Date` and `date`, so the query fails. Loud.
+- **OHLC can chart a column named like a price as that price**: its name pass
+  takes the first numeric column whose name starts with the role, so
+  `open_interest` listed before `open`, or `lower_band` before `low`, is charted
+  as that price. Silent.
 - **Arrowing through a chart picker runs a query per option**: the pickers stay
   mounted while a query loads, and on Windows and Linux a closed `<select>`
   fires a change for each option the arrow keys pass. Nothing cancels a running
