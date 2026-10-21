@@ -1,3 +1,4 @@
+import errno
 import json
 import logging
 import os
@@ -15,6 +16,7 @@ from quarry.components.library import (
     satisfies,
 )
 from quarry.kernel.datasets import Column, DatasetMeta
+from quarry.projects.files import write_atomic
 from tests.fixtures import chmodded, record_fsyncs, root_ignores_modes
 
 
@@ -232,6 +234,23 @@ def test_failed_write_component_frees_its_id(
     library.write_component(tmp_path, generated(), "")
 
 
+@pytest.mark.parametrize("full_at", ["component.tsx", "manifest.json"])
+def test_disk_full_mid_save_frees_its_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, full_at: str
+) -> None:
+    def disk_full_at(path: Path, text: str) -> None:
+        if path.name == full_at:
+            raise OSError(errno.ENOSPC, "No space left on device")
+        write_atomic(path, text)
+
+    with monkeypatch.context() as patch:
+        patch.setattr("quarry.components.library.write_atomic", disk_full_at)
+        with pytest.raises(OSError, match="No space left on device"):
+            library.write_component(tmp_path, generated(), "")
+    assert not (tmp_path / "my-scatter").exists()
+    library.write_component(tmp_path, generated(), "")
+
+
 @root_ignores_modes
 def test_failed_cleanup_keeps_the_saves_own_error_and_logs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -244,12 +263,14 @@ def test_failed_cleanup_keeps_the_saves_own_error_and_logs(
         raise OSError("disk full")
 
     monkeypatch.setattr("quarry.components.library.sync_dir", disk_full_and_read_only)
-    with (
-        caplog.at_level(logging.WARNING, logger="quarry.components.library"),
-        pytest.raises(OSError, match="disk full"),
-    ):
-        library.write_component(tmp_path, generated(), "")
-    folder.chmod(0o700)
+    try:
+        with (
+            caplog.at_level(logging.WARNING, logger="quarry.components.library"),
+            pytest.raises(OSError, match="disk full"),
+        ):
+            library.write_component(tmp_path, generated(), "")
+    finally:
+        folder.chmod(0o700)
     # Each step ran and logged what it left, though the one before it failed.
     assert "component.tsx" in caplog.text and "manifest.json" in caplog.text
 
