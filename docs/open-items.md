@@ -125,6 +125,9 @@ Decisions already made are in [decisions.md](context/decisions.md).
   `test_native_cleanup_finishes_while_real_python_is_still_executing[True]` and
   passed on rerun; a group whose processes have exited but are not yet reaped
   may answer `EPERM`. Loud.
+- **The Codex version check matches a substring**: the runtime accepts any
+  app-server whose `userAgent` contains `0.162.1`, so 0.162.10 or 10.162.1 pass.
+  Silent: an untested Codex release runs.
 - **Cancel waits for the model**: `/interrupt` and `/restart` stop a prompt step
   only once the provider answers the call in flight, bounded only by the
   provider client's timeout. Meanwhile `/restart` holds its request, a second
@@ -313,8 +316,6 @@ one up when a researcher needs it.
   `_wasm/scichart.wasm` and nothing else.
 - Export a single view with `quarry projects export`, and import a `.ipynb`.
   Neither is in the spec.
-- Keep the version in one place: `pyproject.toml` and `src/quarry/__init__.py`
-  both hold it, and the test checks only its type.
 - Type the op sets in `quarry/query/spec.py` as `frozenset[FilterOp]` rather
   than `frozenset[str]`.
 - Keep TIMETZ offsets in JSON rows, and fix the Duration comment in

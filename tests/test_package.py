@@ -1,5 +1,16 @@
+import subprocess
+import sys
+from pathlib import Path
+
 import quarry
 
 
-def test_version_is_string() -> None:
-    assert isinstance(quarry.__version__, str)
+def test_the_build_reads_the_package_version() -> None:
+    built = subprocess.run(
+        [sys.executable, "-m", "hatchling", "version"],
+        cwd=Path(__file__).parents[1],
+        stdout=subprocess.PIPE,  # hatchling's reasons for failing still reach stderr
+        text=True,
+        check=True,
+    )
+    assert built.stdout.strip() == quarry.__version__
