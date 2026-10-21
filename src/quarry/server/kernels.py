@@ -82,8 +82,9 @@ class KernelManager:
         until restart, so `get` never starts a fresh one in its place."""
         with self._lock:
             client = self._clients.get(session_id)
-            if client is not None:
-                client.close()
+        # Outside the lock: close can wait 5 s, and every session's `get` takes the lock.
+        if client is not None:
+            client.close()
 
     def restart(self, session_id: str, steps: list[Step]) -> ReplayReport:
         """Replace the kernel and re-run each step's runs, in the order given (the store's,
@@ -128,6 +129,7 @@ class KernelManager:
     def close_all(self) -> None:
         with self._lock:
             self._closed = True
-            for client in self._clients.values():
-                client.close()
+            clients = list(self._clients.values())
             self._clients.clear()
+        for client in clients:  # outside the lock, as in `kill`
+            client.close()

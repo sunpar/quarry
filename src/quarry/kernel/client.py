@@ -66,10 +66,11 @@ class KernelClient:
         self._tmpdir = tmpdir
         self._ids = itertools.count(1)
         self._pending: dict[int, Future[Response]] = {}
-        self._lock = threading.Lock()  # guards _pending, _dead and _group_killed
+        self._lock = threading.Lock()  # guards _pending, _dead, _group_killed and _closed
         self._send_lock = threading.Lock()  # concurrent calls must not interleave their lines
         self._dead = False
         self._group_killed = False
+        self._closed = False
         threading.Thread(target=self._read_responses, daemon=True).start()
 
     @classmethod
@@ -176,9 +177,15 @@ class KernelClient:
     def close(self) -> None:
         """Kill the kernel and what its steps started, and release its socket and directory.
 
-        Never raises for a kernel that outlives SIGKILL: it is left to the OS.
+        Never raises for a kernel that outlives SIGKILL: it is left to the OS. Only the first
+        call does this; a later one returns at once, even while the first still waits.
         """
         with self._lock:
+            # A second close would see the kernel unreaped while the first one's `wait` reaps it.
+            if self._closed:
+                return
+            self._closed = True
+            self._dead = True  # a lookup during the close sees it gone; new calls fail at once
             # Once the kernel is reaped, `_poll` has killed its group: the group's id is the
             # kernel's pid, which another process can have by now.
             if self._process.returncode is None:
