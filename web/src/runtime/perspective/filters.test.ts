@@ -109,9 +109,6 @@ describe("perspectiveToSpec filters", () => {
           ["b", "in", ["true", "no"]],
           ["s", "in", ["1"]],
           ["i", "in", ["1.5"]],
-          ["i", "in", ["1e3"]],
-          ["i", "in", ["0x10"]],
-          ["i", "in", ["12abc"]],
           ["f", "in", ["", "x"]],
           ["p", "in", ["1.5"]],
         ],
@@ -124,17 +121,25 @@ describe("perspectiveToSpec filters", () => {
       { col: "b", op: "in", value: [true, false] },
       { col: "s", op: "in", value: ["1"] },
     ]);
-    // The engine reads integer items with `stoll`, which `Number()` matches only on plain
-    // digits. The kernel cannot match a Decimal column against a list of numbers.
+    // The kernel cannot match a Decimal column against a list of numbers.
     expect(dropped).toEqual([
-      'filter i "in"',
-      'filter i "in"',
-      'filter i "in"',
       'filter i "in"',
       'filter f "in"',
       'filter p "in"',
     ]);
   });
+
+  it.each(["1e3", "0x10", "12abc", "\u00a02"])(
+    "lists the integer item %j, which `stoll` and `Number()` read differently",
+    (item) => {
+      const { dropped } = perspectiveToSpec(
+        "t",
+        { filter: [["i", "in", [item]]] },
+        schema,
+      );
+      expect(dropped).toEqual(['filter i "in"']);
+    },
+  );
 
   it("turns epoch milliseconds into the UTC time the kernel reads", () => {
     const { spec, dropped } = perspectiveToSpec(

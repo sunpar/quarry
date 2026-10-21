@@ -21,8 +21,8 @@ const OPS: Record<string, Filter["op"]> = {
 // Python's dates start at year 1.
 const DAY = /^(?!0000)\d{4}-\d{2}-\d{2}$/;
 // The engine reads an integer with `stoll`, which agrees with `Number()` only on plain
-// decimal digits, not on `1e3` or `0x10`.
-const INTEGER = /^\s*[+-]?\d+\s*$/;
+// decimal digits, not on `1e3` or `0x10`. It skips only ASCII whitespace before them.
+const INTEGER = /^[ \t\n\v\f\r]*[+-]?\d+\s*$/;
 
 /**
  * Perspective's filters as spec filters the kernel accepts and compares as Perspective
@@ -103,8 +103,8 @@ function coerceTerm(term: Term, dtype: string | undefined): Json | undefined {
   if (term === null) return undefined;
   if (dtype === undefined) return term;
   if (/^(Int|UInt)/.test(dtype)) {
-    const n =
-      typeof term === "string" && !INTEGER.test(term) ? NaN : toNumber(term);
+    if (typeof term === "string" && !INTEGER.test(term)) return undefined;
+    const n = toNumber(term);
     return Number.isInteger(n) ? n : undefined;
   }
   if (/^(Float|Decimal)/.test(dtype)) {
