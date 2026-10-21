@@ -1495,8 +1495,10 @@ them.
   still free, compared ignoring case as the kernel compares names. In the
   scatter, y skips x and the color column skips both. The time series and large
   series take only time columns that leave a value, keep a saved time, and
-  otherwise take the first that does not clash with the saved value; the value
-  and the Time picker skip each other, so `Date` and `date` are never paired.
+  otherwise take the first that does not clash with the saved value. The
+  value skips the time, so `Date` and `date` are never paired; the Time picker
+  offers every time column, and picking one the value clashes with moves the
+  value, so every pair stays reachable.
   The heatmap resolves the value first, then the row and column keys from the
   rest, and the column skips the row, since a column pivoted against itself is
   only a diagonal. The bar and line chart resolves the value first and skips

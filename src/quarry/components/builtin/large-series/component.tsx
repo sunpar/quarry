@@ -90,7 +90,7 @@ export default function LargeSeries({ datasets }: Props) {
         <Select
           label="Time"
           value={time}
-          options={others(times, [value])}
+          options={times}
           onChange={(v) => setChosen({ time: v, value })}
         />
         <Select

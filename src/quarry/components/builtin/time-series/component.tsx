@@ -99,7 +99,7 @@ export default function TimeSeries({ datasets }: Props) {
         <ColumnPicker
           label="Time"
           value={time}
-          options={others(times, [value])}
+          options={times}
           onChange={(t) => setChosen({ time: t, value })}
         />
         <ColumnPicker

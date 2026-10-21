@@ -124,10 +124,22 @@ describe("time-series built-in", () => {
     );
   });
 
-  it("offers no time column that clashes with the value", () => {
+  it("offers every time column, and the value gives way to the picked one", () => {
     query.mockReturnValue({ status: "loading" });
-    renderWith({ columns: { time: "ts", value: "date" }, live: clashing });
-    expect(options("Time")).toEqual(["ts"]);
+    const crossed = [
+      { name: "Date", dtype: "Date" },
+      { name: "TS", dtype: "Datetime" },
+      { name: "date", dtype: "Int64" },
+      { name: "ts", dtype: "Float64" },
+    ];
+    renderWith({ live: crossed });
+    expect(options("Time")).toEqual(["Date", "TS"]);
+    cleanup();
+    // Picking `TS` while `ts` is the value: the value gives way.
+    renderWith({ columns: { time: "TS", value: "ts" }, live: crossed });
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({ select: ["TS", "date"] }),
+    );
   });
 
   it("keeps a saved time over a saved value that clashes with it", () => {
