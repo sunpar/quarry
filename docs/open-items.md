@@ -140,9 +140,10 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **Restart can mislabel a step**: a step that a kernel crash or the
   researcher's cancel ended right before a restart is saved with "stopped by a
   restart". Silent; the status is right.
-- **A stuck kernel holds the manager lock**: `KernelManager.kill` and `restart`
-  close the old client under the manager's lock, and `close()` waits up to 5 s
-  for a killed kernel, so every session's kernel lookup waits too. Silent.
+- **A starting kernel holds the manager lock**: `KernelManager.get` and
+  `restart` start a session's kernel under the manager's lock, and the start
+  waits up to 30 s for the kernel to connect, so every session's kernel lookup
+  waits too. Silent.
 - **`origin_step` can name a step replay dropped**: replay skips interrupted
   runs and stops at the first failure, but `/datasets` still credits the latest
   saved writer. After a step that rebound `df` is interrupted and the session

@@ -1,7 +1,8 @@
+import contextlib
 import sys
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -150,6 +151,40 @@ def test_restart_skips_interrupted_runs(manager: KernelManager) -> None:
     ]
     report = manager.restart("s", [step(0, "", *runs)])
     assert (report.replayed, report.failed_step) == (1, None)
+
+
+@pytest.mark.parametrize(
+    "close", [lambda m: m.kill("a"), KernelManager.close_all], ids=["kill", "close_all"]
+)
+def test_a_stuck_close_holds_up_no_other_session(
+    manager: KernelManager, monkeypatch: pytest.MonkeyPatch, close: Callable[[KernelManager], None]
+) -> None:
+    a = manager.get("a")
+    manager.get("b")
+    entered, released = threading.Event(), threading.Event()
+
+    def stuck() -> None:  # a kernel that outlives SIGKILL holds close() for 5 s
+        entered.set()
+        released.wait()
+
+    def lookup() -> None:
+        with contextlib.suppress(KernelDead):  # close_all leaves no kernel to find
+            manager.get("b")
+
+    closer = threading.Thread(target=close, args=(manager,))
+    looker = threading.Thread(target=lookup)
+    with monkeypatch.context() as patch:
+        patch.setattr(a, "close", stuck)
+        closer.start()
+        try:
+            assert entered.wait(timeout=5)
+            looker.start()
+            looker.join(timeout=5)
+            assert not looker.is_alive(), "the lookup waited on another session's close"
+        finally:
+            released.set()
+            closer.join()
+    a.close()  # its stand-in closed nothing
 
 
 def test_closed_manager_starts_no_kernel(manager: KernelManager) -> None:
