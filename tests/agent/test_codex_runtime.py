@@ -79,8 +79,14 @@ record(
     {
         "pid": os.getpid(),
         "args": sys.argv[1:],
-        "api_env": any(
-            k in os.environ for k in ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"]
+        "leaked_env": any(
+            k in os.environ
+            for k in [
+                "OPENAI_API_KEY",
+                "CODEX_API_KEY",
+                "OPENAI_BASE_URL",
+                "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
+            ]
         ),
     }
 )
@@ -92,7 +98,7 @@ for line in sys.stdin:
     rid = req.get("id")
     if method == "initialize":
         notify("noise", {"interleaved": True})
-        agent = "codex_cli_rs/0.162.1 (Mac OS 26.0.0; arm64) test"
+        agent = "quarry/0.162.1 (Mac OS 26.0.0; arm64) unknown (quarry; 0.1.0)"
         send({"id": rid, "result": {"userAgent": plan.get("user_agent", agent)}})
     elif method == "account/read":
         send(
@@ -244,6 +250,7 @@ def test_text_completion_uses_fresh_private_capability_catalog(
 ) -> None:
     cli, _, log = codex_cli
     monkeypatch.setenv("OPENAI_API_KEY", "never-forward")
+    monkeypatch.setenv("CODEX_INTERNAL_ORIGINATOR_OVERRIDE", "a/b")
     runtime = CodexRuntime(model="gpt-6.1-sol", cli_path=cli)
     for _ in range(2):
         out = runtime.complete_text(system="sys", prompt="tidy", cancel=threading.Event())
@@ -266,7 +273,7 @@ def test_text_completion_uses_fresh_private_capability_catalog(
     assert all(m["experimental_supported_tools"] == [] for m in catalogs)
     assert all(m["slug"] == "gpt-6.1-sol" for m in catalogs)
     children = [r for r in entries if "args" in r]
-    assert all(not r["api_env"] for r in children)
+    assert all(not r["leaked_env"] for r in children)
     assert all("agents.enabled=false" in r["args"] for r in children)
     assert "never expose" not in log.read_text()
 
@@ -325,11 +332,12 @@ def test_operational_failures_are_explicit(
     assert failed.value.retryable is False
 
 
+@pytest.mark.parametrize("version", ["0.999.0", "0.162.1-alpha.2", "0.162.1.1"])
 def test_unsupported_cli_fails_before_start(
-    codex_cli: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
+    codex_cli: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch, version: str
 ) -> None:
     cli, _, log = codex_cli
-    monkeypatch.setenv("QUARRY_CODEX_VERSION", "0.999.0")
+    monkeypatch.setenv("QUARRY_CODEX_VERSION", version)
     with pytest.raises(ProviderError, match=r"0\.162\.1"):
         CodexRuntime(model="gpt-6.1-sol", cli_path=cli).complete_text(
             system="s", prompt="p", cancel=threading.Event()
@@ -340,9 +348,11 @@ def test_unsupported_cli_fails_before_start(
 @pytest.mark.parametrize(
     "agent",
     [
-        "codex_cli_rs/0.162.10 (Mac OS 26.0.0; arm64) test",
-        "codex_cli_rs/10.162.1 (Mac OS 26.0.0; arm64) test",
-        "codex_cli_rs/0.162.1.1 (Mac OS 26.0.0; arm64) test",
+        "quarry/0.162.10 (Mac OS 26.0.0; arm64) unknown (quarry; 0.1.0)",
+        "quarry/10.162.1 (Mac OS 26.0.0; arm64) unknown (quarry; 0.1.0)",
+        "quarry/0.162.1.1 (Mac OS 26.0.0; arm64) unknown (quarry; 0.1.0)",
+        "quarry/0.162.1-alpha.1 (Mac OS 26.0.0; arm64) unknown (quarry; 0.1.0)",
+        "codex_cli_rs/0.162.1 (Mac OS 26.0.0; arm64) unknown (quarry; 0.1.0)",
         "0.162.1",
     ],
 )
