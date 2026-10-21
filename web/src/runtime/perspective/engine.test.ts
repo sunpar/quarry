@@ -34,6 +34,20 @@ afterEach(() => {
 });
 
 describe("ensureEngine", () => {
+  it("revokes the script URL when the worker cannot be created", async () => {
+    const revoke = vi.spyOn(URL, "revokeObjectURL");
+    vi.stubGlobal(
+      "Worker",
+      class {
+        constructor() {
+          throw new Error("no blob workers");
+        }
+      },
+    );
+    await expect(ensureEngine()).rejects.toThrow("no blob workers");
+    expect(revoke).toHaveBeenCalledTimes(1);
+  });
+
   it("starts one engine per frame, shared by pivots that mount together", async () => {
     const first = ensureEngine();
     expect(ensureEngine()).toBe(first);
