@@ -1298,10 +1298,11 @@ them.
 - **Filter terms are typed as the viewer means them**: the dtypes come from the
   arrow result's schema, which holds the dtypes from before the arrow casts. The
   viewer writes every `in` list as strings, so items become numbers on numeric
-  columns (an Int column keeps only plain decimal digits that are safe integers
-  within the column's width, the forms `stoll` or `stoi` and `Number()` read
-  alike) and booleans as the engine reads them (`"true"` is true, anything else
-  false). A Date term stays a `YYYY-MM-DD` string, and epoch milliseconds become
+  columns (an Int8 to Int64 or UInt8 to UInt32 column keeps only plain decimal
+  digits that are safe integers within the column's width, the forms `stoll` or
+  `stoi` and `Number()` read alike; UInt64 and 128-bit columns reach the viewer
+  as Float64, read with `stod`, and keep any whole number `Number()` reads) and
+  booleans as the engine reads them (`"true"` is true, anything else false). A Date term stays a `YYYY-MM-DD` string, and epoch milliseconds become
   their UTC day, as the engine's `gmtime` reads them; any other Date string, or
   an impossible date such as `2024-02-30`, is dropped. A Datetime term is epoch
   milliseconds (`str_to_utc_posix`), which becomes a naive UTC ISO string: a

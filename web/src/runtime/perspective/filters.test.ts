@@ -7,6 +7,7 @@ const schema: Column[] = [
   { name: "i8", dtype: "Int8" },
   { name: "i16", dtype: "Int16" },
   { name: "i32", dtype: "Int32" },
+  { name: "u", dtype: "UInt64" },
   { name: "f", dtype: "Float64" },
   { name: "b", dtype: "Boolean" },
   { name: "s", dtype: "String" },
@@ -109,6 +110,7 @@ describe("perspectiveToSpec filters", () => {
         filter: [
           ["i", "in", ["1", " 2", "+2", "9007199254740991"]],
           ["i8", "in", ["127", "-128"]],
+          ["u", "in", ["1e3"]],
           ["f", "in", ["1.5"]],
           ["b", "in", ["true", "no"]],
           ["s", "in", ["1"]],
@@ -122,6 +124,7 @@ describe("perspectiveToSpec filters", () => {
     expect(spec.filters).toEqual([
       { col: "i", op: "in", value: [1, 2, 2, 9007199254740991] },
       { col: "i8", op: "in", value: [127, -128] },
+      { col: "u", op: "in", value: [1000] },
       { col: "f", op: "in", value: [1.5] },
       { col: "b", op: "in", value: [true, false] },
       { col: "s", op: "in", value: ["1"] },
