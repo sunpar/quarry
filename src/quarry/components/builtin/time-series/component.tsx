@@ -42,8 +42,15 @@ export default function TimeSeries({ datasets }: Props) {
     (schema ?? []).filter((c) => fits(c.dtype)).map((c) => c.name);
   const numeric = names(isNumeric);
   // A time column fits only if it leaves a value: `Date` beside a lone `date` does not.
-  const times = names(isTime).filter((t) => others(numeric, [t]).length > 0);
-  const time = fit(chosen.time, times) ?? times[0] ?? null;
+  const times = names(isTime).filter((t) =>
+    numeric.some((n) => n.toLowerCase() !== t.toLowerCase()),
+  );
+  // A saved time stays; otherwise take the first that does not clash with the saved value.
+  const time =
+    fit(chosen.time, times) ??
+    others(times, [fit(chosen.value, numeric)])[0] ??
+    times[0] ??
+    null;
   const values = others(numeric, [time]);
   const value = fit(chosen.value, values) ?? values[0] ?? null;
   const ready = time !== null && value !== null;
@@ -80,7 +87,8 @@ export default function TimeSeries({ datasets }: Props) {
   if (!ready) {
     return (
       <p className="p-4 text-sm text-muted-foreground">
-        This dataset needs a date column and a numeric column.
+        This dataset needs a date column and a numeric column whose names differ
+        by more than case.
       </p>
     );
   }
@@ -91,7 +99,7 @@ export default function TimeSeries({ datasets }: Props) {
         <ColumnPicker
           label="Time"
           value={time}
-          options={times}
+          options={others(times, [value])}
           onChange={(t) => setChosen({ time: t, value })}
         />
         <ColumnPicker

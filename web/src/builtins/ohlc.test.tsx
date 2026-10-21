@@ -168,17 +168,17 @@ describe("ohlc built-in", () => {
     );
   });
 
-  it("guesses a column named exactly as a price before one that starts with it", () => {
+  it("guesses a column named as a price, ignoring case, before one that starts with it", () => {
     query.mockReturnValue({ status: "loading" });
     renderWith({
       live: [
         { name: "ts", dtype: "Date" },
-        ...numeric("open_interest", "open", "high", "low", "close"),
+        ...numeric("open_interest", "Open", "high", "low", "close"),
       ],
     });
     expect(query).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        select: ["ts", "open", "high", "low", "close"],
+        select: ["ts", "Open", "high", "low", "close"],
       }),
     );
     renderWith({

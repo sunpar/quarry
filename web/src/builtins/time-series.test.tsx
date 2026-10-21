@@ -109,6 +109,51 @@ describe("time-series built-in", () => {
     }
   });
 
+  const clashing = [
+    { name: "Date", dtype: "Date" },
+    { name: "ts", dtype: "Datetime" },
+    { name: "date", dtype: "Int64" },
+    { name: "px", dtype: "Float64" },
+  ];
+
+  it("falls back to a time column that keeps the saved value", () => {
+    query.mockReturnValue({ status: "loading" });
+    renderWith({ columns: { time: "gone", value: "date" }, live: clashing });
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({ select: ["ts", "date"] }),
+    );
+  });
+
+  it("offers no time column that clashes with the value", () => {
+    query.mockReturnValue({ status: "loading" });
+    renderWith({ columns: { time: "ts", value: "date" }, live: clashing });
+    expect(options("Time")).toEqual(["ts"]);
+  });
+
+  it("keeps a saved time over a saved value that clashes with it", () => {
+    query.mockReturnValue({ status: "loading" });
+    renderWith({ columns: { time: "Date", value: "date" }, live: clashing });
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({ select: ["Date", "px"] }),
+    );
+    expect(options("Value")).toEqual(["px"]);
+  });
+
+  it("asks for names that differ by more than case", () => {
+    query.mockReturnValue({ status: "loading" });
+    renderWith({
+      live: [
+        { name: "Date", dtype: "Date" },
+        { name: "date", dtype: "Int64" },
+      ],
+    });
+    expect(
+      screen.getByText(
+        "This dataset needs a date column and a numeric column whose names differ by more than case.",
+      ),
+    ).toBeTruthy();
+  });
+
   it("drops unplottable rows, keeps the last of a second, and reads naive times as UTC", () => {
     query.mockReturnValue({
       status: "success",

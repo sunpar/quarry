@@ -1432,8 +1432,8 @@ them.
   datetime as local time.
 - **OHLC never guesses one column for two roles**: a saved column counts only
   while the live schema has it with a fitting dtype; each remaining price role
-  then takes the first free numeric column named exactly as it, then the first
-  whose name starts with it, then the first free numeric column, so
+  then takes the first free numeric column named as it ignoring case, then the
+  first whose name starts with it, then the first free numeric column, so
   `open_interest` listed before `open` does not take the open. A column the
   researcher picks for two roles keeps both, and the query selects it once,
   since the kernel refuses a repeated `select` name. The kernel also refuses two
@@ -1494,11 +1494,12 @@ them.
   always leaves the next one a column, and each picker offers only the columns
   still free, compared ignoring case as the kernel compares names. In the
   scatter, y skips x and the color column skips both. The time series and large
-  series resolve the time first, from the time columns that leave a value, and
-  the value skips it, so `Date` and `date` are never paired. The heatmap
-  resolves the value first, then the row and column keys from the rest, and the
-  column skips the row, since a column pivoted against itself is only a
-  diagonal. The bar and line chart resolves the value first and skips
+  series take only time columns that leave a value, keep a saved time, and
+  otherwise take the first that does not clash with the saved value; the value
+  and the Time picker skip each other, so `Date` and `date` are never paired.
+  The heatmap resolves the value first, then the row and column keys from the
+  rest, and the column skips the row, since a column pivoted against itself is
+  only a diagonal. The bar and line chart resolves the value first and skips
   `<value>_<fn>`, the aggregate's name, as a category; with no other column left
   it groups by a numeric one, then by the value itself, which the kernel
   accepts, because the manifest's `any` role matches all-numeric datasets. A
