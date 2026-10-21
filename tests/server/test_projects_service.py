@@ -21,9 +21,8 @@ from quarry.server.projects import (
 )
 from quarry.server.service import SessionService
 from quarry.server.store import SessionStore
-from tests.fixtures import umask
+from tests.fixtures import mode, umask
 from tests.server.test_app import end, py, view_turn
-from tests.server.test_store import mode
 
 PRICES = "prices = pl.DataFrame({'ts': ['2024-01-02', '2024-01-03'], 'px': [1.0, 2.0]})"
 TIDY_OK = "import polars as pl\n" + PRICES + "\n"
@@ -321,6 +320,7 @@ def test_hold_refuses_steps_and_restarts(tmp_path: Path) -> None:
             sessions.restart(sid)
         with pytest.raises(SessionBusy), sessions.hold(sid):
             pass
+        assert sessions.status(sid).busy
     assert not sessions.status(sid).busy
     sessions.start_manual(sid, "x = 1")
     wait_idle(sessions, sid)

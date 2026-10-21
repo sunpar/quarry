@@ -316,6 +316,8 @@ one up when a researcher needs it.
   `_wasm/scichart.wasm` and nothing else.
 - Export a single view with `quarry projects export`, and import a `.ipynb`.
   Neither is in the spec.
+- Name the target path in a failed export's message, which names its temporary
+  file (`.out.ipynb.<random>.tmp`) instead.
 - Type the op sets in `quarry/query/spec.py` as `frozenset[FilterOp]` rather
   than `frozenset[str]`.
 - Keep TIMETZ offsets in JSON rows, and fix the Duration comment in
@@ -349,10 +351,7 @@ one up when a researcher needs it.
   `@types/d3-selection` resolves to 1.0.10 through Perspective, hidden by
   `skipLibCheck`.
 - Close Stage 5 test gaps:
-  - Server: `kept_default_connection` does not restore `memory_limit`, so a
-    capped caller would leak it. `current_setting` rounds the limit, and setting
-    19.1 GiB back reads 19.0 GiB; `RESET memory_limit` restores the default.
-    No test sends an all-null column to Perspective.
+  - Server: no test sends an all-null column to Perspective.
   - Web and browser tests: the Perspective cache-hit test checks React's row
     count, not the viewer's table. `ViewHost.test.tsx` is at 240 lines with
     fixed 20 ms sleeps. `state.test.ts` uses fake timers without `try/finally`,

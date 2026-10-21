@@ -2,13 +2,12 @@ from pathlib import Path
 
 import pytest
 
-from quarry.agent.transpile import NoopTranspiler, default_transpiler
 from quarry.components.library import builtin_root
-from tests.agent.test_transpile import STATIC
+from tests.agent.test_transpile import bundle_checker
 from tests.components.test_library import write_component
+from tests.fixtures import mode, umask
 from tests.server.test_app import make_client, wait_idle
 from tests.server.test_libraries import config_with
-from tests.server.test_store import mode
 
 SOURCE = (
     'import { useQuery } from "@quarry/hooks";\n'
@@ -56,7 +55,8 @@ def test_save_component_writes_manifest_and_lists_it(tmp_path: Path) -> None:
 
 
 def test_save_component_without_a_dataset_requires_nothing(tmp_path: Path) -> None:
-    with make_client(tmp_path, []) as client:
+    # Under umask 0o022 a folder made without its private mode would be 0o755.
+    with umask(0o022), make_client(tmp_path, []) as client:
         created = client.post("/components", json={"id": "plain", "name": "P", "source": SOURCE})
         assert created.status_code == 201, created.text
         assert created.json()["schema"]["requires"] == []
@@ -107,11 +107,8 @@ def test_save_component_needs_session_and_dataset_together(tmp_path: Path) -> No
     assert not (tmp_path / "components" / "half").exists()
 
 
-@pytest.mark.skipif(
-    isinstance(default_transpiler(STATIC), NoopTranspiler),
-    reason="the transpile check needs the web build and node",
-)
 def test_save_component_refuses_source_that_does_not_transpile(tmp_path: Path) -> None:
+    bundle_checker()
     with make_client(tmp_path, []) as client:
         body = {"id": "broken", "name": "Broken", "source": "export default ("}
         broken = client.post("/components", json=body)

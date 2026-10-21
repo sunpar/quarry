@@ -8,7 +8,7 @@ import pytest
 from quarry.agent.tools import PendingView
 from quarry.server.models import ProviderInfo, Step, StepStatus, View, now_iso
 from quarry.server.store import SessionStore
-from tests.fixtures import umask
+from tests.fixtures import mode, umask
 
 
 def step(index: int, status: StepStatus = "ok") -> Step:
@@ -64,10 +64,6 @@ def record_fsyncs(monkeypatch: pytest.MonkeyPatch) -> list[os.stat_result]:
 
     monkeypatch.setattr(os, "fsync", recording_fsync)
     return synced
-
-
-def mode(path: Path) -> int:
-    return stat.S_IMODE(path.stat().st_mode)
 
 
 @pytest.fixture

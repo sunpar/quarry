@@ -10,8 +10,8 @@ from pathlib import Path
 import duckdb
 import pytest
 
-# The settings build_namespace changes on DuckDB's default connection, but memory_limit:
-# current_setting rounds it, and setting 19.1 GiB back reads 19.0 GiB (probed).
+# The settings build_namespace changes on DuckDB's default connection, but memory_limit, which
+# is reset instead: current_setting rounds it, and setting 19.1 GiB back reads 19.0 GiB (probed).
 NAMESPACE_SETTINGS = ("python_scan_all_frames", "TimeZone", "temp_directory", "threads")
 
 root_ignores_modes = pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
@@ -26,6 +26,10 @@ def chmodded(path: Path, bits: int) -> Iterator[None]:
         yield
     finally:
         path.chmod(previous)
+
+
+def mode(path: Path) -> int:
+    return stat.S_IMODE(path.stat().st_mode)
 
 
 @contextmanager
@@ -54,3 +58,6 @@ def kept_default_connection() -> Iterator[None]:
     finally:
         for name, value in saved.items():
             conn.execute(f"SET {name} = ?", [value])
+        # Nothing else sets the default connection's memory_limit, so its default is the value
+        # the block started with.
+        conn.execute("RESET memory_limit")

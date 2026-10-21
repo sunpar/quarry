@@ -322,7 +322,12 @@ def test_to_code_route_renders_what_the_view_shows_and_rejects(tmp_path: Path) -
         assert bad.status_code == 400
         assert bad.json()["detail"] == "QueryError: Column 'x' does not exist in dataset 'df'"
         show({}, [{"dataset": "df", "limit": 0}])
-        assert client.post(route).status_code == 400
+        limited = client.post(route)
+        assert limited.status_code == 400
+        # pydantic's message, up to the help link that names its version.
+        assert limited.json()["detail"].startswith(
+            "1 validation error for QuerySpec\nlimit\n  Input should be greater than 0 "
+        )
         assert client.post(f"/sessions/{sid}/steps/nope/to-code").status_code == 404
         assert client.post("/sessions/nope/steps/x/to-code").status_code == 404
 

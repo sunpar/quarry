@@ -34,7 +34,7 @@ def test_main_without_command_prints_usage(
     capsys: pytest.CaptureFixture[str], argv: list[str]
 ) -> None:
     assert main(argv) == 2
-    assert "serve" in capsys.readouterr().err
+    assert capsys.readouterr().err.startswith("usage: quarry")
 
 
 def test_serve_binds_loopback_and_banner_token_is_the_app_token(
@@ -232,7 +232,9 @@ def test_an_export_into_a_missing_directory_is_an_export_failure(
     project_with_saved_items(tmp_path)
     out = str(tmp_path / "missing" / "out.ipynb")
     assert main(["projects", "export", "momentum", "--root", str(tmp_path), "--out", out]) == 1
-    assert "export failed" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    # The write is what failed: the message names a file in the missing directory.
+    assert err.startswith("export failed: ") and str(tmp_path / "missing") in err
     assert not (tmp_path / "missing").exists()
 
 
