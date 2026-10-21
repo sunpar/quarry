@@ -354,7 +354,10 @@ class CodexRuntime:
                     "capabilities": {"experimentalApi": True},
                 },
             )
-            if _CODEX_VERSION not in initialized.get("userAgent", ""):
+            # The userAgent reads "originator/version (os; arch) terminal": compare the
+            # whole version token, so 0.162.10 or 10.162.1 never pass for 0.162.1.
+            agent = initialized.get("userAgent", "")
+            if agent.partition("/")[2].split(" ", 1)[0] != _CODEX_VERSION:
                 raise ProviderError("Unexpected Codex app-server version", retryable=False)
             connection.send({"method": "initialized", "params": {}})
             account = connection.request("account/read", {"refreshToken": False})

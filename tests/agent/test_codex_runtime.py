@@ -92,7 +92,8 @@ for line in sys.stdin:
     rid = req.get("id")
     if method == "initialize":
         notify("noise", {"interleaved": True})
-        send({"id": rid, "result": {"userAgent": "Codex/0.162.1"}})
+        agent = "codex_cli_rs/0.162.1 (Mac OS 26.0.0; arm64) test"
+        send({"id": rid, "result": {"userAgent": os.environ.get("QUARRY_CODEX_USER_AGENT", agent)}})
     elif method == "account/read":
         send(
             {
@@ -334,6 +335,29 @@ def test_unsupported_cli_fails_before_start(
             system="s", prompt="p", cancel=threading.Event()
         )
     assert not log.exists()
+
+
+@pytest.mark.parametrize(
+    "agent",
+    [
+        "codex_cli_rs/0.162.10 (Mac OS 26.0.0; arm64) test",
+        "codex_cli_rs/10.162.1 (Mac OS 26.0.0; arm64) test",
+        "codex_cli_rs/0.162.1.1 (Mac OS 26.0.0; arm64) test",
+        "0.162.1",
+    ],
+)
+def test_unsupported_app_server_fails_and_cleans_up(
+    codex_cli: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch, agent: str
+) -> None:
+    cli, _, log = codex_cli
+    monkeypatch.setenv("QUARRY_CODEX_USER_AGENT", agent)
+    with pytest.raises(ProviderError, match="Unexpected Codex app-server version"):
+        CodexRuntime(model="gpt-6.1-sol", cli_path=cli).complete_text(
+            system="s", prompt="p", cancel=threading.Event()
+        )
+    entries = records(log)
+    assert any(r.get("terminated") for r in entries)
+    assert not any(r.get("method") == "account/read" for r in entries)
 
 
 def test_from_config_keeps_explicit_model_and_binary(codex_cli: tuple[Path, Path, Path]) -> None:
