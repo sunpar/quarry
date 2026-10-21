@@ -247,6 +247,7 @@ def test_text_completion_uses_fresh_private_capability_catalog(
         assert out.text == "done" and out.stop == "end" and out.tool_calls == []
     entries = records(log)
     hellos = [r["params"] for r in entries if r.get("method") == "initialize"]
+    assert hellos
     assert all(h["clientInfo"] == {"name": "quarry", "version": __version__} for h in hellos)
     starts = [r["params"] for r in entries if r.get("method") == "thread/start"]
     assert len(starts) == 2 and starts[0]["cwd"] != starts[1]["cwd"]

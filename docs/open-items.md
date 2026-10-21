@@ -125,6 +125,9 @@ Decisions already made are in [decisions.md](context/decisions.md).
   `test_native_cleanup_finishes_while_real_python_is_still_executing[True]` and
   passed on rerun; a group whose processes have exited but are not yet reaped
   may answer `EPERM`. Loud.
+- **The Codex version check matches a substring**: the runtime accepts any
+  app-server whose `userAgent` contains `0.162.1`, so 0.162.10 or 10.162.1 pass.
+  Silent: an untested Codex release runs.
 - **Cancel waits for the model**: `/interrupt` and `/restart` stop a prompt step
   only once the provider answers the call in flight, bounded only by the
   provider client's timeout. Meanwhile `/restart` holds its request, a second
