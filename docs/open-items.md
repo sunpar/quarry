@@ -112,6 +112,11 @@ Decisions already made are in [decisions.md](context/decisions.md).
   unreadable directory without a log line, and misses a dataset whose parquet
   files sit only in nested directories not named `key=value`. A dangling
   `*.parquet` symlink still lists its dataset. Silent.
+- **Some malformed provider responses still pass**: the SDKs fill a missing
+  field with None, so a 200 without a stop reason reads as a turn that ended
+  normally. An Anthropic reply whose content is empty or holds only block types
+  the adapter does not know, or an OpenAI message with neither content nor tool
+  calls, reads as an empty turn that succeeded. Silent.
 - **The Codex version check matches a substring**: the runtime accepts any
   app-server whose `userAgent` contains `0.162.1`, so 0.162.10 or 10.162.1 pass.
   Silent: an untested Codex release runs.

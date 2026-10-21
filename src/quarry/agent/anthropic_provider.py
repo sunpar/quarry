@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
-from typing import Final
+from typing import Any, Final
 
 import anthropic
 
@@ -51,7 +52,7 @@ class AnthropicProvider:
         if tools:
             kwargs["tools"] = to_api_tools(tools)
         try:
-            return from_api_response(self._create(**kwargs))
+            response = self._create(**kwargs)
         except (
             anthropic.RateLimitError,
             anthropic.InternalServerError,
@@ -60,9 +61,13 @@ class AnthropicProvider:
             raise ProviderError(str(exc), retryable=True) from exc
         except anthropic.APIError as exc:
             raise ProviderError(str(exc), retryable=False) from exc
+        except (json.JSONDecodeError, RecursionError) as exc:
+            # A 200 whose body is not JSON, or nests too deep, fails to decode in the SDK.
+            raise ProviderError(f"malformed provider response: {exc}", retryable=False) from exc
+        try:
+            return from_api_response(response)
         except (ValueError, TypeError, AttributeError) as exc:
-            # The SDK does not validate a 200's body, so one that is not JSON
-            # fails to decode and one missing fields fails to convert.
+            # The SDK fills a missing field with None, so a body of the wrong shape fails here.
             raise ProviderError(f"malformed provider response: {exc}", retryable=False) from exc
 
 
@@ -110,19 +115,18 @@ def to_api_tools(tools: list[ToolDef]) -> list[dict[str, Json]]:
     ]
 
 
-def from_api_response(response: object) -> AssistantTurn:
-    stop_reason = str(response.stop_reason)  # type: ignore[attr-defined]
-    stop = STOP_MAP.get(stop_reason, "end")
+def from_api_response(response: Any) -> AssistantTurn:
+    stop = STOP_MAP.get(response.stop_reason, "end")
     text_parts: list[str] = []
     calls: list[ToolCall] = []
-    for block in response.content:  # type: ignore[attr-defined]
+    for block in response.content:
         if block.type == "text":
-            text_parts.append(str(block.text))
+            text_parts.append(block.text)
         elif block.type == "tool_use":
-            calls.append(ToolCall(id=str(block.id), name=str(block.name), input=dict(block.input)))
+            calls.append(ToolCall(id=block.id, name=block.name, input=dict(block.input)))
     refusal = None
     if stop == "refusal":
-        details = response.stop_details  # type: ignore[attr-defined]
+        details = response.stop_details
         refusal = str(
             getattr(details, "explanation", None) or "request declined by safety classifier"
         )
