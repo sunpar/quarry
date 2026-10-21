@@ -663,10 +663,10 @@ them.
   page does not show.
 - **Recall is a manual step**: `start_recall` creates a `recall` step and runs
   it on the manual-step path, so `runs` is filled, lineage records the writes
-  and restart replays it. `_run_manual` takes a view recall's saved view and
-  puts it on the step only once its code ran ok, so a running recall mounts
-  nothing before its datasets exist and a failed or stopped one shows its error
-  without a view. The plan's calls used signatures the Stage 2 service lacks.
+  and restart replays it. `_run_manual` puts a view recall's saved view on the
+  step only once its code ran ok: the view reads the datasets that code loads,
+  so a running, failed or stopped recall shows no view. The plan put the view
+  on the step in `_begin`.
 - **Shutdown stops and saves running steps**: it cancels every running step,
   closes the kernels, refuses to start new ones, and waits up to 10 s for the
   steps to save as `interrupted`. A step running at shutdown was never saved
