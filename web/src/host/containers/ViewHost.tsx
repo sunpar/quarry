@@ -51,8 +51,9 @@ export function ViewHost(props: ViewHostProps) {
   const loaded = useRef(false);
   const bridgeRef = useRef<HostBridge | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Callers rebuild the view and callbacks every render (snapshots append on every poll), so the
-  // effect keys on contentKey and reads the source, initial state, datasets and callbacks here.
+  // Callers rebuild the view and callbacks every render (each report appends a snapshot or
+  // replaces the last), so the effect keys on contentKey and reads the source, initial state,
+  // datasets and callbacks here.
   const latest = useRef({ ...props, api, queryClient });
   latest.current = { ...props, api, queryClient };
   // The view mounts once, after the first libraries answer, error or not: `isFetched` never

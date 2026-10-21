@@ -22,28 +22,20 @@ interface ViewFrameContainerProps {
   actions?: ReactNode;
 }
 
-// The server's rule: a snapshot of the last state replaces it instead of appending.
-const recordSnapshot = (snapshots: Snapshot[], snapshot: Snapshot) =>
-  JSON.stringify(snapshots.at(-1)?.state) === JSON.stringify(snapshot.state)
-    ? [...snapshots.slice(0, -1), snapshot]
-    : [...snapshots, snapshot];
-
 // An updater that leaves an uncached session (undefined) as it is.
 const withSnapshot =
   (stepId: string, snapshot: Snapshot) => (session: Session | undefined) =>
     session && {
       ...session,
-      steps: session.steps.map((s) =>
-        s.id === stepId && s.view
-          ? {
-              ...s,
-              view: {
-                ...s.view,
-                snapshots: recordSnapshot(s.view.snapshots, snapshot),
-              },
-            }
-          : s,
-      ),
+      steps: session.steps.map((s) => {
+        if (s.id !== stepId || !s.view) return s;
+        // Mirrors the server's rule: a snapshot of the last state replaces it.
+        const kept = s.view.snapshots;
+        const repeats =
+          JSON.stringify(kept.at(-1)?.state) === JSON.stringify(snapshot.state);
+        const snapshots = [...(repeats ? kept.slice(0, -1) : kept), snapshot];
+        return { ...s, view: { ...s.view, snapshots } };
+      }),
     };
 
 export function ViewFrameContainer({
