@@ -19,7 +19,10 @@ interface ViewFrameContainerProps {
   /** Changes whenever kernel data may have: a step finished or a new kernel started. */
   dataVersion: string;
   onRepair: (repair: RepairRequest) => void;
-  /** Given the ts of an older snapshot picked in the history, absent otherwise. */
+  /**
+   * Given the ts of an older snapshot picked in the history, absent otherwise.
+   * Its nodes join the History slider's wrapping row.
+   */
   actions?: (picked?: string) => ReactNode;
 }
 
@@ -96,7 +99,7 @@ export function ViewFrameContainer({
         }}
         onFix={(error) => onRepair({ step_id: step.id, error })}
       />
-      <div className="flex items-center gap-4 empty:hidden">
+      <div className="flex flex-wrap items-center gap-4 empty:hidden">
         <SnapshotScrubber
           count={snapshots.length}
           value={picked === -1 ? snapshots.length - 1 : picked}
@@ -108,9 +111,7 @@ export function ViewFrameContainer({
             setRestoreState(shown?.state ?? null);
           }}
         />
-        {actions !== undefined && (
-          <div className="ml-auto">{actions(snapshots[picked]?.ts)}</div>
-        )}
+        {actions?.(snapshots[picked]?.ts)}
       </div>
     </div>
   );
