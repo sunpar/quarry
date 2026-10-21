@@ -82,7 +82,7 @@ describe("SaveDialog", () => {
 
   it("chooses the first project when the list arrives after opening", () => {
     const onSave = vi.fn();
-    const { rerender } = render(viewDialog([], onSave));
+    const { rerender } = render(viewDialog(undefined, onSave));
     expect(saveButton().disabled).toBe(true);
     rerender(viewDialog(projects, onSave));
     expect(projectSelect().value).toBe("p");

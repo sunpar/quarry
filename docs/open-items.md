@@ -215,6 +215,11 @@ Decisions already made are in [decisions.md](context/decisions.md).
   to the host, and the pivot stays empty. Loud.
 - **A hung `GET /libraries` never mounts a view**: `ViewHost` waits for that one
   answer with no timeout. Silent: the frame stays empty.
+- **The project rail asks for a project while projects load or fail**:
+  `ProjectRail` builds its list from `metas.data ?? []`, so it shows "Create a
+  project to save datasets and views into." until the list arrives, or until
+  a refetch succeeds when `GET /projects` fails. Silent: the failure is never
+  shown.
 - **An outgoing view's cleanup error replaces the incoming view**: the frame
   keeps one error boundary across mounts, so when a replaced view throws from
   an effect cleanup as the next view mounts, the boundary shows that error

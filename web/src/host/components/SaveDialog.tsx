@@ -68,7 +68,11 @@ export function SaveDialog({
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="save-project">Project</Label>
           {hint !== null && (
-            <p className="text-xs text-muted-foreground">{hint}</p>
+            <p
+              className={`text-xs ${projects === undefined && error !== null ? "text-destructive" : "text-muted-foreground"}`}
+            >
+              {hint}
+            </p>
           )}
           <select
             id="save-project"
