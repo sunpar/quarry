@@ -239,6 +239,14 @@ Decisions already made are in [decisions.md](context/decisions.md).
   thread pool, so when two reports of the same state race, the older one can
   replace the newer, and "To code" and "Save view" use stale queries until the
   next report. Silent.
+- **A restore during a report's debounce is reported as new**: a restore in
+  `web/src/runtime/state.ts` does not cancel a report timer already waiting, so
+  picking a snapshot within 300 ms of a change, such as the report a view sends
+  as it mounts, posts the restored state as a new latest snapshot. Silent.
+- **A frame reload shows the latest while a pick stays**: a frame reload mounts
+  the view on the latest snapshot, but the scrubber and the step actions keep an
+  older pick, so "To code" and "Save view" use a snapshot the view no longer
+  shows. Silent.
 - **A busy session's component save shares a 409**: a busy session's 409 on
   `POST /components` shares its code with an existing id's, though its message
   says the session is busy. The open question on its code covers the fix.
@@ -298,8 +306,7 @@ one up when a researcher needs it.
   threw on its state or data stays on the error until it mounts again.
 - The Lightweight Charts attribution link is inert under the sandbox (no
   popups).
-- Add component tests for `SessionPage` (reload keeps the session, 401 message),
-  the time series success and "needs a date column" paths, and the canvas's
+- Add component tests for `SessionPage`'s 401 message and the canvas's
   debounced layout write and its flush on unmount.
 - Count in-place mutation inside a function as a write of the frame it changes:
   a helper that sets `df.columns` or deletes `df["k"]` is invisible to lineage,

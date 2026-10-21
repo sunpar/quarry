@@ -1,54 +1,53 @@
 # Working state
 
-Checkpoint as of 2026-10-21, after PRs #52 to #58 merged. This page records
+Checkpoint as of 2026-10-21, after PRs #59 to #66 merged. This page records
 current work and verification. The [docs index](README.md) describes the
 permanent context and [open-items.md](open-items.md) holds unresolved work.
 
 ## Recent merges
 
-Seven backlog items merged by squash, each from its own branch:
+Eight backlog items merged by squash, each from its own branch:
 
-- [PR #52](https://github.com/sunpar/quarry/pull/52) as `56979ae`: `for_viewer`
-  casts Float16 to Float64 and unwraps extension columns to their converted
-  storage, so Perspective loads them.
-- [PR #53](https://github.com/sunpar/quarry/pull/53) as `88990ce`: a canvas card
-  shows "Loading" or its saved view's error, a card whose view has left the
-  project can be removed, every canvas error shows, and Dismiss clears only
-  failed actions.
-- [PR #54](https://github.com/sunpar/quarry/pull/54) as `5dfe9c5`: a failed
-  `write_atomic` names its target, not its temporary file, in the CLI and the
-  web app.
-- [PR #55](https://github.com/sunpar/quarry/pull/55) as `ce341cb`: OHLC compares
-  names ignoring case for its guesses, saved columns and pickers, and keeps its
-  pickers when a role is left empty.
-- [PR #56](https://github.com/sunpar/quarry/pull/56) as `6018a1d`: "To code" is
-  off while its drawer is open, Stop shows only while a step runs, and the
-  status reads the running step under its lock.
-- [PR #57](https://github.com/sunpar/quarry/pull/57) as `d1b88c8`: a component
-  save that fails removes what it wrote, so its id is free again, and the
-  components root is fsynced.
-- [PR #58](https://github.com/sunpar/quarry/pull/58) as `1526241`: "To code",
-  "Save view" and "Pin to canvas" use the snapshot picked in the scrubber, named
-  by its server `ts`.
+- [PR #59](https://github.com/sunpar/quarry/pull/59) as `37f96b0`: the save
+  dialog says "Loading" or the fetch error while projects load or fail, and asks
+  for a project only once an empty list has loaded.
+- [PR #60](https://github.com/sunpar/quarry/pull/60) as `5718383`: a provider
+  reply with a stop or finish reason the adapter does not map, None included,
+  fails as a malformed response.
+- [PR #61](https://github.com/sunpar/quarry/pull/61) as `355ebea`: the "To code"
+  drawer gets its own full-width row and stays inside the step's column.
+- [PR #62](https://github.com/sunpar/quarry/pull/62) as `b3e8632`: time series
+  and large series never pair a time and value that differ only in case, and
+  OHLC tries a column named as the price before a prefix match.
+- [PR #63](https://github.com/sunpar/quarry/pull/63) as `24e1f0c`: a view
+  mounts on its latest snapshot, on a page reload and a frame reload alike.
+- [PR #64](https://github.com/sunpar/quarry/pull/64) as `4bf9fb0`: a view recall
+  puts its view on the step only when its run ends ok.
+- [PR #65](https://github.com/sunpar/quarry/pull/65) as `ce7d917`: a killed
+  kernel closes outside the manager lock, a client closes once, and a closing
+  client reads as dead.
+- [PR #66](https://github.com/sunpar/quarry/pull/66) as `0990ce1`: polars
+  filters and "To code" compare Float32 and Float16 columns as Float64, as the
+  viewer does. Relations still compare at the column's type, a known problem.
 
 Each branch ran Opus 5.5 (xhigh), Astra 6 (medium) and Muse Wonder (high) once
-before its PR. Opus raised findings on all seven, Astra on two and Muse on four.
-Valid findings were fixed or recorded in the open items. #58 was reworked after
-Opus: it first counted snapshots back from the newest, which named the wrong
-snapshot whenever the host's cached list and the server's differed. On GitHub,
-Claude's first review was clean on all seven. Codex's opening review was clean
-on six; on #58 it found a pick of the latest that stopped following newer
-snapshots, fixed before the merge.
+before its PR. Opus raised findings on all eight, Astra on one (#62) and Muse
+on three (#59, #65 and #66). Valid findings were fixed or recorded in the open
+items. #66 changed course after Opus: rendering a SQL literal as
+`::DOUBLE` parsed it through DECIMAL and rounded, so the SQL half was reverted
+and the relation side recorded with the fix it needs. On GitHub, Claude's first
+review and Codex's opening review were clean on all eight.
 
 Hosted Linux runs passed on each merged head:
-[#52](https://github.com/sunpar/quarry/actions/runs/39633997207),
-[#53](https://github.com/sunpar/quarry/actions/runs/39634119822),
-[#54](https://github.com/sunpar/quarry/actions/runs/39634430648),
-[#55](https://github.com/sunpar/quarry/actions/runs/39635034618),
-[#56](https://github.com/sunpar/quarry/actions/runs/39636240307),
-[#57](https://github.com/sunpar/quarry/actions/runs/39636594487) and
-[#58](https://github.com/sunpar/quarry/actions/runs/39642833360). The full gate
-on main at `1526241` passed 1,381 Python tests (3 skipped) and 334 frontend
+[#59](https://github.com/sunpar/quarry/actions/runs/39657741183),
+[#60](https://github.com/sunpar/quarry/actions/runs/39658180816),
+[#61](https://github.com/sunpar/quarry/actions/runs/39658861929),
+[#62](https://github.com/sunpar/quarry/actions/runs/39659362909),
+[#63](https://github.com/sunpar/quarry/actions/runs/39660004397),
+[#64](https://github.com/sunpar/quarry/actions/runs/39660451472),
+[#65](https://github.com/sunpar/quarry/actions/runs/39660591609) and
+[#66](https://github.com/sunpar/quarry/actions/runs/39661416342). The full gate
+on main at `0990ce1` passed 1,403 Python tests (3 skipped) and 352 frontend
 tests.
 
 Running `uv run` in a fresh worktree installs Quarry into `.venv`, and
@@ -59,6 +58,23 @@ can trigger the same stop. Under plain `pytest` in a worktree,
 child cannot import Quarry; `make check` installs the package for it.
 
 ## Earlier merges
+
+PRs #52 to #58 merged on 2026-10-21.
+[PR #52](https://github.com/sunpar/quarry/pull/52) (`56979ae`) casts Float16
+and extension columns for Perspective;
+[PR #53](https://github.com/sunpar/quarry/pull/53) (`88990ce`) shows canvas
+card errors and lets a missing view's card be removed;
+[PR #54](https://github.com/sunpar/quarry/pull/54) (`5dfe9c5`) names the target
+of a failed `write_atomic`;
+[PR #55](https://github.com/sunpar/quarry/pull/55) (`ce341cb`) makes OHLC
+compare names ignoring case;
+[PR #56](https://github.com/sunpar/quarry/pull/56) (`6018a1d`) keeps drawer
+edits and hides Stop during a hold;
+[PR #57](https://github.com/sunpar/quarry/pull/57) (`d1b88c8`) frees a
+component id when its save fails;
+[PR #58](https://github.com/sunpar/quarry/pull/58) (`1526241`) uses the picked
+snapshot for "To code" and "Save view". Their gate on main at `1526241` passed
+1,381 Python tests (3 skipped) and 334 frontend tests.
 
 PRs #46 to #51 merged on 2026-10-21.
 [PR #46](https://github.com/sunpar/quarry/pull/46) (`5e679e9`) types the filter
@@ -185,11 +201,13 @@ warnings remain.
 
 1. Select the next item from [open-items.md](open-items.md): the remaining
    correctness issues come first. Unwrapping extension columns where the kernel
-   takes a frame would let pivot queries filter and aggregate them.
+   takes a frame would let pivot queries filter and aggregate them, and giving
+   `to_sql` column types would let relations compare Float32 filters as the
+   viewer does.
 2. Settle the choices that block small items, listed under Open questions: what
    a missing pivot `config` means, when paged sorts get a tie-breaker, which
-   code a busy session's component save returns, and how long recipe validation
-   may run.
+   code a busy session's component save returns, how long recipe validation may
+   run, and whether an empty provider turn is an error.
 3. Decide workflow parameter contracts, metric validation and branching replay
    semantics before implementing those features.
 4. Retain native-x86 and live-integration limits until their own checks run.
