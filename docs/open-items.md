@@ -313,8 +313,6 @@ one up when a researcher needs it.
   `_wasm/scichart.wasm` and nothing else.
 - Export a single view with `quarry projects export`, and import a `.ipynb`.
   Neither is in the spec.
-- Keep the version in one place: `pyproject.toml` and `src/quarry/__init__.py`
-  both hold it, and the test checks only its type.
 - Type the op sets in `quarry/query/spec.py` as `frozenset[FilterOp]` rather
   than `frozenset[str]`.
 - Keep TIMETZ offsets in JSON rows, and fix the Duration comment in
