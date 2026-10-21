@@ -82,8 +82,7 @@ class KernelManager:
         until restart, so `get` never starts a fresh one in its place."""
         with self._lock:
             client = self._clients.get(session_id)
-        # Outside the lock: close waits up to 5 s for the kernel, and every session's `get`
-        # takes the lock.
+        # Outside the lock: close can wait 5 s, and every session's `get` takes the lock.
         if client is not None:
             client.close()
 

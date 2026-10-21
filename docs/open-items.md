@@ -141,9 +141,10 @@ Decisions already made are in [decisions.md](context/decisions.md).
   researcher's cancel ended right before a restart is saved with "stopped by a
   restart". Silent; the status is right.
 - **A starting kernel holds the manager lock**: `KernelManager.get` and
-  `restart` start a session's kernel under the manager's lock, and the start
-  waits up to 30 s for the kernel to connect, so every session's kernel lookup
-  waits too. Silent.
+  `restart` start a session's kernel under the manager's lock. The start waits
+  up to 30 s for the kernel to connect, and with no limit for one it killed to
+  exit, so every session's kernel lookup waits too. A per-session lock would
+  cover it. Silent.
 - **`origin_step` can name a step replay dropped**: replay skips interrupted
   runs and stops at the first failure, but `/datasets` still credits the latest
   saved writer. After a step that rebound `df` is interrupted and the session

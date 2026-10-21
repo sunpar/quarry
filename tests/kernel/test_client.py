@@ -297,6 +297,36 @@ def test_close_does_not_signal_a_kernel_the_client_already_reaped(
     assert signalled == []
 
 
+def test_a_second_close_does_not_signal_the_group_the_first_is_reaping(
+    stand_in: StandIn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _ = stand_in(60)
+    reaping, resume = threading.Event(), threading.Event()
+    real_wait = client._process.wait
+
+    def held(timeout: float | None = None) -> int:  # reaped, say, but returncode not yet set
+        reaping.set()
+        resume.wait()
+        return real_wait(timeout)
+
+    signalled: list[int] = []
+    first, second = threading.Thread(target=client.close), threading.Thread(target=client.close)
+    with monkeypatch.context() as patch:
+        patch.setattr(client._process, "wait", held)
+        first.start()
+        try:
+            assert reaping.wait(timeout=5)
+            # The first close has killed the group: a signal from here on is the second's.
+            patch.setattr(os, "killpg", lambda pgid, sig: signalled.append(pgid))
+            second.start()
+            second.join(timeout=1)
+        finally:
+            resume.set()
+            first.join()
+            second.join()
+    assert signalled == []
+
+
 def test_kernel_seen_exited_by_a_poll_has_its_group_killed_then(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

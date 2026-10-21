@@ -1,4 +1,3 @@
-import contextlib
 import sys
 import threading
 import time
@@ -8,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from quarry.agent.tools import CodeRun
-from quarry.kernel.client import KernelDead
+from quarry.kernel.client import KernelClient, KernelDead
 from quarry.kernel.executor import Status
 from quarry.server.kernels import KernelManager, SessionBusy
 from quarry.server.models import Step, now_iso
@@ -154,15 +153,21 @@ def test_restart_skips_interrupted_runs(manager: KernelManager) -> None:
 
 
 @pytest.mark.parametrize(
-    "close", [lambda m: m.kill("a"), KernelManager.close_all], ids=["kill", "close_all"]
+    ("close", "b_survives"),
+    [(lambda m: m.kill("a"), True), (KernelManager.close_all, False)],
+    ids=["kill", "close_all"],
 )
 def test_a_stuck_close_holds_up_no_other_session(
-    manager: KernelManager, monkeypatch: pytest.MonkeyPatch, close: Callable[[KernelManager], None]
+    manager: KernelManager,
+    monkeypatch: pytest.MonkeyPatch,
+    close: Callable[[KernelManager], None],
+    b_survives: bool,
 ) -> None:
     a = manager.get("a")
-    manager.get("b")
+    b = manager.get("b")
     entered, released = threading.Event(), threading.Event()
     real_close = a.close
+    found: list[KernelClient | KernelDead] = []
 
     def stuck() -> None:  # a kernel that outlives SIGKILL holds close() for 5 s
         entered.set()
@@ -170,8 +175,10 @@ def test_a_stuck_close_holds_up_no_other_session(
         real_close()
 
     def lookup() -> None:
-        with contextlib.suppress(KernelDead):  # close_all leaves no kernel to find
-            manager.get("b")
+        try:
+            found.append(manager.get("b"))
+        except KernelDead as exc:
+            found.append(exc)
 
     monkeypatch.setattr(a, "close", stuck)
     closer = threading.Thread(target=close, args=(manager,))
@@ -185,6 +192,11 @@ def test_a_stuck_close_holds_up_no_other_session(
     finally:
         released.set()
         closer.join()
+    [outcome] = found
+    if b_survives:
+        assert outcome is b
+    else:  # close_all leaves no kernel to find, and starts none
+        assert isinstance(outcome, KernelDead) and "shutting down" in str(outcome)
 
 
 def test_closed_manager_starts_no_kernel(manager: KernelManager) -> None:
