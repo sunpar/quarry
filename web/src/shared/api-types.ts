@@ -235,6 +235,8 @@ export interface SaveViewRequest {
   mode: SaveMode;
   /** Also put the view on the project's canvas. */
   pin?: boolean;
+  /** The ts of the snapshot to save; absent saves the latest, or the initial state before one. */
+  snapshot_ts?: string;
 }
 
 export interface RecallRequest {

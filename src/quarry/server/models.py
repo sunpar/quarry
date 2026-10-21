@@ -57,12 +57,19 @@ class View(BaseModel):
     datasets: list[str] = Field(default_factory=list)
     snapshots: list[Snapshot] = Field(default_factory=list)
 
-    def latest(self) -> tuple[dict[str, Json], list[dict[str, Json]]]:
-        """The state and queries the view shows now: its latest snapshot's, or its initial state
-        before it has reported one."""
-        if self.snapshots:
-            return self.snapshots[-1].state, self.snapshots[-1].queries
-        return self.initial_state, []
+    def shown(self, ts: str | None) -> tuple[dict[str, Json], list[dict[str, Json]]]:
+        """The state and queries of the snapshot stamped `ts`, one the researcher picked in the
+        history, or with None what the view shows now: its latest snapshot, or its initial state
+        before it has reported one. ValueError when no snapshot has that ts, as when it dropped
+        off past the cap or a report of the same state replaced it."""
+        if ts is None:
+            if self.snapshots:
+                return self.snapshots[-1].state, self.snapshots[-1].queries
+            return self.initial_state, []
+        for snapshot in self.snapshots:
+            if snapshot.ts == ts:
+                return snapshot.state, snapshot.queries
+        raise ValueError(f"no snapshot at {ts}")
 
     @classmethod
     def from_pending(cls, pending: PendingView) -> View:

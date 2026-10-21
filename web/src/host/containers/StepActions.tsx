@@ -21,16 +21,22 @@ import { ToCodeDrawer } from "../components/ToCodeDrawer";
 interface StepActionsProps {
   sessionId: string;
   step: Step;
+  /** The ts of an older snapshot picked in the view's history, absent otherwise. */
+  picked?: string;
   dataset?: string;
   onDone: (message: string) => void;
 }
 
+// A view save keeps the pick made at the press: a report while the dialog is open drops it.
 type Pending =
-  { kind: "dataset"; name: string } | { kind: "view"; pin: boolean } | null;
+  | { kind: "dataset"; name: string }
+  | { kind: "view"; pin: boolean; snapshotTs?: string }
+  | null;
 
 export function StepActions({
   sessionId,
   step,
+  picked,
   dataset,
   onDone,
 }: StepActionsProps) {
@@ -78,6 +84,7 @@ export function StepActions({
             step_id: step.id,
             name: choice.name,
             pin: pending.pin,
+            snapshot_ts: pending.snapshotTs,
           },
         },
         { onSuccess: (meta) => onDone(`Saved view ${meta.name}`), onError },
@@ -124,7 +131,9 @@ export function StepActions({
             variant="ghost"
             size="xs"
             disabled={saving}
-            onClick={() => setPending({ kind: "view", pin: false })}
+            onClick={() =>
+              setPending({ kind: "view", pin: false, snapshotTs: picked })
+            }
           >
             Save view
           </Button>
@@ -132,7 +141,9 @@ export function StepActions({
             variant="ghost"
             size="xs"
             disabled={saving}
-            onClick={() => setPending({ kind: "view", pin: true })}
+            onClick={() =>
+              setPending({ kind: "view", pin: true, snapshotTs: picked })
+            }
           >
             Pin to canvas
           </Button>
@@ -147,13 +158,16 @@ export function StepActions({
               toCode !== null
             }
             onClick={() =>
-              toCodeRequest.mutate(step.id, {
-                onSuccess: (rendered) => {
-                  submitManual.reset();
-                  setToCode(rendered);
+              toCodeRequest.mutate(
+                { stepId: step.id, snapshotTs: picked },
+                {
+                  onSuccess: (rendered) => {
+                    submitManual.reset();
+                    setToCode(rendered);
+                  },
+                  onError,
                 },
-                onError,
-              })
+              )
             }
           >
             To code

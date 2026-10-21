@@ -996,19 +996,18 @@ them.
   which relied on every caller memoising too, and took schemas from an
   `ownDatasets` prop of step metadata, which would have brought stale schemas
   back. Cost if wrong: one extra datasets fetch per schema request.
-- **The snapshot scrubber follows the latest**: `SnapshotScrubber` keeps the
-  researcher's pick only while the snapshot count and the view's report count it
-  was made at both hold, so a new snapshot or a report that replaces the last
-  one at the same count moves it to the latest. `ViewFrameContainer` passes the
-  report count as a prop, not a key, so a report that lands mid-drag keeps the
-  slider and its focus. A restore sends no report, and a refetch alone keeps the
-  pick; a key on the latest `ts` would not, since the cache stamps a posted
-  snapshot with the browser's time, not the server's. Each posted snapshot goes
-  into the cached session by the server's rule, replacing a last snapshot of the
-  same state, so new snapshots reach it during a visit without a refetch. The
-  plan's scrubber read the count once, so a view that gained snapshots while
-  mounted showed "1 of N". Cost if wrong: the cached list can pass the server's
-  cap of 500 until the next refetch.
+- **The snapshot scrubber follows the latest**: `ViewFrameContainer` drops the
+  researcher's pick on each report from the view, so a new snapshot or a report
+  that replaces the last one moves it to the latest. It drops the pick in state
+  rather than keying the scrubber, so a report that lands mid-drag keeps the
+  slider and its focus, and clears the restored state with it, so picking the
+  same snapshot again restores it again. A restore sends no report. Each posted
+  snapshot goes into the cached session as the server answers it, by the
+  server's rule of replacing a last snapshot of the same state, so new snapshots
+  reach it during a visit without a refetch. The plan's scrubber read the count
+  once, so a view that gained snapshots while mounted showed "1 of N". Cost if
+  wrong: the cached list can pass the server's cap of 500 until the next
+  refetch.
 - **The dev proxy forwards `/projects`**: `web/vite.config.ts` proxies it beside
   `/sessions` and `/healthz`. The plan added project routes without it, so
   `npm run dev` answered 404. Stage 5 adds `/components`, `/libraries` and
@@ -1372,13 +1371,34 @@ them.
   A saved view's export reads its saved state the same way and notes what
   `dropped` lists; it had rendered the probe, so an exported pivot gave one row.
 - **The server picks what "To code" renders**: the host posts to
-  `POST /sessions/{id}/steps/{step_id}/to-code` with no body, and the server
-  reads the step's view as it shows now, its latest snapshot or its initial
-  state before one, through `to_code_input` in `quarry.server.models`, then
-  answers `{code, dropped}`; a view that has run no query is a 400. The export
-  reads a saved view through the same function. The spec's §9 has the host send
-  the snapshot's queries, so the host's `toCodeSource` and the export each held
-  the `spec` rule and had to change together.
+  `POST /sessions/{id}/steps/{step_id}/to-code` with `{snapshot_ts}`, and
+  the server reads that snapshot of the step's view through `View.shown` and
+  `to_code_input` in `quarry.server.models`, then answers `{code, dropped}`; a
+  view that has run no query is a 400. The export reads a saved view through
+  the same function. The spec's §9 had the host send the snapshot's queries, so
+  the host's `toCodeSource` and the export each held the `spec` rule and had to
+  change together.
+- **A picked snapshot is named by its server `ts`**: `ViewFrameContainer` hands
+  the `ts` of a picked snapshot older than the latest to its `actions`, and "To
+  code", "Save view" and "Pin to canvas" send it as `snapshot_ts`, taken when
+  the button is pressed, so a report while the save dialog is open does not
+  change what is saved. Without such a pick they send none, and the server reads
+  its latest snapshot when the request arrives, or the initial state before the
+  view has reported. Picking the latest clears the pick, so the scrubber follows
+  newer snapshots. The server stamps each snapshot under its lock with a
+  microsecond `ts`, and a report of the same state replaces the last snapshot
+  under a fresh one, so a `ts` names one snapshot of a view. Some views send
+  such a report on every query change, so a `ts` taken for the latest at a press
+  could be a 400 by the time the save dialog sends it. The snapshot POST answers
+  with the stored snapshot and the host caches it as is, so a refetch brings the
+  same `ts` and keeps the pick; an earlier `ts` key failed only because the
+  cache stamped posted snapshots with the browser's time. A position named a
+  different snapshot whenever the cached list and the server's differed: past
+  the cap of 500, with a report in flight, or after a same-state replace. A `ts`
+  the server no longer holds is a 400 on save or To code and no pick in the
+  scrubber. A change made in the view within the 300 ms report debounce before a
+  press has not reported yet, so a pick still holds at the press, and To code
+  without one reads the snapshot shown before it.
 
 ### TanStack table and OHLC
 

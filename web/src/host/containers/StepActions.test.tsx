@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ProjectMeta, Step } from "@/shared/api-types";
+import type { JsonObject } from "@/shared/json";
 import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
 import { StepActions } from "./StepActions";
@@ -50,7 +51,7 @@ const step: Step = {
 
 const json = (body: unknown) => new Response(JSON.stringify(body));
 
-function setup(saveFails = false) {
+function setup(saveFails = false, shown = step, picked?: string) {
   const calls: string[] = [];
   const bodies = new Map<string, unknown>();
   let finishSave = () => {};
@@ -70,14 +71,23 @@ function setup(saveFails = false) {
   };
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onDone = vi.fn();
-  render(
+  const api = new ApiClient("t", fetchImpl);
+  const tree = (s: Step, p?: string) => (
     <QueryClientProvider client={qc}>
-      <ApiProvider client={new ApiClient("t", fetchImpl)}>
-        <StepActions sessionId="s1" step={step} onDone={onDone} />
+      <ApiProvider client={api}>
+        <StepActions sessionId="s1" step={s} picked={p} onDone={onDone} />
       </ApiProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
-  return { calls, bodies, finishSave, onDone, qc };
+  const { rerender } = render(tree(shown, picked));
+  return {
+    calls,
+    bodies,
+    finishSave,
+    onDone,
+    qc,
+    rerender: (s: Step, p?: string) => rerender(tree(s, p)),
+  };
 }
 
 async function pin() {
@@ -121,6 +131,49 @@ describe("StepActions pin to canvas", () => {
       pin: true,
     });
     expect(calls.filter((c) => c.startsWith("PUT"))).toEqual([]);
+  });
+
+  it.each([
+    ["the picked snapshot", "t0", "t0"],
+    // The server reads its latest then, which a report of the same state restamps.
+    ["no snapshot without a pick", undefined, undefined],
+  ])("names %s as of the press", async (_, picked, named) => {
+    const withSnapshots = (count: number): Step => ({
+      ...step,
+      view: step.view && {
+        ...step.view,
+        snapshots: Array.from({ length: count }, (_, n) => ({
+          ts: `t${n}`,
+          state: { n },
+          queries: [],
+        })),
+      },
+    });
+    const { bodies, finishSave, onDone, rerender } = setup(
+      false,
+      withSnapshots(3),
+      picked,
+    );
+    finishSave();
+    fireEvent.click(screen.getByRole("button", { name: "Save view" }));
+    // A report while the dialog is open adds a snapshot and drops any pick.
+    rerender(withSnapshots(4));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Name"), {
+      target: { value: "closes" },
+    });
+    const save = within(dialog).getByRole<HTMLButtonElement>("button", {
+      name: "Save view",
+    });
+    await waitFor(() => expect(save.disabled).toBe(false));
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(onDone).toHaveBeenCalledWith("Saved view closes"),
+    );
+    const body = bodies.get("POST /projects/p/views") as JsonObject;
+    expect(body).toMatchObject({ pin: false });
+    // Parsed JSON holds no undefined, so this also checks the key is absent.
+    expect(body.snapshot_ts).toBe(named);
   });
 
   it("marks the project stale when the save fails", async () => {

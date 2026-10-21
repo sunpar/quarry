@@ -12,7 +12,11 @@ import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
 import { StepActions } from "./StepActions";
 
-const snapshot: Snapshot = { ts: "", state: {}, queries: [{ dataset: "df" }] };
+const snapshot: Snapshot = {
+  ts: "t0",
+  state: {},
+  queries: [{ dataset: "df" }],
+};
 
 const stepWith = (view: Partial<View>): Step => ({
   id: "st1",
@@ -45,7 +49,11 @@ const stepWith = (view: Partial<View>): Step => ({
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status });
 
-function setup(step: Step, respond: (key: string) => Response) {
+function setup(
+  step: Step,
+  respond: (key: string) => Response,
+  picked?: string,
+) {
   const bodies = new Map<string, unknown>();
   const fetchImpl = async (path: string, init?: RequestInit) => {
     const key = `${init?.method ?? "GET"} ${path}`;
@@ -59,7 +67,12 @@ function setup(step: Step, respond: (key: string) => Response) {
   render(
     <QueryClientProvider client={qc}>
       <ApiProvider client={new ApiClient("t", fetchImpl)}>
-        <StepActions sessionId="s1" step={step} onDone={onDone} />
+        <StepActions
+          sessionId="s1"
+          step={step}
+          picked={picked}
+          onDone={onDone}
+        />
       </ApiProvider>
     </QueryClientProvider>,
   );
@@ -88,6 +101,8 @@ describe("StepActions to code", () => {
     });
     expect(box.value).toBe("df_1 = df.group_by('a')");
     expect(screen.getByText("Left out: expression e.")).toBeTruthy();
+    // Without a pick the server reads its latest.
+    expect(bodies.get("POST /sessions/s1/steps/st1/to-code")).toEqual({});
     fireEvent.change(box, { target: { value: "df_1 = 1" } });
     fireEvent.click(screen.getByRole("button", { name: "Run as step" }));
     await waitFor(() =>
@@ -95,6 +110,22 @@ describe("StepActions to code", () => {
     );
     expect(bodies.get("POST /sessions/s1/steps/manual")).toEqual({
       code: "df_1 = 1",
+    });
+  });
+
+  it("asks for the picked snapshot by its ts", async () => {
+    const step = stepWith({
+      snapshots: [
+        snapshot,
+        { ...snapshot, ts: "t1" },
+        { ...snapshot, ts: "t2" },
+      ],
+    });
+    const { bodies } = setup(step, () => json({ code: "", dropped: [] }), "t1");
+    fireEvent.click(screen.getByRole("button", { name: "To code" }));
+    await screen.findByRole("textbox", { name: "Python" });
+    expect(bodies.get("POST /sessions/s1/steps/st1/to-code")).toEqual({
+      snapshot_ts: "t1",
     });
   });
 

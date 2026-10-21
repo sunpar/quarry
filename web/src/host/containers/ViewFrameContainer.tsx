@@ -19,7 +19,8 @@ interface ViewFrameContainerProps {
   /** Changes whenever kernel data may have: a step finished or a new kernel started. */
   dataVersion: string;
   onRepair: (repair: RepairRequest) => void;
-  actions?: ReactNode;
+  /** Given the ts of an older snapshot picked in the history, absent otherwise. */
+  actions?: (picked?: string) => ReactNode;
 }
 
 // An updater that leaves an uncached session (undefined) as it is.
@@ -49,12 +50,20 @@ export function ViewFrameContainer({
   const api = useApi();
   const queryClient = useQueryClient();
   const [restoreState, setRestoreState] = useState<JsonObject | null>(null);
-  // Each report from the view drops the scrubber's pick: the view has left the picked state even
-  // when its report replaces the last snapshot and the count holds. A restore sends no report,
-  // and a refetch alone keeps the pick. A prop rather than a key, so the slider keeps its focus.
-  const [reports, setReports] = useState(0);
+  // The picked snapshot's ts, as the server stamped it, so the pick follows its snapshot through a
+  // refetch and lapses once the server drops it. Each report drops it too: the view has left the
+  // picked state even when its report replaces the last snapshot. A restore sends no report.
+  // Dropped here, not by keying the scrubber, so it keeps its focus.
+  const [pick, setPick] = useState<string | null>(null);
   const view = step.view;
   if (view === null) return null;
+  const { snapshots } = view;
+  // Once a refetch drops the picked snapshot, the view goes back to the latest, like the scrubber.
+  if (pick !== null && !snapshots.some((s) => s.ts === pick)) {
+    setPick(null);
+    setRestoreState(snapshots.at(-1)?.state ?? null);
+  }
+  const picked = snapshots.findIndex((s) => s.ts === pick);
   return (
     <div className="flex flex-col gap-2">
       <ViewHost
@@ -70,19 +79,17 @@ export function ViewFrameContainer({
         title={`View for step ${step.index + 1}`}
         disabled={running}
         onStateChanged={(state, queries) => {
-          setReports((n) => n + 1);
+          // Cleared with the pick, so picking the same snapshot again restores it again.
+          setPick(null);
+          setRestoreState(null);
           void api
             .postSnapshot(sessionId, step.id, { state, queries })
-            // The scrubber reads snapshots from the session; record this one there instead of
-            // refetching the whole session. An uncached session stays uncached.
-            .then(() =>
+            // The scrubber reads snapshots from the session; record the server's there instead
+            // of refetching the whole session. An uncached session stays uncached.
+            .then((saved) =>
               queryClient.setQueryData(
                 keys.session(sessionId),
-                withSnapshot(step.id, {
-                  ts: new Date().toISOString(),
-                  state,
-                  queries,
-                }),
+                withSnapshot(step.id, saved),
               ),
             )
             .catch((e: unknown) => console.error("snapshot not saved", e));
@@ -91,11 +98,19 @@ export function ViewFrameContainer({
       />
       <div className="flex items-center gap-4 empty:hidden">
         <SnapshotScrubber
-          snapshots={view.snapshots}
-          reports={reports}
-          onPick={setRestoreState}
+          count={snapshots.length}
+          value={picked === -1 ? snapshots.length - 1 : picked}
+          onPick={(at) => {
+            const shown = snapshots[at];
+            // A pick of the latest is none: the view then follows newer snapshots, and the actions
+            // send no ts, since a report of the same state restamps the latest.
+            setPick(at === snapshots.length - 1 ? null : (shown?.ts ?? null));
+            setRestoreState(shown?.state ?? null);
+          }}
         />
-        {actions !== undefined && <div className="ml-auto">{actions}</div>}
+        {actions !== undefined && (
+          <div className="ml-auto">{actions(snapshots[picked]?.ts)}</div>
+        )}
       </div>
     </div>
   );

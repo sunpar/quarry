@@ -15,6 +15,7 @@ import type {
   Session,
   SessionMeta,
   SessionStatus,
+  Snapshot,
   Step,
   StepRequest,
 } from "@/shared/api-types";
@@ -87,7 +88,7 @@ export class ApiClient {
     id: string,
     stepId: string,
     body: { state: JsonObject; queries: QuerySpec[] },
-  ): Promise<{ count: number }> {
+  ): Promise<Snapshot> {
     return this.request(
       "POST",
       `/sessions/${id}/steps/${stepId}/snapshots`,
@@ -134,11 +135,17 @@ export class ApiClient {
     return this.request("GET", "/libraries");
   }
 
-  /** The step's view as Python, from what it shows now; the server picks the queries. */
-  toCode(sessionId: string, stepId: string): Promise<ToCodeResponse> {
+  /** The step's view as Python, from the snapshot stamped `snapshotTs`, or without one from the
+   * latest; the server picks the queries. */
+  toCode(
+    sessionId: string,
+    stepId: string,
+    snapshotTs?: string,
+  ): Promise<ToCodeResponse> {
     return this.request(
       "POST",
       `/sessions/${sessionId}/steps/${stepId}/to-code`,
+      { snapshot_ts: snapshotTs },
     );
   }
 
