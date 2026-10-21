@@ -43,6 +43,20 @@ const finished: Step = {
 
 const json = (body: unknown) => new Response(JSON.stringify(body));
 
+function renderPage(
+  fetchImpl: (path: string, init?: RequestInit) => Promise<Response>,
+) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={qc}>
+      <ApiProvider client={new ApiClient("t", fetchImpl)}>
+        <SessionPage token="t" />
+      </ApiProvider>
+    </QueryClientProvider>,
+  );
+  return qc;
+}
+
 function setup(
   busy: boolean,
   runningStep: string | null = null,
@@ -55,15 +69,7 @@ function setup(
     if (path === "/projects") return json([]);
     return new Response(null, { status: 404 });
   };
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
-    <QueryClientProvider client={qc}>
-      <ApiProvider client={new ApiClient("t", fetchImpl)}>
-        <SessionPage token="t" />
-      </ApiProvider>
-    </QueryClientProvider>,
-  );
-  return qc;
+  return renderPage(fetchImpl);
 }
 
 describe("SessionPage prompt box", () => {
@@ -122,16 +128,7 @@ describe("SessionPage session choice", () => {
       if (path === "/projects") return json([]);
       return new Response(null, { status: 404 });
     };
-    const qc = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    render(
-      <QueryClientProvider client={qc}>
-        <ApiProvider client={new ApiClient("t", fetchImpl)}>
-          <SessionPage token="t" />
-        </ApiProvider>
-      </QueryClientProvider>,
-    );
+    renderPage(fetchImpl);
     return fetched;
   }
 
