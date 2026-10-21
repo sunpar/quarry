@@ -19,7 +19,10 @@ export function CanvasCardFrame({
   children,
 }: CanvasCardFrameProps) {
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-md border border-border bg-card">
+    <section
+      aria-label={title}
+      className="flex h-full flex-col overflow-hidden rounded-md border border-border bg-card"
+    >
       <div className="card-handle flex cursor-move items-center justify-between border-b border-border px-3 py-1.5 text-sm">
         <span className="truncate">{title}</span>
         <Button
@@ -44,6 +47,6 @@ export function CanvasCardFrame({
           </div>
         )}
       </div>
-    </div>
+    </section>
   );
 }

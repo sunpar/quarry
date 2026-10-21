@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { DatasetMeta, Project, Session, Step } from "@/shared/api-types";
 import { ApiClient } from "../api/client";
@@ -79,7 +85,12 @@ const session: Session = {
   steps: [wrote as Step],
 };
 
-function renderCanvas(listed: string[], shown: Project = project) {
+// A path in `refused` answers 500 with its detail, once the detail resolves.
+function renderCanvas(
+  listed: string[],
+  shown: Project = project,
+  refused: Record<string, string | Promise<string>> = {},
+) {
   const datasets: Partial<DatasetMeta>[] = listed.map((name) => ({ name }));
   const answers: Record<string, unknown> = {
     "/sessions/s1": session,
@@ -98,8 +109,15 @@ function renderCanvas(listed: string[], shown: Project = project) {
       queries: [],
     },
   };
-  const fetchImpl = async (path: string) =>
-    new Response(JSON.stringify(answers[path] ?? {}));
+  const puts: string[] = [];
+  const fetchImpl = async (path: string, init?: RequestInit) => {
+    if (init?.method === "PUT") puts.push(`${path} ${String(init.body)}`);
+    if (path in refused)
+      return new Response(JSON.stringify({ detail: await refused[path] }), {
+        status: 500,
+      });
+    return new Response(JSON.stringify(answers[path] ?? {}));
+  };
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const page = (p: Project) => (
     <QueryClientProvider client={qc}>
@@ -109,7 +127,7 @@ function renderCanvas(listed: string[], shown: Project = project) {
     </QueryClientProvider>
   );
   const { rerender } = render(page(shown));
-  return Object.assign(qc, { show: (p: Project) => rerender(page(p)) });
+  return Object.assign(qc, { puts, show: (p: Project) => rerender(page(p)) });
 }
 
 describe("CanvasPage availability", () => {
@@ -133,5 +151,75 @@ describe("CanvasPage availability", () => {
     renderCanvas(["df"]);
     expect(await screen.findByText("Canvas card table mounted")).toBeDefined();
     expect(screen.queryByRole("button", { name: "Load" })).toBeNull();
+  });
+});
+
+// The project also keeps a card whose view has left it.
+const gone = { view: "gone", x: 6, y: 0, w: 6, h: 8 };
+const withGone = {
+  ...project,
+  meta: { ...project.meta, canvas: [...project.meta.canvas, gone] },
+};
+
+describe("CanvasPage failures", () => {
+  it("shows a saved view's load failure inside its card", async () => {
+    renderCanvas(["df"], project, {
+      "/projects/p/views/table": "view file unreadable",
+    });
+    const card = screen.getByRole("region", { name: "table" });
+    const failure = await within(card).findByText("500: view file unreadable");
+    expect(failure.className).toContain("text-destructive");
+    expect(screen.queryByText("Canvas card table mounted")).toBeNull();
+  });
+
+  it("lets a card whose view left the project be removed", async () => {
+    const canvas = renderCanvas(["df"], withGone);
+    const card = screen.getByRole("region", { name: "gone" });
+    expect(within(card).getByText("No longer in this project.")).toBeDefined();
+    fireEvent.click(
+      within(card).getByRole("button", { name: "Remove gone from canvas" }),
+    );
+    expect(screen.queryByText("gone")).toBeNull();
+    await waitFor(() =>
+      expect(canvas.puts).toEqual([
+        `/projects/p/canvas ${JSON.stringify(project.meta.canvas)}`,
+      ]),
+    );
+  });
+
+  it("shows a failed recall and layout write together and dismisses both", async () => {
+    renderCanvas([], withGone, {
+      "/projects/p/canvas": "disk full",
+      "/sessions/s1/recall": "kernel died",
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove gone from canvas" }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Load" }));
+    const notice = await screen.findByRole("status");
+    expect(await within(notice).findByText("500: kernel died")).toBeDefined();
+    expect(within(notice).getByText("500: disk full")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+  });
+
+  it("keeps a recall in flight when Dismiss clears a layout error", async () => {
+    let fail!: (detail: string) => void;
+    renderCanvas([], withGone, {
+      "/projects/p/canvas": "disk full",
+      "/sessions/s1/recall": new Promise<string>((r) => (fail = r)),
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove gone from canvas" }),
+    );
+    expect(await screen.findByText("500: disk full")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Load" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    await waitFor(() =>
+      expect(screen.queryByText("500: disk full")).toBeNull(),
+    );
+    expect(screen.getByRole("button", { name: "Loading" })).toBeDefined();
+    fail("kernel died");
+    expect(await screen.findByText("500: kernel died")).toBeDefined();
   });
 });
