@@ -52,10 +52,11 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **Integer sums lose their exact type without a schema**: `to_source` casts an
   integer sum to `Decimal(38, 0)` only when it is given the dataset's schema.
   Without one, a pivot's sum on either backing, and a group-by sum on a polars
-  backing, come out Int64 and can wrap on overflow, while `to_polars` and
-  DuckDB's SQL return Decimal. "To code" and export always pass the schema, so
-  only direct callers see this. The equivalence tests compare values without
-  dtypes, so they do not catch it. Silent.
+  backing, keep polars' native sum type (Int32 stays Int32) and can wrap at its
+  limit, while `to_polars` and DuckDB's SQL return Decimal. "To code" and
+  export always pass the schema, so only direct callers see this. The
+  equivalence tests compare values without dtypes, so they do not catch it.
+  Silent.
 - **Raw aggregate errors**: an aggregate the column's type cannot take, such as
   `sum` over strings, surfaces as the engine's own error with its query plan,
   for group-by and pivot alike. Fails loudly.
