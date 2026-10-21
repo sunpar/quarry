@@ -119,9 +119,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   instead of falling back to the raw recipe, and a prompt step fails without its
   transcript. The Anthropic adapter reads a `text/html` 200 as an empty turn
   that succeeded. Loud, except the last.
-- **The Codex version check matches a substring**: the runtime accepts any
-  app-server whose `userAgent` contains `0.162.1`, so 0.162.10 or 10.162.1 pass.
-  Silent: an untested Codex release runs.
 - **Cancel waits for the model**: `/interrupt` and `/restart` stop a prompt step
   only once the provider answers the call in flight, bounded only by the
   provider client's timeout. Meanwhile `/restart` holds its request, a second
