@@ -84,7 +84,7 @@ def assert_matches_polars_target(spec: QuerySpec, backing: Backing) -> None:
     frame = trades()
     source = to_source(spec, backing, schema=frame.schema)
     actual = execute(source, {"trades": bind(frame, backing)})
-    assert_same_rows(to_polars(spec, frame).collect(), actual)
+    assert_same_rows(spec, to_polars(spec, frame).collect(), actual)
 
 
 def test_polars_source_is_readable() -> None:
@@ -173,7 +173,7 @@ def test_duckdb_source_runs_over_a_table_of_the_same_name() -> None:
     ]
     for spec in specs:
         actual = execute(to_source(spec, "duckdb"), {"trades": relation})
-        assert_same_rows(to_polars(spec, frame).collect(), actual)
+        assert_same_rows(spec, to_polars(spec, frame).collect(), actual)
     # The query's view must not shadow the researcher's table.
     assert con.sql("SELECT count(*) FROM trades").fetchone() == (5,)
 
@@ -278,7 +278,16 @@ def test_line_break_characters_stay_inside_literals(
     expected = to_polars(spec, frame).collect()
     actual = execute(to_source(spec, backing, schema=frame.schema), {"notes": bind(frame, backing)})
     assert expected.height == 1
-    assert_same_rows(expected, actual)
+    assert_same_rows(spec, expected, actual)
+
+
+@pytest.mark.parametrize("backing", BACKINGS)
+@pytest.mark.parametrize("desc", [False, True], ids=["asc", "desc"])
+def test_sort_puts_nulls_first(desc: bool, backing: Backing) -> None:
+    spec = QuerySpec(dataset="trades", sort=[Sort(col="ret", desc=desc)])
+    frame = trades()
+    source = to_source(spec, backing, schema=frame.schema)
+    assert execute(source, {"trades": bind(frame, backing)})["ret"][0] is None
 
 
 def test_schema_coerces_integral_list_items_to_a_float_column() -> None:

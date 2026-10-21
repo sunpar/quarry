@@ -30,10 +30,8 @@ from tests.query.fixtures import (
 
 
 def normalize(df: pl.DataFrame) -> pl.DataFrame:
-    df = df.select(sorted(df.columns))
     numeric = [c for c, t in df.schema.items() if t.is_numeric()]
-    df = df.with_columns([pl.col(c).cast(pl.Float64) for c in numeric])
-    return df.sort(df.columns)
+    return df.with_columns([pl.col(c).cast(pl.Float64) for c in numeric])
 
 
 @pytest.mark.parametrize("spec", SPECS, ids=[s.model_dump_json() for s in SPECS])
@@ -43,11 +41,11 @@ def test_targets_agree(spec: QuerySpec) -> None:
     conn = utc_connection()
     conn.register("trades", frame)
     via_sql = conn.sql(to_sql(spec, "trades")).pl()
-    assert_frame_equal(normalize(via_polars), normalize(via_sql), check_dtypes=False, rel_tol=1e-9)
+    assert_same_rows(spec, normalize(via_polars), normalize(via_sql))
     for backing in BACKINGS:
         source = to_source(spec, backing, schema=frame.schema)
         actual = execute(source, {"trades": bind(frame, backing)})
-        assert_same_rows(via_polars, actual)
+        assert_same_rows(spec, via_polars, actual)
 
 
 def _grouped(keys: list[str], fn: str = "sum", **update: object) -> QuerySpec:

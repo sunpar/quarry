@@ -79,6 +79,12 @@ def test_sort_offset_limit_select_order() -> None:
     assert out["ticker"].to_list() == ["MSFT", "AAPL"]
 
 
+@pytest.mark.parametrize("desc", [False, True], ids=["asc", "desc"])
+def test_sort_puts_nulls_first(desc: bool) -> None:
+    spec = QuerySpec(dataset="trades", sort=[Sort(col="ret", desc=desc)])
+    assert to_polars(spec, trades()).collect()["ret"][0] is None
+
+
 def test_unknown_filter_column_raises_query_error() -> None:
     spec = QuerySpec(dataset="trades", filters=[Filter(col="nope", op="eq", value=1)])
     with pytest.raises(QueryError) as info:

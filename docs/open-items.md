@@ -311,10 +311,6 @@ one up when a researcher needs it.
   `_json_native`, which says milliseconds though the guard covers every unit.
 - Smoke-test `sql()` against the firm's SQL Server with `VARCHAR(MAX)` columns,
   which may need arrow-odbc's `max_text_size`.
-- Close test gaps: the shutdown tests pass even if the kernel never exits. The
-  equivalence `normalize` sorts rows, so order is compared only under a limit.
-- Tighten tests further: some `match=` patterns in `test_spec.py` also match
-  pydantic's echoed input, and the polars target has no direct nulls-first test.
 - Merge canvas layout writes: `CanvasPage` sends the whole card list from its
   own copy of the layout, half a second after a drag, so a write sent after a
   pin made elsewhere drops that card. A `set_canvas` that takes positions by

@@ -38,10 +38,19 @@ def execute(source: str, datasets: dict[str, object]) -> pl.DataFrame:
     return result
 
 
-def assert_same_rows(expected: pl.DataFrame, actual: pl.DataFrame) -> None:
-    expected = expected.select(sorted(expected.columns)).sort(sorted(expected.columns))
-    actual = actual.select(sorted(actual.columns)).sort(sorted(actual.columns))
-    assert_frame_equal(expected, actual, check_dtypes=False, rel_tol=1e-9)
+def assert_same_rows(spec: QuerySpec, expected: pl.DataFrame, actual: pl.DataFrame) -> None:
+    """Rows must match in order when `spec` has a row order, and in any order otherwise.
+
+    Every sort key the tests use is unique in its rows, so a row order fixes the whole order.
+    """
+    assert_frame_equal(
+        expected,
+        actual,
+        check_row_order=bool(spec.row_order),
+        check_column_order=False,
+        check_dtypes=False,
+        rel_tol=1e-9,
+    )
 
 
 def trades() -> pl.DataFrame:
