@@ -53,12 +53,14 @@ export function SaveDialog({
   const cleanName = kind === "view" ? slugifyName(name) : name;
   const canSave = slug !== "" && cleanName !== "";
   const label = kind === "view" ? "Save view" : "Save dataset";
+  // A failed refetch keeps the last list, so an empty one still shows the error.
   const hint =
-    projects === undefined
-      ? (error ?? "Loading")
-      : projects.length === 0
-        ? "Create a project in the rail first."
-        : null;
+    projects !== undefined && projects.length > 0
+      ? null
+      : (error ??
+        (projects === undefined
+          ? "Loading"
+          : "Create a project in the rail first."));
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="flex flex-col gap-4">
@@ -69,7 +71,7 @@ export function SaveDialog({
           <Label htmlFor="save-project">Project</Label>
           {hint !== null && (
             <p
-              className={`text-xs ${projects === undefined && error !== null ? "text-destructive" : "text-muted-foreground"}`}
+              className={`text-xs ${hint === error ? "text-destructive" : "text-muted-foreground"}`}
             >
               {hint}
             </p>

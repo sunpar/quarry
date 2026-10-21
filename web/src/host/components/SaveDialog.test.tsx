@@ -69,10 +69,12 @@ describe("SaveDialog", () => {
   });
 
   it.each([
-    ["Loading", null],
-    ["boom", "boom"],
-  ])("says %s, not the create hint, without a list", (shown, error) => {
-    render(viewDialog(undefined, vi.fn(), error));
+    ["Loading", undefined, null],
+    ["boom", undefined, "boom"],
+    // A failed refetch keeps the last list.
+    ["boom", [], "boom"],
+  ])("says %s, not the create hint, for %j", (shown, list, error) => {
+    render(viewDialog(list, vi.fn(), error));
     screen.getByText(shown);
     expect(
       screen.queryByText("Create a project in the rail first."),
