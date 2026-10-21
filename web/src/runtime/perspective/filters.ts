@@ -106,8 +106,12 @@ function coerceTerm(term: Term, dtype: string | undefined): Json | undefined {
     if (typeof term === "string" && !INTEGER.test(term)) return undefined;
     const n = toNumber(term);
     const half = 2 ** ((INT_BITS[dtype] ?? 64) - 1);
-    // `Number()` rounds digits beyond 2^53, which `stoll` reads exactly.
-    return Number.isSafeInteger(n) && n >= -half && n < half ? n : undefined;
+    // `Number()` rounds a string's digits beyond 2^53, which `stoll` reads exactly, while
+    // the kernel and the engine get a number term as one double. The engine narrows both
+    // kinds to the column's width.
+    const exact =
+      typeof term === "string" ? Number.isSafeInteger(n) : Number.isInteger(n);
+    return exact && n >= -half && n < half ? n : undefined;
   }
   if (/^(Float|Decimal)/.test(dtype)) {
     const n = toNumber(term);

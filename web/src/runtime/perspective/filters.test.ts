@@ -157,6 +157,28 @@ describe("perspectiveToSpec filters", () => {
     },
   );
 
+  it("keeps a number term past 2^53, which reaches the engine as the same number", () => {
+    const { spec, dropped } = perspectiveToSpec(
+      "t",
+      { filter: [["i", ">", 9007199254740993]] },
+      schema,
+    );
+    expect(spec.filters).toEqual([
+      { col: "i", op: "gt", value: 9007199254740992 },
+    ]);
+    expect(dropped).toEqual([]);
+  });
+
+  it("lists a number term outside the column's width, which the engine narrows", () => {
+    const { spec, dropped } = perspectiveToSpec(
+      "t",
+      { filter: [["i32", ">", 3000000000]] },
+      schema,
+    );
+    expect(spec.filters).toBeUndefined();
+    expect(dropped).toEqual(['filter i32 ">"']);
+  });
+
   it("turns epoch milliseconds into the UTC time the kernel reads", () => {
     const { spec, dropped } = perspectiveToSpec(
       "t",
