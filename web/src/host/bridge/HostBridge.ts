@@ -27,7 +27,7 @@ export interface HostBridgeOptions {
 export class HostBridge {
   private ready = false;
   private connectionId: string | null = null;
-  private mountSpec: MountSpec | null = null;
+  private mountSpec: (() => MountSpec) | null = null;
   // Controls that arrived before the view mounted; the runtime would drop them.
   private pendingRestore: JsonObject | null = null;
   private pendingMerge: JsonObject | null = null;
@@ -54,7 +54,8 @@ export class HostBridge {
     this.receive(event.data);
   }
 
-  mount(spec: MountSpec): void {
+  /** Read on each send of the mount, so a reloaded frame mounts on what the host holds then. */
+  mount(spec: () => MountSpec): void {
     this.mountSpec = spec;
     if (this.ready) this.flushMount();
   }
@@ -154,7 +155,7 @@ export class HostBridge {
     this.send({
       type: "mount",
       viewId: this.options.viewId,
-      ...this.mountSpec,
+      ...this.mountSpec(),
     });
     if (this.pendingRestore !== null) {
       this.send({

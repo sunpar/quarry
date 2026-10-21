@@ -19,7 +19,10 @@ interface ViewFrameContainerProps {
   /** Changes whenever kernel data may have: a step finished or a new kernel started. */
   dataVersion: string;
   onRepair: (repair: RepairRequest) => void;
-  /** Given the ts of an older snapshot picked in the history, absent otherwise. */
+  /**
+   * Given the ts of an older snapshot picked in the history, absent otherwise.
+   * Its nodes join the History slider's wrapping row.
+   */
   actions?: (picked?: string) => ReactNode;
 }
 
@@ -58,10 +61,11 @@ export function ViewFrameContainer({
   const view = step.view;
   if (view === null) return null;
   const { snapshots } = view;
+  const latest = snapshots.at(-1)?.state;
   // Once a refetch drops the picked snapshot, the view goes back to the latest, like the scrubber.
   if (pick !== null && !snapshots.some((s) => s.ts === pick)) {
     setPick(null);
-    setRestoreState(snapshots.at(-1)?.state ?? null);
+    setRestoreState(latest ?? null);
   }
   const picked = snapshots.findIndex((s) => s.ts === pick);
   return (
@@ -72,7 +76,9 @@ export function ViewFrameContainer({
         sessionId={sessionId}
         contentKey={view.content_hash}
         source={view.source}
-        initialState={view.initial_state}
+        // Every mount, a frame reload's too, starts on the latest snapshot, even while an older
+        // one is picked. ViewHost reads this only to mount, so a report never remounts the view.
+        initialState={latest ?? view.initial_state}
         datasets={view.datasets}
         restoreState={restoreState}
         dataVersion={dataVersion}
@@ -96,7 +102,7 @@ export function ViewFrameContainer({
         }}
         onFix={(error) => onRepair({ step_id: step.id, error })}
       />
-      <div className="flex items-center gap-4 empty:hidden">
+      <div className="flex flex-wrap items-center gap-4 empty:hidden">
         <SnapshotScrubber
           count={snapshots.length}
           value={picked === -1 ? snapshots.length - 1 : picked}
@@ -108,9 +114,7 @@ export function ViewFrameContainer({
             setRestoreState(shown?.state ?? null);
           }}
         />
-        {actions !== undefined && (
-          <div className="ml-auto">{actions(snapshots[picked]?.ts)}</div>
-        )}
+        {actions?.(snapshots[picked]?.ts)}
       </div>
     </div>
   );

@@ -669,10 +669,13 @@ them.
   disabled Run. Cost: a restart cancelling a step still reports that step as
   `running_step` until it ends, so Stop shows, and its interrupt gets a 409 the
   page does not show.
-- **Recall is a manual step**: `start_recall` creates a `recall` step, carrying
-  the saved view for a view recall, and runs it on the manual-step path, so
-  `runs` is filled, lineage records the writes and restart replays it. `_begin`
-  takes the view; the plan's calls used signatures the Stage 2 service lacks.
+- **Recall is a manual step**: `start_recall` creates a `recall` step and runs
+  it on the manual-step path, so `runs` is filled, lineage records the writes
+  and restart replays it. `_run_manual` puts a view recall's saved view on the
+  step only when its run ends ok, so a running, failed or stopped recall shows
+  no view. The plan put the view on the step in `_begin`. Cost: a failed or
+  stopped recall loses the view for good: fixing the cause and restarting still
+  leaves its step without one, so the user recalls the view again to see it.
 - **Shutdown stops and saves running steps**: it cancels every running step,
   closes the kernels, refuses to start new ones, and waits up to 10 s for the
   steps to save as `interrupted`. A step running at shutdown was never saved
@@ -1009,11 +1012,19 @@ them.
   that replaces the last one moves it to the latest. It drops the pick in state
   rather than keying the scrubber, so a report that lands mid-drag keeps the
   slider and its focus, and clears the restored state with it, so picking the
-  same snapshot again restores it again. A restore sends no report. Each posted
+  same snapshot again restores it again. A restore sends no report. Every mount,
+  a frame reload's too, starts the view from the latest snapshot the host holds
+  as it sends the mount, and from `initial_state` only before it has one, so a
+  page reload shows what the scrubber does, and the report the view then sends
+  with its queries replaces that snapshot instead of adding one. Each posted
   snapshot goes into the cached session as the server answers it, by the
   server's rule of replacing a last snapshot of the same state, so new snapshots
   reach it during a visit without a refetch. The plan's scrubber read the count
-  once, so a view that gained snapshots while mounted showed "1 of N". Cost if
+  once, so a view that gained snapshots while mounted showed "1 of N". Cost: a
+  view whose latest state makes it throw throws again on every reload, since no
+  reload goes back to `initial_state` and [a restore never clears a caught
+  render error](../open-items.md#any-time), and once a view has a snapshot, it
+  returns to `initial_state` only through a snapshot that holds it. Cost if
   wrong: the cached list can pass the server's cap of 500 until the next
   refetch.
 - **The dev proxy forwards `/projects`**: `web/vite.config.ts` proxies it beside
@@ -1412,8 +1423,7 @@ them.
 
 - **Built-ins inline their column helpers**: the plan's `_shared/columns.ts`
   would load as `require("@builtin/_shared/columns")`, which the runtime cannot
-  serve, so each built-in keeps its own `isTime` and `isNumeric` and
-  `time-series` is unchanged.
+  serve, so each built-in keeps its own `isTime` and `isNumeric`.
 - **The TanStack table registers no sorting feature**: the query spec sorts on
   the server and `header.column.id` is core in v9, so the plan's
   `rowSortingFeature` and `enableSorting: false` are gone; v9's `TableOptions`
@@ -1441,19 +1451,21 @@ them.
   datetime as local time.
 - **OHLC never guesses one column for two roles**: a saved column counts only
   while the live schema has it with a fitting dtype; each remaining price role
-  then takes the first free numeric column named like it, then the first free
-  numeric column. A column the researcher picks for two roles keeps both, and
-  the query selects it once, since the kernel refuses a repeated `select` name.
-  The kernel also refuses two names that differ only in case, as `Close` and
-  `close`, so saved columns, guesses and picker options compare names ignoring
-  case: a saved column that clashes with one resolved before it is guessed like
-  a missing one, the time is resolved after the saved prices but takes the only
-  time column over a saved price that clashes with it, and a picker leaves out a
-  column that clashes with another role's. A dataset without a time column and
-  four price columns distinct ignoring case shows the "needs ... columns"
-  message; when the guesses leave a role empty otherwise, the pickers stay with
-  that role blank and ask for a column. The chart effect is keyed on the rows
-  and the five names, so a re-render with the same result keeps the chart.
+  then takes the first free numeric column named as it ignoring case, then the
+  first whose name starts with it, then the first free numeric column, so
+  `open_interest` listed before `open` does not take the open. A column the
+  researcher picks for two roles keeps both, and the query selects it once,
+  since the kernel refuses a repeated `select` name. The kernel also refuses two
+  names that differ only in case, as `Close` and `close`, so saved columns,
+  guesses and picker options compare names ignoring case: a saved column that
+  clashes with one resolved before it is guessed like a missing one, the time is
+  resolved after the saved prices but takes the only time column over a saved
+  price that clashes with it, and a picker leaves out a column that clashes with
+  another role's. A dataset without a time column and four price columns
+  distinct ignoring case shows the "needs ... columns" message; when the guesses
+  leave a role empty otherwise, the pickers stay with that role blank and ask
+  for a column. The chart effect is keyed on the rows and the five names, so a
+  re-render with the same result keeps the chart.
 
 ### Recharts, Plotly and ECharts
 
@@ -1500,14 +1512,20 @@ them.
   the default instead of failing the query. Roles resolve in an order that
   always leaves the next one a column, and each picker offers only the columns
   still free, compared ignoring case as the kernel compares names. In the
-  scatter, y skips x and the color column skips both. The heatmap resolves the
-  value first, then the row and column keys from the rest, and the column skips
-  the row, since a column pivoted against itself is only a diagonal. The bar and
-  line chart resolves the value first and skips `<value>_<fn>`, the aggregate's
-  name, as a category; with no other column left it groups by a numeric one,
-  then by the value itself, which the kernel accepts, because the manifest's
-  `any` role matches all-numeric datasets. A loading or failed query never hides
-  the pickers either: its message shows under them.
+  scatter, y skips x and the color column skips both. The time series and large
+  series take only time columns that leave a value, keep a saved time, and
+  otherwise take the first that does not clash with the saved value. The
+  value skips the time, so `Date` and `date` are never paired; the Time picker
+  offers every time column, and picking one the value clashes with moves the
+  value, so every pair stays reachable.
+  The heatmap resolves the value first, then the row and column keys from the
+  rest, and the column skips the row, since a column pivoted against itself is
+  only a diagonal. The bar and line chart resolves the value first and skips
+  `<value>_<fn>`, the aggregate's name, as a category; with no other column left
+  it groups by a numeric one, then by the value itself, which the kernel
+  accepts, because the manifest's `any` role matches all-numeric datasets. A
+  loading or failed query never hides the pickers either: its message shows
+  under them.
 - **The heatmap never defaults to a numeric key**: the pivot runs eagerly and
   makes one column per distinct value of its column key, which `row_cap` and
   `limit` do not bound, so a float key made a grid thousands of columns wide on

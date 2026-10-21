@@ -1,7 +1,6 @@
 import { Button } from "@/components/ui/button";
 
 interface ToCodeDrawerProps {
-  open: boolean;
   code: string;
   dropped: string[];
   pending: boolean;
@@ -12,7 +11,6 @@ interface ToCodeDrawerProps {
 }
 
 export function ToCodeDrawer({
-  open,
   code,
   dropped,
   pending,
@@ -21,11 +19,10 @@ export function ToCodeDrawer({
   onRun,
   onClose,
 }: ToCodeDrawerProps) {
-  if (!open) return null;
   return (
     <section
       aria-label="To code"
-      className="flex w-[40rem] max-w-full basis-full flex-col gap-2 rounded-md border border-border bg-card p-3"
+      className="flex basis-full flex-col gap-2 rounded-md border border-border bg-card p-3"
     >
       <p className="text-sm text-muted-foreground">
         Python for this view's queries. Edit it, then run it as a step; its
