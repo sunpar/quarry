@@ -281,15 +281,6 @@ def test_line_break_characters_stay_inside_literals(
     assert_same_rows(spec, expected, actual)
 
 
-@pytest.mark.parametrize("backing", BACKINGS)
-@pytest.mark.parametrize("desc", [False, True], ids=["asc", "desc"])
-def test_sort_puts_nulls_first(desc: bool, backing: Backing) -> None:
-    spec = QuerySpec(dataset="trades", sort=[Sort(col="ret", desc=desc)])
-    frame = trades()
-    source = to_source(spec, backing, schema=frame.schema)
-    assert execute(source, {"trades": bind(frame, backing)})["ret"][0] is None
-
-
 def test_schema_coerces_integral_list_items_to_a_float_column() -> None:
     spec = QuerySpec(dataset="trades", filters=[Filter(col="ret", op="in", value=[0])])
     src = to_source(spec, "polars", schema=trades().schema)

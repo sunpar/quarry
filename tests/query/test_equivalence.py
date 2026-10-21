@@ -29,11 +29,6 @@ from tests.query.fixtures import (
 )
 
 
-def normalize(df: pl.DataFrame) -> pl.DataFrame:
-    numeric = [c for c, t in df.schema.items() if t.is_numeric()]
-    return df.with_columns([pl.col(c).cast(pl.Float64) for c in numeric])
-
-
 @pytest.mark.parametrize("spec", SPECS, ids=[s.model_dump_json() for s in SPECS])
 def test_targets_agree(spec: QuerySpec) -> None:
     frame = trades()
@@ -41,7 +36,7 @@ def test_targets_agree(spec: QuerySpec) -> None:
     conn = utc_connection()
     conn.register("trades", frame)
     via_sql = conn.sql(to_sql(spec, "trades")).pl()
-    assert_same_rows(spec, normalize(via_polars), normalize(via_sql))
+    assert_same_rows(spec, via_polars, via_sql)
     for backing in BACKINGS:
         source = to_source(spec, backing, schema=frame.schema)
         actual = execute(source, {"trades": bind(frame, backing)})
@@ -115,8 +110,8 @@ INT_MAX: dict[pl.DataType, int] = {
 @pytest.mark.parametrize("dtype", INT_MAX, ids=str)
 @pytest.mark.parametrize("spec", INT_SUM_SPECS, ids=INT_SUM_IDS)
 def test_integer_sums_agree_exactly(spec: QuerySpec, dtype: pl.DataType) -> None:
-    # DuckDB sums every integer type as HUGEINT, which .pl() reads as Decimal(38, 0). No
-    # normalize: a Float64 cast would round 2 * (2**64 - 1) and hide the dtypes.
+    # DuckDB sums every integer type as HUGEINT, which .pl() reads as Decimal(38, 0). An
+    # exact compare: assert_same_rows ignores dtypes and allows a float tolerance.
     top = INT_MAX[dtype]
     frame = overflowing(top, dtype)
     via_polars = to_polars(spec, frame).collect()
