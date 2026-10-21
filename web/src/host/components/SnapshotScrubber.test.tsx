@@ -13,6 +13,7 @@ describe("SnapshotScrubber", () => {
     const { container } = render(
       <SnapshotScrubber
         snapshots={snapshots.slice(0, 1)}
+        reports={0}
         onPick={() => undefined}
       />,
     );
@@ -21,7 +22,9 @@ describe("SnapshotScrubber", () => {
 
   it("picks a snapshot's state by position", () => {
     const onPick = vi.fn();
-    render(<SnapshotScrubber snapshots={snapshots} onPick={onPick} />);
+    render(
+      <SnapshotScrubber snapshots={snapshots} reports={0} onPick={onPick} />,
+    );
     fireEvent.change(screen.getByRole("slider"), { target: { value: "1" } });
     expect(onPick).toHaveBeenCalledWith({ n: 2 });
     expect(screen.getByText("2 of 3")).toBeTruthy();
@@ -29,24 +32,61 @@ describe("SnapshotScrubber", () => {
 
   it("starts at the latest snapshot once snapshots arrive", () => {
     const { rerender } = render(
-      <SnapshotScrubber snapshots={[]} onPick={() => undefined} />,
+      <SnapshotScrubber snapshots={[]} reports={0} onPick={() => undefined} />,
     );
     rerender(
-      <SnapshotScrubber snapshots={snapshots} onPick={() => undefined} />,
+      <SnapshotScrubber
+        snapshots={snapshots}
+        reports={0}
+        onPick={() => undefined}
+      />,
     );
     expect(screen.getByText("3 of 3")).toBeTruthy();
   });
 
   it("follows the latest snapshot when a new one arrives after a pick", () => {
     const { rerender } = render(
-      <SnapshotScrubber snapshots={snapshots} onPick={() => undefined} />,
+      <SnapshotScrubber
+        snapshots={snapshots}
+        reports={0}
+        onPick={() => undefined}
+      />,
     );
     fireEvent.change(screen.getByRole("slider"), { target: { value: "1" } });
     const more = [
       ...snapshots,
       { ts: "2026-10-08T00:03:00Z", state: { n: 4 }, queries: [] },
     ];
-    rerender(<SnapshotScrubber snapshots={more} onPick={() => undefined} />);
+    rerender(
+      <SnapshotScrubber
+        snapshots={more}
+        reports={0}
+        onPick={() => undefined}
+      />,
+    );
     expect(screen.getByText("4 of 4")).toBeTruthy();
+  });
+
+  it("follows the latest on a new report and keeps the focused input", () => {
+    const { rerender } = render(
+      <SnapshotScrubber
+        snapshots={snapshots}
+        reports={0}
+        onPick={() => undefined}
+      />,
+    );
+    const slider = screen.getByRole("slider");
+    slider.focus();
+    fireEvent.change(slider, { target: { value: "0" } });
+    // A report that replaced the last snapshot: the count holds, the view left the pick.
+    rerender(
+      <SnapshotScrubber
+        snapshots={snapshots}
+        reports={1}
+        onPick={() => undefined}
+      />,
+    );
+    expect(screen.getByText("3 of 3")).toBeTruthy();
+    expect(document.activeElement).toBe(slider);
   });
 });

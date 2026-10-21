@@ -981,17 +981,18 @@ them.
   `ownDatasets` prop of step metadata, which would have brought stale schemas
   back. Cost if wrong: one extra datasets fetch per schema request.
 - **The snapshot scrubber follows the latest**: `SnapshotScrubber` keeps the
-  researcher's pick only while the snapshot count it was made at holds, and
-  `ViewFrameContainer` remounts it on each report from the view, so a new
-  snapshot or a report that replaces the last one at the same count moves it to
-  the latest. A restore sends no report, and a refetch alone keeps the pick; a
-  key on the latest `ts` would not, since the cache stamps a posted snapshot
-  with the browser's time, not the server's. Each posted snapshot goes into the
-  cached session by the server's rule, replacing a last snapshot of the same
-  state, so new snapshots reach it during a visit without a refetch. The plan's
-  scrubber read the count once, so a view that gained snapshots while mounted
-  showed "1 of N". Cost if wrong: the cached list can pass the server's cap of
-  500 until the next refetch.
+  researcher's pick only while the snapshot count and the view's report count it
+  was made at both hold, so a new snapshot or a report that replaces the last
+  one at the same count moves it to the latest. `ViewFrameContainer` passes the
+  report count as a prop, not a key, so a report that lands mid-drag keeps the
+  slider and its focus. A restore sends no report, and a refetch alone keeps the
+  pick; a key on the latest `ts` would not, since the cache stamps a posted
+  snapshot with the browser's time, not the server's. Each posted snapshot goes
+  into the cached session by the server's rule, replacing a last snapshot of the
+  same state, so new snapshots reach it during a visit without a refetch. The
+  plan's scrubber read the count once, so a view that gained snapshots while
+  mounted showed "1 of N". Cost if wrong: the cached list can pass the server's
+  cap of 500 until the next refetch.
 - **The dev proxy forwards `/projects`**: `web/vite.config.ts` proxies it beside
   `/sessions` and `/healthz`. The plan added project routes without it, so
   `npm run dev` answered 404. Stage 5 adds `/components`, `/libraries` and

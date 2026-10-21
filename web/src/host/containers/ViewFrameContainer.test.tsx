@@ -341,6 +341,7 @@ describe("ViewFrameContainer", () => {
       await cache(qc, [a, b]);
       pickFirst();
       expect(screen.getByText("1 of 2")).toBeTruthy();
+      const slider = screen.getByRole("slider");
       await act(async () => {
         send({
           type: "stateChanged",
@@ -355,6 +356,8 @@ describe("ViewFrameContainer", () => {
         expect(cached?.steps[0]?.view?.snapshots[1]?.ts).not.toBe("t1");
         expect(screen.getByText("2 of 2")).toBeTruthy();
       });
+      // The same input, so a report that lands mid-drag keeps the drag and focus.
+      expect(screen.getByRole("slider")).toBe(slider);
     });
 
     it("keeps the pick when a refetch brings the same snapshots", async () => {

@@ -49,9 +49,9 @@ export function ViewFrameContainer({
   const api = useApi();
   const queryClient = useQueryClient();
   const [restoreState, setRestoreState] = useState<JsonObject | null>(null);
-  // Keys the scrubber, so each report from the view drops a pick: the view has left the picked
-  // state even when its report replaces the last snapshot and the count holds. A restore sends
-  // no report, and a refetch alone keeps the pick.
+  // Each report from the view drops the scrubber's pick: the view has left the picked state even
+  // when its report replaces the last snapshot and the count holds. A restore sends no report,
+  // and a refetch alone keeps the pick. A prop rather than a key, so the slider keeps its focus.
   const [reports, setReports] = useState(0);
   const view = step.view;
   if (view === null) return null;
@@ -91,8 +91,8 @@ export function ViewFrameContainer({
       />
       <div className="flex items-center gap-4 empty:hidden">
         <SnapshotScrubber
-          key={reports}
           snapshots={view.snapshots}
+          reports={reports}
           onPick={setRestoreState}
         />
         {actions !== undefined && <div className="ml-auto">{actions}</div>}
