@@ -8,6 +8,9 @@ import { RuntimeProvider } from "./context";
 import { useDatasetSchema, useQuery, useViewState } from "./hooks";
 import { ViewStateStore } from "./state";
 
+// Lets every pending answer settle, however many promise hops it takes.
+const settled = () => new Promise((done) => setTimeout(done));
+
 function harness() {
   const sent: RuntimeToHost[] = [];
   const bridge = new RuntimeBridge("v1", (m) => sent.push(m));
@@ -191,7 +194,7 @@ describe("hooks", () => {
     };
     cache.ensureQuery(spec);
     answer(lastQueryId(), 1);
-    await Promise.resolve();
+    await settled();
     const before = cache.ensureQuery(spec);
     expect(sent.filter((m) => m.type === "query")).toHaveLength(1);
     cache.refresh();
@@ -199,7 +202,7 @@ describe("hooks", () => {
     expect(cache.ensureQuery(spec)).toBe(before);
     expect(sent.filter((m) => m.type === "query")).toHaveLength(2);
     answer(lastQueryId(), 2);
-    await Promise.resolve();
+    await settled();
     const after = cache.ensureQuery(spec);
     expect(after.status === "success" && after.result.row_count).toBe(2);
   });
@@ -228,7 +231,7 @@ describe("hooks", () => {
     const [first, second] = ids();
     answer(second, 2);
     answer(first, 1);
-    await Promise.resolve();
+    await settled();
     const state = cache.ensureQuery(spec);
     expect(state.status === "success" && state.result.row_count).toBe(2);
   });
