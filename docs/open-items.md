@@ -210,6 +210,11 @@ Decisions already made are in [decisions.md](context/decisions.md).
   to the host, and the pivot stays empty. Loud.
 - **A hung `GET /libraries` never mounts a view**: `ViewHost` waits for that one
   answer with no timeout. Silent: the frame stays empty.
+- **An outgoing view's cleanup error replaces the incoming view**: the frame
+  keeps one error boundary across mounts, so when a replaced view throws from
+  an effect cleanup as the next view mounts, the boundary shows that error
+  instead of the new view and posts it under the new mount, which brings back
+  the host's "Fix this view". Loud.
 - **OHLC fails on a case-only name clash**: `Close` and `close` in one dataset
   make its select fail, and the error hides the pickers. Loud. A table's saved
   sort also goes out before the schema loads, so a sort on a dropped column
