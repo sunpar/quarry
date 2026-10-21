@@ -114,6 +114,18 @@ def test_second_consecutive_python_error_ends_step(kernel: KernelClient, tmp_pat
         assert all(r.is_error and "ZeroDivisionError" in r.content for r in message.tool_results)
 
 
+def test_second_python_call_with_bad_arguments_ends_step_with_a_step_error(
+    kernel: KernelClient, tmp_path: Path
+) -> None:
+    bad = AssistantTurn(
+        text="", tool_calls=[ToolCall(id="c2", name="run_python", input={})], stop="tool_use"
+    )
+    out = run(FakeProvider([py("c1", "1/0"), bad, end()]), kernel, tmp_path)
+    assert out.status == "error" and out.error is not None
+    assert (out.error.type, out.error.traceback) == ("StepError", "")
+    assert out.error.message.startswith("invalid arguments")
+
+
 def test_one_error_then_success_is_ok(kernel: KernelClient, tmp_path: Path) -> None:
     provider = FakeProvider([py("c1", "1/0"), py("c2", "x = 1"), end()])
     assert run(provider, kernel, tmp_path).status == "ok"

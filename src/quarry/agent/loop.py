@@ -119,13 +119,15 @@ class StepExecution:
         with self._lock:
             if self._cancel.is_set():
                 self.stop("interrupted", _INTERRUPTED)
-            if self.halt is not None:
-                status = self.halt[0]
+            with self._state_lock:  # `stop` sets a halt's status and error together
+                if self.halt is not None:
+                    status = self.halt[0]
+                halted = self._error
             return StepOutcome(
                 status=status,
                 note=note,
                 transcript=transcript,
-                error=self._error,
+                error=halted,
                 view=self._tools.view,
                 code="\n\n".join(code for code, r in self._tools.runs if r.status == "ok"),
                 runs=[CodeRun(code=code, status=r.status) for code, r in self._tools.runs],
