@@ -11,7 +11,7 @@ from typing import Literal
 
 import uvicorn
 
-from quarry.config import load_config
+from quarry.config import ConfigError, load_config
 from quarry.projects.export import notebook_json
 from quarry.projects.files import write_atomic
 from quarry.projects.report import ReportError, report_html
@@ -90,7 +90,7 @@ def run_projects_export(
             report_html(project, store) if format_name == "html" else notebook_json(project, store)
         )
         write_atomic(target, text)
-    except (ReportError, OSError, ValueError, KeyError) as exc:
+    except (ConfigError, ReportError, OSError, ValueError, KeyError) as exc:
         print(f"export failed: {exc}", file=sys.stderr)
         return 1
     print(f"wrote {target}")
