@@ -251,6 +251,25 @@ describe("ohlc built-in", () => {
     );
   });
 
+  it("keeps the pickers when a case clash leaves a role empty", () => {
+    query.mockReturnValue({ status: "loading" });
+    renderWith({
+      live: [
+        { name: "Date", dtype: "Date" },
+        { name: "ts", dtype: "Datetime" },
+        ...numeric("date", "open", "high", "low"),
+      ],
+    });
+    expect(screen.getByText("Pick a column for each role.")).toBeTruthy();
+    expect(screen.getByLabelText<HTMLSelectElement>("Close").value).toBe("");
+    expect(
+      Array.from(
+        screen.getByLabelText<HTMLSelectElement>("Time").options,
+        (o) => o.value,
+      ),
+    ).toEqual(["Date", "ts"]);
+  });
+
   it("offers no picker a column that differs only in case from another role's", () => {
     query.mockReturnValue({ status: "loading" });
     renderWith({

@@ -1411,11 +1411,11 @@ them.
   case: a saved column that clashes with one resolved before it is guessed like
   a missing one, the time is resolved after the saved prices but takes the only
   time column over a saved price that clashes with it, and a picker leaves out a
-  column that clashes with another role's. Cost: a dataset with too few columns
-  distinct ignoring case leaves a role empty and shows the "needs ... columns"
-  message, as one with only three price columns does. The chart effect is keyed
-  on the rows and the five names, so a re-render with the same result keeps the
-  chart.
+  column that clashes with another role's. A dataset without a time column and
+  four price columns distinct ignoring case shows the "needs ... columns"
+  message; when the guesses leave a role empty otherwise, the pickers stay with
+  that role blank and ask for a column. The chart effect is keyed on the rows
+  and the five names, so a re-render with the same result keeps the chart.
 
 ### Recharts, Plotly and ECharts
 

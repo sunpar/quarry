@@ -99,7 +99,11 @@ export default function Ohlc({ datasets }: Props) {
 
   if (schema === null)
     return <p className="p-4 text-sm text-muted-foreground">Loading</p>;
-  if (!ready)
+  // Without a time column and four prices distinct ignoring case it can never chart.
+  if (
+    times.length === 0 ||
+    new Set(numeric.map((n) => n.toLowerCase())).size < 4
+  )
     return (
       <p className="p-4 text-sm text-muted-foreground">
         This dataset needs a date column and open, high, low and close columns.
@@ -114,9 +118,13 @@ export default function Ohlc({ datasets }: Props) {
             key={role}
             label={LABELS[role]}
             value={columns[role] ?? ""}
-            options={(role === "time" ? times : numeric).filter(
-              (o) => !clashes(o, Object.values({ ...columns, [role]: null })),
-            )}
+            options={[
+              // A role no guess could fill shows blank until the researcher picks one.
+              ...(columns[role] === null ? [""] : []),
+              ...(role === "time" ? times : numeric).filter(
+                (o) => !clashes(o, Object.values({ ...columns, [role]: null })),
+              ),
+            ]}
             onChange={(v) => setChosen({ ...columns, [role]: v })}
           />
         ))}
@@ -127,7 +135,11 @@ export default function Ohlc({ datasets }: Props) {
             Showing the first {result.rows.length.toLocaleString()} rows.
           </p>
         )}
-      {result.status === "loading" ? (
+      {!ready ? (
+        <p className="p-4 text-sm text-muted-foreground">
+          Pick a column for each role.
+        </p>
+      ) : result.status === "loading" ? (
         <p className="p-4 text-sm text-muted-foreground">Loading</p>
       ) : result.status === "error" ? (
         <pre className="whitespace-pre-wrap p-4 font-mono text-sm text-destructive">
