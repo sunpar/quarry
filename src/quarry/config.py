@@ -107,16 +107,19 @@ def _expand(path: Path) -> Path:
 def load_config(root: Path, env: Mapping[str, str] | None = None) -> QuarryConfig:
     environment = os.environ if env is None else env
     path = _expand(root) / CONFIG_FILENAME
-    raw: dict[str, object] = {}
-    if path.exists():
+    # One open file: the permissions checked are those of the bytes read.
+    try:
         with path.open("rb") as handle:
-            raw = tomllib.load(handle)
+            shared = _group_or_world(os.fstat(handle.fileno()))
+            raw: dict[str, object] = tomllib.load(handle)
+    except FileNotFoundError:
+        shared, raw = False, {}
     # Only --root sets the root: a config key would redirect every root-relative resource.
     if "root" in raw:
         raise ConfigError("config.toml cannot set root; pass --root instead")
     config = QuarryConfig.model_validate({"root": root, **raw})
     # Before the environment's DSN replaces it: the file's permissions expose only its own.
-    if _DSN_PASSWORD.search(config.data.mssql_dsn) and _group_or_world(path.stat()):
+    if _DSN_PASSWORD.search(config.data.mssql_dsn) and shared:
         warnings.warn(
             f"{path} holds a data.mssql_dsn password and has group or world permissions; "
             "use chmod 600",

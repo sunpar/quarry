@@ -310,9 +310,6 @@ one up when a researcher needs it.
   Neither is in the spec.
 - Keep the version in one place: `pyproject.toml` and `src/quarry/__init__.py`
   both hold it, and the test checks only its type.
-- Open `config.toml` once in `load_config`: it checks `exists()`, opens the
-  file, then stats it again for the DSN warning, so a file swapped in between is
-  checked apart from what was read.
 - Count output tails in bytes, as the spec's "last 4 KB" says.
 - Type the op sets in `quarry/query/spec.py` as `frozenset[FilterOp]` rather
   than `frozenset[str]`.

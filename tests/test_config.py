@@ -1,6 +1,8 @@
 import os
 import re
+import tomllib
 from pathlib import Path
+from typing import BinaryIO
 
 import pytest
 from pydantic import ValidationError
@@ -195,6 +197,25 @@ def test_no_warning_without_both_a_password_and_shared_permissions(
 ) -> None:
     write_dsn_config(tmp_path, dsn, mode)
     load_config(tmp_path, env={})
+
+
+@pytest.mark.filterwarnings("error")
+def test_dsn_warning_checks_the_file_it_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_dsn_config(tmp_path, PASSWORD_DSN, 0o600)
+    swapped = tmp_path / "swapped.toml"
+    swapped.write_text("")
+    swapped.chmod(0o644)
+    load = tomllib.load
+
+    def load_then_swap(handle: BinaryIO) -> dict[str, object]:
+        raw = load(handle)
+        os.replace(swapped, tmp_path / CONFIG_FILENAME)  # another writer replaces the file
+        return raw
+
+    monkeypatch.setattr(tomllib, "load", load_then_swap)
+    assert load_config(tmp_path, env={}).data.mssql_dsn == PASSWORD_DSN
 
 
 @pytest.mark.filterwarnings("error")
