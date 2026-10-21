@@ -11,7 +11,7 @@ interface Option {
 const query = vi.fn<(spec: unknown) => QueryHookResult>();
 const chart = vi.hoisted(() => vi.fn<(option: Option) => void>());
 const saved = vi.hoisted((): Record<string, unknown> => ({}));
-const live = vi.hoisted(() => ({
+const schema = vi.hoisted(() => ({
   current: null as { name: string; dtype: string }[] | null,
 }));
 vi.mock("@quarry/hooks", () => ({
@@ -21,7 +21,7 @@ vi.mock("@quarry/hooks", () => ({
     () => undefined,
   ],
   useDatasetSchema: () =>
-    live.current ?? [
+    schema.current ?? [
       { name: "ts", dtype: "Datetime(time_unit='us', time_zone=None)" },
       { name: "px", dtype: "Float64" },
     ],
@@ -35,18 +35,18 @@ vi.mock("echarts-for-react", () => ({
 
 import LargeSeries from "@builtin/large-series/component";
 
-// Renders with `columns` saved and the live schema replaced, then puts both back.
-function renderWith(
-  schema: { name: string; dtype: string }[],
-  columns?: object,
-) {
-  if (columns !== undefined) saved.columns = columns;
-  live.current = schema;
+// Renders with `columns` saved or with the live schema replaced, then puts both back.
+function renderWith(options: {
+  columns?: object;
+  live?: { name: string; dtype: string }[];
+}) {
+  if (options.columns !== undefined) saved.columns = options.columns;
+  if (options.live !== undefined) schema.current = options.live;
   try {
     return render(<LargeSeries datasets={["ticks"]} />);
   } finally {
     delete saved.columns;
-    live.current = null;
+    schema.current = null;
   }
 }
 
@@ -113,12 +113,7 @@ describe("large-series built-in", () => {
 
   it("drops a saved column the live schema no longer has", () => {
     query.mockReturnValue({ status: "loading" });
-    saved.columns = { time: "gone", value: "px" };
-    try {
-      render(<LargeSeries datasets={["ticks"]} />);
-    } finally {
-      delete saved.columns;
-    }
+    renderWith({ columns: { time: "gone", value: "px" } });
     expect(query).toHaveBeenLastCalledWith(
       expect.objectContaining({
         line_reduce: { time: "ts", value: "px", max_rows: 50000 },
@@ -129,11 +124,13 @@ describe("large-series built-in", () => {
   it("never pairs the time with a value that differs only in case", () => {
     // The kernel refuses two names that differ only in case.
     query.mockReturnValue({ status: "loading" });
-    renderWith([
-      { name: "Date", dtype: "Date" },
-      { name: "date", dtype: "Int64" },
-      { name: "px", dtype: "Float64" },
-    ]);
+    renderWith({
+      live: [
+        { name: "Date", dtype: "Date" },
+        { name: "date", dtype: "Int64" },
+        { name: "px", dtype: "Float64" },
+      ],
+    });
     expect(query).toHaveBeenLastCalledWith(
       expect.objectContaining({
         line_reduce: { time: "Date", value: "px", max_rows: 50000 },
@@ -146,14 +143,14 @@ describe("large-series built-in", () => {
     query.mockReturnValue({ status: "loading" });
     for (const time of [null, "Date"]) {
       cleanup();
-      renderWith(
-        [
+      renderWith({
+        columns: { time, value: null },
+        live: [
           { name: "Date", dtype: "Date" },
           { name: "ts", dtype: "Datetime" },
           { name: "date", dtype: "Int64" },
         ],
-        { time, value: null },
-      );
+      });
       expect(query).toHaveBeenLastCalledWith(
         expect.objectContaining({
           line_reduce: { time: "ts", value: "date", max_rows: 50000 },

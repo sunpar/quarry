@@ -1404,8 +1404,7 @@ them.
 
 - **Built-ins inline their column helpers**: the plan's `_shared/columns.ts`
   would load as `require("@builtin/_shared/columns")`, which the runtime cannot
-  serve, so each built-in keeps its own `isTime` and `isNumeric`, `time-series`
-  included.
+  serve, so each built-in keeps its own `isTime` and `isNumeric`.
 - **The TanStack table registers no sorting feature**: the query spec sorts on
   the server and `header.column.id` is core in v9, so the plan's
   `rowSortingFeature` and `enableSorting: false` are gone; v9's `TableOptions`
