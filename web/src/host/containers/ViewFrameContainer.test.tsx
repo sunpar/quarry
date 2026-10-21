@@ -271,16 +271,21 @@ describe("ViewFrameContainer", () => {
     ]);
   });
 
-  it("mounts the view on its latest snapshot, and only once", async () => {
+  it("mounts the view on its latest snapshot, again only when the frame reloads", async () => {
     const { iframe, send } = mount([a, b]);
     const posted: HostToRuntime[] = [];
     vi.spyOn(iframe.contentWindow as Window, "postMessage").mockImplementation(
       (m: HostToRuntime) => posted.push(m),
     );
-    await act(async () => iframe.dispatchEvent(new Event("load")));
-    const connection = posted[0];
-    if (connection?.type !== "connect") throw new Error("not connected");
-    await act(async () => send({ type: "ready", id: connection.id }));
+    const load = async () => {
+      await act(async () => iframe.dispatchEvent(new Event("load")));
+      const connection = posted.findLast((m) => m.type === "connect");
+      if (connection?.type !== "connect") throw new Error("not connected");
+      await act(async () => send({ type: "ready", id: connection.id }));
+    };
+    const mounts = () =>
+      posted.filter((m) => m.type === "mount" || m.type === "restore");
+    await load();
     await act(async () => {
       send({
         type: "stateChanged",
@@ -291,10 +296,14 @@ describe("ViewFrameContainer", () => {
     });
     // The report's snapshot reaches the step, but the view already shows its state.
     await vi.waitFor(() => expect(screen.getByText("3 of 3")).toBeTruthy());
-    expect(
-      posted.filter((m) => m.type === "mount" || m.type === "restore"),
-    ).toEqual([
+    expect(mounts()).toEqual([
       expect.objectContaining({ type: "mount", initialState: b.state }),
+    ]);
+    // A reloaded frame mounts on the latest now, not on the state it first mounted with.
+    await load();
+    expect(mounts()).toEqual([
+      expect.objectContaining({ type: "mount", initialState: b.state }),
+      expect.objectContaining({ type: "mount", initialState: c.state }),
     ]);
   });
 
