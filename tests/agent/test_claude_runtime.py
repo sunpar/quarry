@@ -208,7 +208,7 @@ def test_failure_keeps_completed_runs(
 ) -> None:
     replay.events = [("run_python", {"code": "x = 1"}), final]
     out = run(replay, executor)
-    assert out.status == "error" and error in out.error_message
+    assert out.status == "error" and out.error is not None and error in out.error.message
     assert out.code == "x = 1" and len(out.runs) == 1
     assert replay.closed == 1
 
@@ -222,7 +222,7 @@ def test_two_python_failures_stop_queued_concurrent_callbacks(
         terminal(),
     ]
     out = run(replay, executor)
-    assert out.status == "error" and "ZeroDivisionError" in out.error_message
+    assert out.status == "error" and out.error is not None and out.error.type == "ZeroDivisionError"
     assert [r.code for r in out.runs] == ["1/0", "1/0"]
 
 
@@ -253,7 +253,7 @@ def test_model_wait_cancels_and_closes(replay: Replay, executor: ToolExecutor) -
 def test_missing_terminal_is_protocol_failure(replay: Replay, executor: ToolExecutor) -> None:
     replay.events = []
     out = run(replay, executor)
-    assert out.status == "error" and "terminal" in out.error_message
+    assert out.status == "error" and out.error is not None and "terminal" in out.error.message
 
 
 @pytest.mark.parametrize(
@@ -331,7 +331,7 @@ def test_non_python_callback_does_not_reset_failure_count(
     ]
     out = run(replay, executor)
     assert out.status == "error" and len(out.runs) == 2
-    assert "ZeroDivisionError" in out.error_message
+    assert out.error is not None and out.error.type == "ZeroDivisionError"
 
 
 def test_malformed_python_arguments_never_reach_kernel(
@@ -352,7 +352,9 @@ def test_unexpected_tool_inventory_fails_before_dispatch(
         terminal(),
     ]
     out = run(replay, executor)
-    assert out.status == "error" and "unexpected tools" in out.error_message
+    assert (
+        out.status == "error" and out.error is not None and "unexpected tools" in out.error.message
+    )
     assert out.runs == []
 
 
@@ -374,7 +376,7 @@ def test_disconnect_failure_becomes_step_error(
 
     monkeypatch.setattr(sdk.ClaudeSDKClient, "disconnect", disconnect)
     out = run(replay, executor)
-    assert out.status == "error" and "close failed" in out.error_message
+    assert out.status == "error" and out.error is not None and "close failed" in out.error.message
 
 
 def test_terminal_only_answer_is_recorded_in_step_transcript(
@@ -482,7 +484,11 @@ def test_transport_failure_closes_dispatch_before_active_callback_settles(
         release.set()
         worker.join(3)
         assert not worker.is_alive()
-        assert outcomes[0].status == "error" and "native crashed" in outcomes[0].error_message
+        assert (
+            outcomes[0].status == "error"
+            and outcomes[0].error is not None
+            and "native crashed" in outcomes[0].error.message
+        )
         assert [r.code for r in outcomes[0].runs] == ["x = 1"]
     finally:
         release.set()
@@ -510,7 +516,7 @@ def test_real_mcp_invalid_non_python_calls_consume_tool_budget(
         terminal(),
     ]
     out = run(replay, executor)
-    assert out.status == "error" and "cap reached" in out.error_message
+    assert out.status == "error" and out.error is not None and "cap reached" in out.error.message
     assert out.runs == []
     assert sum(len(message.tool_results) for message in out.transcript) == 12
 

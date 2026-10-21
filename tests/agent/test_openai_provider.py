@@ -144,3 +144,10 @@ def test_complete_maps_errors() -> None:
     with pytest.raises(ProviderError) as info:
         OpenAIProvider(model="gpt", create=rate_limited).complete(system="s", messages=[], tools=[])
     assert info.value.retryable is True
+
+    def malformed(**kwargs: object) -> object:
+        raise openai.APIResponseValidationError(response=_response(200), body=None)
+
+    with pytest.raises(ProviderError) as info2:
+        OpenAIProvider(model="gpt", create=malformed).complete(system="s", messages=[], tools=[])
+    assert info2.value.retryable is False

@@ -16,6 +16,7 @@ const nodeTests = [
   "src/runtime/state.test.ts",
   "src/runtime/perspective/filters.test.ts",
   "src/runtime/perspective/toSpec.test.ts",
+  "src/runtime/perspective/engine.test.ts",
   "src/runtime/libs/registry.test.ts",
   "src/runtime/libs/scichart.test.ts",
 ];

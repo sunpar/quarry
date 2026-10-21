@@ -12,7 +12,7 @@ from quarry.agent.tools import TOOL_DEFS, CodeRun, PendingView, ToolExecutor
 from quarry.agent.types import Message, Provider, ProviderError, ToolCall, ToolResult
 from quarry.kernel.client import KernelDead
 from quarry.kernel.datasets import DatasetMeta
-from quarry.kernel.executor import ExecResult
+from quarry.kernel.executor import ExecError, ExecResult
 
 MAX_ITERATIONS: Final = 12
 _INTERRUPTED: Final = "interrupted by researcher"
@@ -24,7 +24,7 @@ class StepOutcome(BaseModel):
     status: StepStatus
     note: str
     transcript: list[Message]
-    error_message: str | None
+    error: ExecError | None
     view: PendingView | None
     # The run_python blocks that succeeded, for reading; restart replays `runs`.
     code: str
@@ -58,18 +58,25 @@ class StepExecution:
         self._lock = threading.Lock()
         self._state_lock = threading.Lock()
         self.halt: tuple[StepStatus, str] | None = None
+        # The halt's error: a run_python failure keeps its traceback apart, as a manual step's does.
+        self._error: ExecError | None = None
 
-    def stop(self, status: StepStatus, message: str) -> None:
+    def stop(self, status: StepStatus, message: str, failure: ExecError | None = None) -> None:
         """Close dispatch at the terminal trigger without waiting for an executing tool."""
         with self._state_lock:
             if self._cancel.is_set():
-                status, message = "interrupted", _INTERRUPTED
+                status, message, failure = "interrupted", _INTERRUPTED, None
             if (
                 self.halt is None
                 or status == "interrupted"
                 or (self.halt[0] == "ok" and status == "error")
             ):
                 self.halt = (status, message)
+                self._error = (
+                    None
+                    if status == "ok"
+                    else failure or ExecError(type="StepError", message=message, traceback="")
+                )
 
     def dispatch(self, call: ToolCall) -> ToolResult:
         with self._lock:
@@ -93,7 +100,8 @@ class StepExecution:
             elif call.name == "run_python":
                 self._python_failures = self._python_failures + 1 if result.is_error else 0
                 if self._python_failures >= 2:
-                    self.stop("error", _tool_error(result))
+                    failure = _tool_error(result)
+                    self.stop("error", failure.traceback or failure.message, failure)
             return result
 
     def finish(
@@ -111,14 +119,15 @@ class StepExecution:
         with self._lock:
             if self._cancel.is_set():
                 self.stop("interrupted", _INTERRUPTED)
-            if self.halt is not None:
-                status = self.halt[0]
-                error = self.halt[1] if status != "ok" else None
+            with self._state_lock:  # `stop` sets a halt's status and error together
+                if self.halt is not None:
+                    status = self.halt[0]
+                halted = self._error
             return StepOutcome(
                 status=status,
                 note=note,
                 transcript=transcript,
-                error_message=error,
+                error=halted,
                 view=self._tools.view,
                 code="\n\n".join(code for code, r in self._tools.runs if r.status == "ok"),
                 runs=[CodeRun(code=code, status=r.status) for code, r in self._tools.runs],
@@ -214,12 +223,11 @@ def run_agent_step(
     return finish("interrupted", error=_INTERRUPTED)
 
 
-def _tool_error(result: ToolResult) -> str:
+def _tool_error(result: ToolResult) -> ExecError:
     try:
-        body = json.loads(result.content)
+        error = json.loads(result.content).get("error")
     except json.JSONDecodeError:
-        return result.content
-    error = body.get("error")
+        error = result.content
     if isinstance(error, dict):
-        return str(error.get("traceback") or error.get("message") or result.content)
-    return str(error or result.content)
+        return ExecError.model_validate(error)
+    return ExecError(type="StepError", message=str(error or result.content), traceback="")

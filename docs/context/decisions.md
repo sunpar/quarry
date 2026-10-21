@@ -579,6 +579,11 @@ them.
   out rather than splicing their output into that gap. Cost: a run that printed
   4093 to 4095 bytes uncut hides up to 3 bytes of the runs before it; telling
   the cases apart needs the kernel to report a cut.
+- **A prompt step ends with its failing run's error**: after a second
+  `run_python` failure, the step's `error` is that run's own type, message and
+  traceback, as a manual step's is. An error the agent loop raises itself, such
+  as a provider error, a cap or an interrupt, has type `StepError` and an empty
+  traceback.
 - **Replay reruns every execution**: each step keeps `runs`, one
   `{code, status}` per execution: every `run_python` call of a prompt step, or a
   manual step's code. Restart reruns them one by one, so a failed run's partial

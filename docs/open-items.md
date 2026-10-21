@@ -113,6 +113,14 @@ Decisions already made are in [decisions.md](context/decisions.md).
   unreadable directory without a log line, and misses a dataset whose parquet
   files sit only in nested directories not named `key=value`. A dangling
   `*.parquet` symlink still lists its dataset. Silent.
+- **Malformed provider responses escape the adapters**: the SDK clients do not
+  validate responses, so a 200 whose body is not JSON raises `JSONDecodeError`
+  inside the call, and one missing fields fails while the adapter converts it,
+  outside its `try`. Neither is a `ProviderError`, so a save's tidy step fails
+  instead of falling back to the raw recipe, and a prompt step fails without
+  its transcript. The Anthropic adapter reads a `text/html` 200 as an empty turn
+  that succeeded.
+  Loud, except the last.
 - **Cancel waits for the model**: `/interrupt` and `/restart` stop a prompt step
   only once the provider answers the call in flight, bounded only by the
   provider client's timeout. Meanwhile `/restart` holds its request, a second
@@ -144,9 +152,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **Every `/status` poll parses every step**: it loads the whole session under
   the service lock, since no route reads one step, and `/datasets` parses every
   step too. A silent cost that grows with the session.
-- **Prompt-step tracebacks land in the message**: a prompt step's error puts the
-  traceback in `error.message` and leaves `traceback` empty, while manual steps
-  fill `traceback`. Silent.
 - **A view can still send rows out over WebRTC or DNS**: no CSP directive covers
   a peer connection's ICE traffic or a DNS prefetch, so a generated view can put
   rows in a STUN host name or a prefetched name despite the runtime CSP and the
@@ -194,9 +199,10 @@ Decisions already made are in [decisions.md](context/decisions.md).
   missing `config`, so a snapshot from before the first layout keeps the later
   one. Changing the viewer's settings, theme or title also writes view state.
   Silent.
-- **A failed Perspective engine start sticks**: `ensureEngine` caches its
-  promise, so once the wasm fetch or the worker start fails, every pivot in that
-  frame fails until the frame reloads. Loud.
+- **A Perspective engine that never answers hangs the pivot**: a worker whose
+  script fails to run, or a server wasm that is not wasm, leaves
+  `perspective.worker` waiting with no error or timeout, so the start never
+  fails and is never retried. Silent: the pivot stays empty.
 - **Arrow bytes Perspective cannot read leave the pivot blank**: a corrupt
   Arrow stream that is still valid base64 decodes, so `client.table` rejects
   inside `PerspectiveViewer`'s load effect. The runtime reports the unhandled
@@ -236,7 +242,6 @@ one up when a researcher needs it.
 - Run restart in the background and report replay progress through `/status`, as
   spec §6 asks.
 - Add a route that reads one step, so polling stops parsing the whole session.
-- Put prompt-step tracebacks in `error.traceback`, as manual steps do.
 - Fix filter coercion for Time literals, UUID and other natively imported
   relation columns, strings against integer columns, and datetime-shaped strings
   against Date columns.
@@ -264,9 +269,6 @@ one up when a researcher needs it.
   debounced layout write and its flush on unmount.
 - Let a cleanly exiting kernel finish before `close()` kills it after
   `shutdown()`, so an in-flight snapshot completes.
-- Map `anthropic.APIError` and `openai.APIError` to a non-retryable
-  `ProviderError` at the provider boundary. Until then, an unmapped SDK error
-  escapes a save after its pinned snapshot is staged.
 - Give recipe validation a timeout: `validate_recipe` waits on the scratch
   kernel, so a recipe that hangs hangs the save request, which is synchronous so
   that it can show a saving state. The session stays usable, since the hold is

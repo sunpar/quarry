@@ -59,7 +59,7 @@ class AnthropicProvider:
             anthropic.APIConnectionError,
         ) as exc:
             raise ProviderError(str(exc), retryable=True) from exc
-        except anthropic.APIStatusError as exc:
+        except anthropic.APIError as exc:
             raise ProviderError(str(exc), retryable=False) from exc
         return from_api_response(response)
 
