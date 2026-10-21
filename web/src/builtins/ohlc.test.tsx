@@ -230,4 +230,20 @@ describe("ohlc built-in", () => {
     expect(createChart).not.toHaveBeenCalled();
     expect(screen.queryByText(/Showing the first/)).toBeNull();
   });
+
+  it("draws the chart once a query error clears", () => {
+    query.mockReturnValue({ status: "error", message: "unknown column" });
+    createChart.mockClear();
+    const { rerender } = render(<Ohlc datasets={["bars"]} />);
+    expect(screen.getByText("unknown column")).toBeTruthy();
+    query.mockReturnValue(
+      success([{ ts: "2024-01-02", open: 1, high: 2, low: 0.5, close: 1.5 }]),
+    );
+    rerender(<Ohlc datasets={["bars"]} />);
+    expect(createChart).toHaveBeenCalledTimes(1);
+    expect(setData).toHaveBeenLastCalledWith([
+      { time: 1704153600, open: 1, high: 2, low: 0.5, close: 1.5 },
+    ]);
+    expect(screen.queryByText("unknown column")).toBeNull();
+  });
 });

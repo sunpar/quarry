@@ -3,6 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import type { QueryHookResult } from "@/runtime/hooks";
 
 const setData = vi.hoisted(() => vi.fn());
+const createChart = vi.hoisted(() =>
+  vi.fn(() => ({
+    addSeries: () => ({ setData }),
+    applyOptions: vi.fn(),
+    timeScale: () => ({ fitContent: vi.fn() }),
+    remove: vi.fn(),
+  })),
+);
 const query = vi.fn<(spec: unknown) => QueryHookResult>();
 const saved = vi.hoisted((): Record<string, unknown> => ({}));
 vi.mock("@quarry/hooks", () => ({
@@ -16,15 +24,7 @@ vi.mock("@quarry/hooks", () => ({
     { name: "px", dtype: "Float64" },
   ],
 }));
-vi.mock("lightweight-charts", () => ({
-  LineSeries: {},
-  createChart: () => ({
-    addSeries: () => ({ setData }),
-    applyOptions: vi.fn(),
-    timeScale: () => ({ fitContent: vi.fn() }),
-    remove: vi.fn(),
-  }),
-}));
+vi.mock("lightweight-charts", () => ({ LineSeries: {}, createChart }));
 
 import TimeSeries from "@builtin/time-series/component";
 
@@ -94,5 +94,26 @@ describe("time-series built-in", () => {
     expect(screen.getByText("unknown column")).toBeTruthy();
     expect(setData).not.toHaveBeenCalled();
     expect(screen.queryByText(/Showing the first/)).toBeNull();
+  });
+
+  it("draws the chart once a query error clears", () => {
+    query.mockReturnValue({ status: "error", message: "unknown column" });
+    createChart.mockClear();
+    const { rerender } = render(<TimeSeries datasets={["px"]} />);
+    expect(screen.getByText("unknown column")).toBeTruthy();
+    query.mockReturnValue({
+      status: "success",
+      schema: [],
+      rowCount: 1,
+      truncated: false,
+      arrow: null,
+      rows: [{ ts: "2024-01-02", px: 1.5 }],
+    });
+    rerender(<TimeSeries datasets={["px"]} />);
+    expect(createChart).toHaveBeenCalledTimes(1);
+    expect(setData).toHaveBeenLastCalledWith([
+      { time: 1704153600, value: 1.5 },
+    ]);
+    expect(screen.queryByText("unknown column")).toBeNull();
   });
 });
