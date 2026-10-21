@@ -142,9 +142,11 @@ them.
 - **Exact truncation**: `query` fetches `row_cap + 1` rows and reports
   `truncated` only when more than `row_cap` came back. The plan's heuristic
   marked an exactly full result as truncated.
-- **Bounded output tails**: step stdout and stderr go to a writer that keeps at
-  most `tail_bytes` characters while the step runs. A runaway print loop had
-  grown memory by about 50 MB/s.
+- **Bounded output tails**: step stdout and stderr go to a writer that keeps the
+  last `tail_bytes` bytes of their UTF-8 while the step runs, so spec §5's "last
+  4 KB" holds for multi-byte output. A character the cut would split is dropped,
+  and a lone surrogate counts as the `?` the wire sends for it. A runaway print
+  loop had grown memory by about 50 MB/s.
 - **`SystemExit` in a step is an error**: a step calling `exit()` gets an error
   result, and the kernel keeps running. Shutdown therefore never relies on
   raising it.
@@ -571,7 +573,7 @@ them.
 - **A prompt step's code is the blocks that ran**: `Step.code` joins only the
   `run_python` calls that succeeded, read as spec §5's "the final Python that
   ran". It is for reading; replay uses `runs`. The output tails join every run's
-  tails, keeping the last 4096 characters.
+  tails, keeping the last 4096 bytes.
 - **Replay reruns every execution**: each step keeps `runs`, one
   `{code, status}` per execution: every `run_python` call of a prompt step, or a
   manual step's code. Restart reruns them one by one, so a failed run's partial

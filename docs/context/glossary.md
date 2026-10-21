@@ -46,7 +46,7 @@ Terms as Quarry's code and docs use them. Section numbers point into the
 - **Step**: one run of code, with its status (`running`, `ok`, `error` or
   `interrupted`), output tails, lineage and dataset metadata. Kinds are
   `prompt`, `manual`, `load` and `recall` (§5).
-- **Tail**: the last 4096 characters of a step's stdout or stderr.
+- **Tail**: the last 4096 bytes of a step's stdout or stderr.
 - **Lineage**: a step's `reads`, `writes` and `defines`, found by parsing the
   code before it runs and comparing object identities after (§6).
 
