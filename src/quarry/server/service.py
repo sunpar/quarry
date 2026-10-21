@@ -199,7 +199,7 @@ class SessionService:
 
     def start_manual(self, session_id: str, code: str) -> Step:
         step, cancel = self._begin(session_id, kind="manual", prompt=None, code=code)
-        self._start(session_id, self._run_manual, (session_id, step, cancel))
+        self._start(session_id, self._run_manual, (session_id, step, cancel, None))
         return step
 
     def start_recall(self, session_id: str, *, prompt: str, code: str, view: View | None) -> Step:
@@ -399,7 +399,7 @@ class SessionService:
         self._finish(session_id, done)
 
     def _run_manual(
-        self, session_id: str, step: Step, cancel: threading.Event, view: View | None = None
+        self, session_id: str, step: Step, cancel: threading.Event, view: View | None
     ) -> None:
         started = time.monotonic()
         try:
@@ -409,9 +409,9 @@ class SessionService:
                 done = _stopped(step, started)
             else:
                 done = _apply_exec(step, kernel.execute(step.code), started)
-                # A recalled view reads the datasets this code loads, so it joins only a step
-                # that ran ok: a failed or stopped recall shows its error alone.
-                if done.status == "ok":
+                # A recall's view joins its step only when the run ends ok, so a running,
+                # failed or stopped recall shows no view.
+                if done.status == "ok" and view is not None:
                     done = done.model_copy(update={"view": view})
         except KernelDead as exc:
             done = _died(step, exc, cancel, started)
