@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import queue
@@ -24,6 +23,7 @@ from quarry.agent.loop import StepExecution, StepHalted, StepOutcome
 from quarry.agent.tools import TOOL_DEFS, ToolExecutor
 from quarry.agent.types import AssistantTurn, Message, ProviderError, ToolCall, ToolResult
 from quarry.config import QuarryConfig
+from quarry.kernel.client import kill_group
 
 _VERSION: Final = "0.162.1"
 _DISABLED: Final = (
@@ -181,15 +181,11 @@ class _Connection:
                     continue
                 if isinstance(response, ProviderError) or response.get("id") == self.serial:
                     break
-        # ProcessLookupError: the group is empty. macOS raises PermissionError instead when only
-        # zombies are left in it, as when the app-server exited and nothing has reaped it yet.
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(self.process.pid, signal.SIGTERM)
+        kill_group(self.process, signal.SIGTERM)
         try:
             self.process.wait(timeout=1)
         except subprocess.TimeoutExpired:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(self.process.pid, signal.SIGKILL)
+            kill_group(self.process)
             self.process.wait()
         self.outgoing.put(None)
         self.writer.join(timeout=1)

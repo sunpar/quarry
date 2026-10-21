@@ -15,7 +15,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import Future
 from pathlib import Path
-from typing import Final, TypeVar
+from typing import Any, Final, TypeVar
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -121,7 +121,7 @@ class KernelClient:
         except BaseException as exc:
             # Not when `_accept` already killed and reaped it: the group's id may be reused.
             if process is not None and process.returncode is None:
-                _kill_group(process)
+                kill_group(process)
                 process.wait()
             if conn is not None:
                 conn.close()
@@ -183,7 +183,7 @@ class KernelClient:
             # kernel's pid, which another process can have by now.
             if self._process.returncode is None:
                 self._group_killed = True
-                _kill_group(self._process)
+                kill_group(self._process)
         try:
             self._process.wait(timeout=5)
         except subprocess.TimeoutExpired:  # uninterruptible, say in a stuck disk read
@@ -247,7 +247,7 @@ class KernelClient:
             code = self._process.poll()
             if code is not None and not self._group_killed:
                 self._group_killed = True
-                _kill_group(self._process)
+                kill_group(self._process)
         return code
 
     def _read_responses(self) -> None:
@@ -285,23 +285,32 @@ def _accept(
         except TimeoutError:
             if time.monotonic() < deadline:
                 continue
-            _kill_group(process)
+            kill_group(process)
             process.wait()
             raise KernelDead(f"kernel did not connect within {timeout} seconds") from None
         conn.settimeout(None)
         return conn
-    _kill_group(process)  # what it started, right after the poll that reaped it
+    kill_group(process)  # what it started, right after the poll that reaped it
     raise KernelDead(f"kernel exited with code {code} before connecting")
 
 
-def _kill_group(process: subprocess.Popen[bytes]) -> None:
-    """SIGKILL the kernel and every process its steps started: the group the kernel leads.
+def kill_group(process: subprocess.Popen[Any], sig: int = signal.SIGKILL) -> None:
+    """Send `sig` to the group `process` leads: it and every process it started, as a kernel's
+    steps.
 
     Callers kill before they reap, or in the call that reaped, right after it, and never once
-    the kernel was reaped earlier: then its group can be empty, and another process can have
+    `process` was reaped earlier: then its group can be empty, and another process can have
     taken its pid, which is the group's id.
     """
-    # ProcessLookupError: the group is empty. macOS raises PermissionError instead when only
-    # zombies are left in it, as when the kernel exited and nothing has reaped it yet.
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(process.pid, signal.SIGKILL)
+    try:
+        os.killpg(process.pid, sig)
+    except ProcessLookupError:  # the group is empty
+        pass
+    except PermissionError as error:
+        # macOS answers this instead when only exiting processes or zombies are left in the
+        # group, as when `process` exited and nothing has reaped it yet. One still running a
+        # second later refused the signal.
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            raise error from None

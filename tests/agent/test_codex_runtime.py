@@ -679,9 +679,11 @@ def test_cancellation_stays_responsive_when_native_stops_reading_results(
 
 def test_close_after_the_app_server_exited_unreaped(tmp_path: Path) -> None:
     connection = _Connection([sys.executable, "-c", ""], tmp_path, threading.Event())
-    # A zombie, exited but not reaped: on macOS, signalling its group then fails with EPERM.
-    assert exits_soon(connection.process.pid)
-    connection.close(None, None)
+    try:
+        # A zombie, exited but not reaped: on macOS, signalling its group then fails with EPERM.
+        assert exits_soon(connection.process.pid) and connection.process.returncode is None
+    finally:
+        connection.close(None, None)
     assert connection.process.returncode == 0
 
 

@@ -20,7 +20,7 @@ from pydantic import ValidationError
 
 import quarry.kernel.client as client_module
 from quarry.config import ENV_API_KEY, ENV_MSSQL_DSN
-from quarry.kernel.client import KernelClient, KernelDead, RpcFailure, _accept
+from quarry.kernel.client import KernelClient, KernelDead, RpcFailure, _accept, kill_group
 from quarry.kernel.executor import ExecResult
 from quarry.kernel.protocol import Response, encode, read_lines
 from quarry.query import Filter, Json, QuerySpec, Sort
@@ -269,6 +269,25 @@ def test_close_kills_the_processes_a_step_started(tmp_path: Path) -> None:
         client.close()
     pid = int(result.stdout_tail)
     assert exits_soon(pid), f"step child {pid} outlived close()"
+
+
+def test_kill_group_raises_for_a_live_group_that_refuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    try:
+
+        def refuse(pgid: int, sig: int) -> None:
+            raise PermissionError(errno.EPERM, "Operation not permitted")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(os, "killpg", refuse)
+            # Not the zombies-only EPERM macOS gives: the caller's wait would never end.
+            with pytest.raises(PermissionError):
+                kill_group(process)
+    finally:
+        kill_group(process)
+        process.wait()
 
 
 def test_close_does_not_signal_a_kernel_the_client_already_reaped(
