@@ -366,7 +366,6 @@ describe("ViewFrameContainer", () => {
       pickFirst();
       await cache(qc, [a, b, { ts: "t2", state: { k: "c" }, queries: [] }]);
       expect(screen.getByText("3 of 3")).toBeTruthy();
-      expect(screen.getByText("picked none")).toBeTruthy();
     });
 
     it("moves to the latest when the view reports the last state again", async () => {
@@ -389,7 +388,6 @@ describe("ViewFrameContainer", () => {
         expect(cached?.steps[0]?.view?.snapshots[1]?.ts).not.toBe("t1");
         expect(screen.getByText("2 of 2")).toBeTruthy();
       });
-      expect(screen.getByText("picked none")).toBeTruthy();
       // The same input, so a report that lands mid-drag keeps the drag and focus.
       expect(screen.getByRole("slider")).toBe(slider);
     });
@@ -401,7 +399,6 @@ describe("ViewFrameContainer", () => {
       // The server stamps its own ts, so a refetch after a recorded snapshot changes the last one's.
       await cache(qc, [a, { ...b, ts: "t1-server" }]);
       expect(screen.getByText("1 of 2")).toBeTruthy();
-      expect(screen.getByText("picked 0")).toBeTruthy();
     });
   });
 

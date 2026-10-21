@@ -57,7 +57,7 @@ class View(BaseModel):
     datasets: list[str] = Field(default_factory=list)
     snapshots: list[Snapshot] = Field(default_factory=list)
 
-    def shown(self, back: int = 0) -> tuple[dict[str, Json], list[dict[str, Json]]]:
+    def shown(self, back: int) -> tuple[dict[str, Json], list[dict[str, Json]]]:
         """The state and queries of the snapshot `back` before the latest: 0 is what the view shows
         now, its initial state before it has reported one, and more is one the researcher picked
         in the history. Counted back because the oldest drop off past the cap while the host's

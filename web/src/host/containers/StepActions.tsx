@@ -51,9 +51,8 @@ export function StepActions({
   const saveComponent = useSaveComponent();
   const [toLibrary, setToLibrary] = useState<View | null>(null);
   const refusal = saveComponent.error;
-  // The server counts back from the latest, since it drops the oldest past its cap. A save keeps
-  // the position picked when its button was pressed and counts back only when it sends, so it
-  // still names that snapshot after the view reports another while the dialog is open.
+  // A save keeps the position picked when its button was pressed and counts back only when it
+  // sends, so it still names that snapshot after the view reports another while the dialog is open.
   const snapshotsBack = (at?: number) =>
     at === undefined ? 0 : (step.view?.snapshots.length ?? 0) - 1 - at;
 

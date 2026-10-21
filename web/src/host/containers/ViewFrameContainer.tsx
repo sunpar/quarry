@@ -50,23 +50,16 @@ export function ViewFrameContainer({
   const api = useApi();
   const queryClient = useQueryClient();
   const [restoreState, setRestoreState] = useState<JsonObject | null>(null);
-  // A pick in the scrubber holds only while the snapshot count and the view's report count it was
-  // made at both hold. Each report drops it: the view has left the picked state even when its
-  // report replaces the last snapshot and the count holds. A restore sends no report, and a
-  // refetch alone keeps the pick. Counted here, not keyed on the scrubber, so it keeps its focus.
-  const [reports, setReports] = useState(0);
-  const [pick, setPick] = useState<{
-    at: number;
-    of: number;
-    reports: number;
-  } | null>(null);
+  // A pick in the scrubber holds only while the snapshot count it was made at holds, and each
+  // report drops it: the view has left the picked state even when its report replaces the last
+  // snapshot and the count holds. A restore sends no report, and a refetch alone keeps the pick.
+  // Dropped here, not by keying the scrubber, so it keeps its focus.
+  const [pick, setPick] = useState<{ at: number; of: number } | null>(null);
   const view = step.view;
   if (view === null) return null;
   const { snapshots } = view;
   const picked =
-    pick !== null && pick.of === snapshots.length && pick.reports === reports
-      ? pick.at
-      : undefined;
+    pick !== null && pick.of === snapshots.length ? pick.at : undefined;
   return (
     <div className="flex flex-col gap-2">
       <ViewHost
@@ -82,7 +75,7 @@ export function ViewFrameContainer({
         title={`View for step ${step.index + 1}`}
         disabled={running}
         onStateChanged={(state, queries) => {
-          setReports((n) => n + 1);
+          setPick(null);
           void api
             .postSnapshot(sessionId, step.id, { state, queries })
             // The scrubber reads snapshots from the session; record this one there instead of
@@ -106,7 +99,7 @@ export function ViewFrameContainer({
           count={snapshots.length}
           value={picked ?? snapshots.length - 1}
           onPick={(at) => {
-            setPick({ at, of: snapshots.length, reports });
+            setPick({ at, of: snapshots.length });
             const shown = snapshots[at];
             if (shown !== undefined) setRestoreState(shown.state);
           }}
