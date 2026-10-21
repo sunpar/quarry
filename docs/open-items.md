@@ -110,11 +110,14 @@ Decisions already made are in [decisions.md](context/decisions.md).
   stacks, so with every core in use a small cap kills the kernel as polars
   starts, as 256 MB on 14 cores did. Loud: the kernel dies. `kernel_threads`
   avoids it.
-- **Server shutdown can cut off a pinned save's snapshot**: shutdown closes
-  every kernel with SIGKILL at once, so a pinned save still writing its parquet
-  leaves a stray `.tmp` file beside its target. The target keeps its old
-  contents. `validate_recipe` also closes right after `shutdown()`, but its
-  scratch kernel never snapshots. Silent.
+- **A shutdown outside the request drain can cut off a pinned save's
+  snapshot**: `quarry serve` drains HTTP requests before its lifespan shutdown
+  closes the kernels, so a save in flight finishes first. A direct
+  `SessionService.shutdown()` call has no drain: it closes every kernel with
+  SIGKILL at once, so a pinned save still writing its parquet leaves a stray
+  `.tmp` file beside its target, which keeps its old contents.
+  `validate_recipe` also closes right after `shutdown()`, but its scratch
+  kernel never snapshots. Silent.
 - **A loader that hangs at import hangs startup**: the server imports loaders to
   describe them to the agent, and each kernel imports them at start. Loud only
   through a stderr notice naming the loader after 10 s.
@@ -293,12 +296,6 @@ one up when a researcher needs it.
 - Add component tests for `SessionPage` (reload keeps the session, 401 message),
   the time series success and "needs a date column" paths, and the canvas's
   debounced layout write and its flush on unmount.
-- Let server shutdown wait for a pinned save's snapshot before it kills the
-  kernel.
-- Give recipe validation a timeout: `validate_recipe` waits on the scratch
-  kernel, so a recipe that hangs hangs the save request, which is synchronous so
-  that it can show a saving state. The session stays usable, since the hold is
-  released first.
 - A failed view recall keeps its view on the step, so the frame shows a query
   error under the recall's traceback.
 - `SaveDialog` gets an empty list while projects load or fail, so it shows
@@ -397,6 +394,12 @@ one up when a researcher needs it.
   answers a busy session with 409, the code an existing id gets, though its
   message says the session is busy. Keep 409, or move it to another code such
   as 503?
+- **How long recipe validation may run**: `validate_recipe` waits on the
+  scratch kernel with no deadline, and Python execution has no timeout by
+  design, so a recipe that hangs hangs the save request, which is synchronous
+  so that it can show a saving state. The session stays usable, since the hold
+  is released first. Give validation a deadline, and how long, when a slow but
+  valid recipe would then fail its save?
 - **Live provider calls**: neither adapter has called its real API. Whether the
   Anthropic API accepts `fallbacks="default"` with the
   `server-side-fallback-2026-07-01` beta, and whether `gpt-5` is the right

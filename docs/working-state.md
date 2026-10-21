@@ -1,57 +1,78 @@
 # Working state
 
-Checkpoint as of 2026-10-21, after PRs #46 to #51 merged. This page records
+Checkpoint as of 2026-10-21, after PRs #52 to #58 merged. This page records
 current work and verification. The [docs index](README.md) describes the
 permanent context and [open-items.md](open-items.md) holds unresolved work.
 
 ## Recent merges
 
-Six backlog items merged by squash, each from its own branch:
+Seven backlog items merged by squash, each from its own branch:
 
-- [PR #46](https://github.com/sunpar/quarry/pull/46) as `5e679e9`: the filter op
-  sets are `frozenset[FilterOp]`, the Duration guard nulls `i64::MIN` only in
-  milliseconds, where `write_json` panics, and `convert_columns` in `arrow.py`
-  holds the `pl.nth` loop for both converters.
-- [PR #47](https://github.com/sunpar/quarry/pull/47) as `b3c61c0`: the save
-  dialog takes the first project when the list arrives after it opens, and the
-  rail's sessions and projects share one scroll body.
-- [PR #48](https://github.com/sunpar/quarry/pull/48) as `016e067`: the chart
-  built-ins keep their pickers above a loading or failed query, OHLC shows
-  "Loading", and chart errors wrap.
-- [PR #49](https://github.com/sunpar/quarry/pull/49) as `c89fba4`: a regular
-  file at `<root>/components` stops `quarry serve` at startup, a deleted folder
-  comes back on the next save, long ids are cut to 64 characters, editing the id
-  hides a stale refusal, and the server trims and dedupes tags.
-- [PR #50](https://github.com/sunpar/quarry/pull/50) as `2e9a532`: a report
-  whose state matches the last snapshot replaces it, on the server and in the
-  host's cache, and each report from the view resets the scrubber's pick.
-- [PR #51](https://github.com/sunpar/quarry/pull/51) as `b3ababf`: the Stage 5
-  server and CLI test gaps are closed, and `kept_default_connection` resets
-  `memory_limit`.
+- [PR #52](https://github.com/sunpar/quarry/pull/52) as `56979ae`: `for_viewer`
+  casts Float16 to Float64 and unwraps extension columns to their converted
+  storage, so Perspective loads them.
+- [PR #53](https://github.com/sunpar/quarry/pull/53) as `88990ce`: a canvas card
+  shows "Loading" or its saved view's error, a card whose view has left the
+  project can be removed, every canvas error shows, and Dismiss clears only
+  failed actions.
+- [PR #54](https://github.com/sunpar/quarry/pull/54) as `5dfe9c5`: a failed
+  `write_atomic` names its target, not its temporary file, in the CLI and the
+  web app.
+- [PR #55](https://github.com/sunpar/quarry/pull/55) as `ce341cb`: OHLC compares
+  names ignoring case for its guesses, saved columns and pickers, and keeps its
+  pickers when a role is left empty.
+- [PR #56](https://github.com/sunpar/quarry/pull/56) as `6018a1d`: "To code" is
+  off while its drawer is open, Stop shows only while a step runs, and the
+  status reads the running step under its lock.
+- [PR #57](https://github.com/sunpar/quarry/pull/57) as `d1b88c8`: a component
+  save that fails removes what it wrote, so its id is free again, and the
+  components root is fsynced.
+- [PR #58](https://github.com/sunpar/quarry/pull/58) as `1526241`: "To code",
+  "Save view" and "Pin to canvas" use the snapshot picked in the scrubber, named
+  by its server `ts`.
 
 Each branch ran Opus 5.5 (xhigh), Astra 6 (medium) and Muse Wonder (high) once
-before its PR. Opus raised findings on all six, Astra on none, and Muse on
-three. Valid findings were fixed or recorded in the open items. On GitHub,
-Claude's first review was clean on all six. Codex's opening review was clean on
-PRs #46 to #48 and had not reported on the others when they merged.
+before its PR. Opus raised findings on all seven, Astra on two and Muse on four.
+Valid findings were fixed or recorded in the open items. #58 was reworked after
+Opus: it first counted snapshots back from the newest, which named the wrong
+snapshot whenever the host's cached list and the server's differed. On GitHub,
+Claude's first review was clean on all seven. Codex's opening review was clean
+on six; on #58 it found a pick of the latest that stopped following newer
+snapshots, fixed before the merge.
 
 Hosted Linux runs passed on each merged head:
-[#46](https://github.com/sunpar/quarry/actions/runs/39621398268),
-[#47](https://github.com/sunpar/quarry/actions/runs/39621544823),
-[#48](https://github.com/sunpar/quarry/actions/runs/39622369285),
-[#49](https://github.com/sunpar/quarry/actions/runs/39623643070),
-[#50](https://github.com/sunpar/quarry/actions/runs/39626420776) and
-[#51](https://github.com/sunpar/quarry/actions/runs/39626085918). An earlier #51
-head failed one browser test unrelated to its diff, and its rerun passed; the
-open items record the flake. The full gate on main at `b3ababf` passed 1,372
-Python tests (3 skipped) and 319 frontend tests.
+[#52](https://github.com/sunpar/quarry/actions/runs/39633997207),
+[#53](https://github.com/sunpar/quarry/actions/runs/39634119822),
+[#54](https://github.com/sunpar/quarry/actions/runs/39634430648),
+[#55](https://github.com/sunpar/quarry/actions/runs/39635034618),
+[#56](https://github.com/sunpar/quarry/actions/runs/39636240307),
+[#57](https://github.com/sunpar/quarry/actions/runs/39636594487) and
+[#58](https://github.com/sunpar/quarry/actions/runs/39642833360). The full gate
+on main at `1526241` passed 1,381 Python tests (3 skipped) and 333 frontend
+tests.
 
 Running `uv run` in a fresh worktree installs Quarry into `.venv`, and
 `make check` then stops at its dependency check; rerun `make deps` to recover.
 Rerun it too after merging a lockfile change. The local reviewers' own probes
-can trigger the same stop.
+can trigger the same stop. Under plain `pytest` in a worktree,
+`test_dataset_script_has_a_header_and_the_recipe` fails because its `python -I`
+child cannot import Quarry; `make check` installs the package for it.
 
 ## Earlier merges
+
+PRs #46 to #51 merged on 2026-10-21.
+[PR #46](https://github.com/sunpar/quarry/pull/46) (`5e679e9`) types the filter
+op sets and limits the Duration guard to milliseconds;
+[PR #47](https://github.com/sunpar/quarry/pull/47) (`b3c61c0`) lets the save
+dialog take a project list that arrives late;
+[PR #48](https://github.com/sunpar/quarry/pull/48) (`016e067`) keeps chart
+pickers above a loading or failed query;
+[PR #49](https://github.com/sunpar/quarry/pull/49) (`c89fba4`) checks the
+components folder at startup and cuts long ids;
+[PR #50](https://github.com/sunpar/quarry/pull/50) (`2e9a532`) replaces a
+snapshot whose state repeats; [PR #51](https://github.com/sunpar/quarry/pull/51)
+(`b3ababf`) closes the Stage 5 server and CLI test gaps. Their gate on main at
+`b3ababf` passed 1,372 Python tests (3 skipped) and 319 frontend tests.
 
 PRs #41 to #45 merged on 2026-10-21.
 [PR #41](https://github.com/sunpar/quarry/pull/41) (`9ee780d`) resets a view's
@@ -163,11 +184,12 @@ warnings remain.
 ## Next actions
 
 1. Select the next item from [open-items.md](open-items.md): the remaining
-   correctness issues come first. Picked snapshots for "To code" and "Save view"
-   need the scrubber's pick lifted into `ViewFrameContainer`.
-2. Settle the choices that block small items: what a missing pivot `config`
-   means, when paged sorts get a tie-breaker, and which code a busy session's
-   component save returns.
+   correctness issues come first. Unwrapping extension columns where the kernel
+   takes a frame would let pivot queries filter and aggregate them.
+2. Settle the choices that block small items, listed under Open questions: what
+   a missing pivot `config` means, when paged sorts get a tie-breaker, which
+   code a busy session's component save returns, and how long recipe validation
+   may run.
 3. Decide workflow parameter contracts, metric validation and branching replay
    semantics before implementing those features.
 4. Retain native-x86 and live-integration limits until their own checks run.
