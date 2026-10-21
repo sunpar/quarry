@@ -115,11 +115,15 @@ describe("SessionPage session choice", () => {
   const unlisted: SessionMeta = { ...meta, id: "s3", title: "unlisted" };
 
   // A server listing `listed`, to which a create adds, that also has the `unlisted` session;
-  // and the paths the page fetched. `stale` is listed only on the first request.
+  // and the paths the page fetched. `stale` is listed only on the first request, and later
+  // list requests wait for `hold`.
   function serve(
     listed: SessionMeta[],
-    listing = 200,
-    stale: SessionMeta[] = [],
+    {
+      listing = 200,
+      stale = [],
+      hold,
+    }: { listing?: number; stale?: SessionMeta[]; hold?: Promise<void> } = {},
   ) {
     const fetched: string[] = [];
     const fetchImpl = async (path: string, init?: RequestInit) => {
@@ -130,6 +134,8 @@ describe("SessionPage session choice", () => {
       }
       if (path === "/sessions" && listing !== 200)
         return new Response(null, { status: listing });
+      if (path === "/sessions" && fetched.indexOf(path) < fetched.length - 1)
+        await hold;
       if (path === "/sessions") return json([...stale.splice(0), ...listed]);
       const session = [...listed, unlisted].find(
         (s) => path === `/sessions/${s.id}`,
@@ -160,9 +166,35 @@ describe("SessionPage session choice", () => {
   it("skips sessions a stale list still names", async () => {
     history.replaceState(null, "", "#token=t&session=gone");
     const goneToo: SessionMeta = { ...meta, id: "gone-too", title: "gone too" };
-    serve([meta], 200, [{ ...meta, id: "gone", title: "gone" }, goneToo]);
+    serve([meta], { stale: [{ ...meta, id: "gone", title: "gone" }, goneToo] });
     await waitFor(() => expect(readSession(window.location.hash)).toBe("s1"));
     expect(screen.getByRole("button", { name: "t" }).ariaCurrent).toBe("page");
+  });
+
+  it("keeps a session picked while the fallback waits for the list", async () => {
+    history.replaceState(null, "", "#token=t&session=gone");
+    let release = () => {};
+    const hold = new Promise<void>((resolve) => (release = resolve));
+    const fetched = serve([meta, second], { hold });
+    fireEvent.click(await screen.findByRole("button", { name: "second" }));
+    await waitFor(() =>
+      expect(fetched.filter((p) => p === "/sessions")).toHaveLength(2),
+    );
+    await waitFor(() => expect(fetched).toContain("/sessions/s2"));
+    release();
+    // Time for the fallback to run, had it not stepped aside.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(readSession(window.location.hash)).toBe("s2");
+    expect(fetched).not.toContain("/sessions/s1");
+  });
+
+  it("clears the link when no other session is left", async () => {
+    history.replaceState(null, "", "#token=t&session=gone");
+    const fetched = serve([]);
+    await waitFor(() =>
+      expect(fetched.filter((p) => p === "/sessions")).toHaveLength(2),
+    );
+    await waitFor(() => expect(window.location.hash).toBe("#token=t"));
   });
 
   it("keeps a linked session the list does not show yet", async () => {
@@ -177,7 +209,7 @@ describe("SessionPage session choice", () => {
 
   it("keeps a linked session when the list fails", async () => {
     history.replaceState(null, "", "#token=t&session=s1");
-    serve([meta], 500);
+    serve([meta], { listing: 500 });
     await screen.findByRole("textbox");
   });
 
