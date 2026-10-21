@@ -157,12 +157,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   a peer connection's ICE traffic or a DNS prefetch, so a generated view can put
   rows in a STUN host name or a prefetched name despite the runtime CSP and the
   host's `frame-src 'self'`. Silent.
-- **Perspective dates outside years 1 to 9999**: a Date or Datetime filter term
-  beyond them maps to a `+010000-...` ISO string, which the kernel cannot parse,
-  so the pivot's probe query and "To code" fail. Loud.
-- **Perspective `in` items on integer columns**: the mapping reads items such as
-  `1e3` or `0x10` with JavaScript's `Number()` and the engine with `stoll`, so
-  the viewer and "To code" can filter different rows. Silent.
 - **A refused column choice hides the chart pickers**: every chart built-in
   returns early on a query error, so when the kernel refuses a saved column
   choice, the pickers that could change it are gone. Loud, and the view stays on

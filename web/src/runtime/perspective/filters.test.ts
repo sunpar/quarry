@@ -109,6 +109,9 @@ describe("perspectiveToSpec filters", () => {
           ["b", "in", ["true", "no"]],
           ["s", "in", ["1"]],
           ["i", "in", ["1.5"]],
+          ["i", "in", ["1e3"]],
+          ["i", "in", ["0x10"]],
+          ["i", "in", ["12abc"]],
           ["f", "in", ["", "x"]],
           ["p", "in", ["1.5"]],
         ],
@@ -121,8 +124,12 @@ describe("perspectiveToSpec filters", () => {
       { col: "b", op: "in", value: [true, false] },
       { col: "s", op: "in", value: ["1"] },
     ]);
-    // The kernel cannot match a Decimal column against a list of numbers.
+    // The engine reads integer items with `stoll`, which `Number()` matches only on plain
+    // digits. The kernel cannot match a Decimal column against a list of numbers.
     expect(dropped).toEqual([
+      'filter i "in"',
+      'filter i "in"',
+      'filter i "in"',
       'filter i "in"',
       'filter f "in"',
       'filter p "in"',
@@ -166,5 +173,37 @@ describe("perspectiveToSpec filters", () => {
       { col: "d", op: "gt", value: "2024-03-01" },
     ]);
     expect(dropped).toEqual(['filter d "<"']);
+  });
+
+  it("lists dates outside the years 1 to 9999 the kernel can parse", () => {
+    // `Date.UTC` reads years 0 to 99 as 1900 to 1999.
+    const year0 = new Date(0).setUTCFullYear(0);
+    const year1 = new Date(0).setUTCFullYear(1);
+    const { spec, dropped } = perspectiveToSpec(
+      "t",
+      {
+        filter: [
+          ["t", "<", Date.UTC(10000, 0, 1)],
+          ["t", ">", year0],
+          ["d", "<", Date.UTC(10000, 0, 1)],
+          ["d", ">", year0],
+          ["d", "==", "0000-01-01"],
+          ["d", "<=", Date.UTC(9999, 11, 31)],
+          ["d", ">=", year1],
+        ],
+      },
+      schema,
+    );
+    expect(spec.filters).toEqual([
+      { col: "d", op: "le", value: "9999-12-31" },
+      { col: "d", op: "ge", value: "0001-01-01" },
+    ]);
+    expect(dropped).toEqual([
+      'filter t "<"',
+      'filter t ">"',
+      'filter d "<"',
+      'filter d ">"',
+      'filter d "=="',
+    ]);
   });
 });

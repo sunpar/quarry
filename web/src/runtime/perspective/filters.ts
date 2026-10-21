@@ -18,7 +18,11 @@ const OPS: Record<string, Filter["op"]> = {
   "is not null": "not_null",
 };
 
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
+// Python's dates start at year 1.
+const DAY = /^(?!0000)\d{4}-\d{2}-\d{2}$/;
+// The engine reads an integer with `stoll`, which agrees with `Number()` only on plain
+// decimal digits, not on `1e3` or `0x10`.
+const INTEGER = /^\s*[+-]?\d+\s*$/;
 
 /**
  * Perspective's filters as spec filters the kernel accepts and compares as Perspective
@@ -99,7 +103,8 @@ function coerceTerm(term: Term, dtype: string | undefined): Json | undefined {
   if (term === null) return undefined;
   if (dtype === undefined) return term;
   if (/^(Int|UInt)/.test(dtype)) {
-    const n = toNumber(term);
+    const n =
+      typeof term === "string" && !INTEGER.test(term) ? NaN : toNumber(term);
     return Number.isInteger(n) ? n : undefined;
   }
   if (/^(Float|Decimal)/.test(dtype)) {
@@ -123,10 +128,14 @@ function coerceTerm(term: Term, dtype: string | undefined): Json | undefined {
   return term;
 }
 
-/** Naive datetime columns hold UTC wall clocks, and the kernel reads a naive string as UTC. */
+/**
+ * Naive datetime columns hold UTC wall clocks, and the kernel reads a naive string as UTC.
+ * Python's dates and datetimes hold only years 1 to 9999.
+ */
 function utcIso(ms: number): string | undefined {
   const time = new Date(ms);
-  return Number.isNaN(time.getTime()) ? undefined : time.toISOString();
+  const year = time.getUTCFullYear();
+  return year >= 1 && year <= 9999 ? time.toISOString() : undefined;
 }
 
 function toNumber(term: Exclude<Term, null>): number {
