@@ -176,3 +176,10 @@ def test_complete_maps_sdk_errors() -> None:
     with pytest.raises(ProviderError) as info2:
         AnthropicProvider(model="m", create=bad_request).complete(system="s", messages=[], tools=[])
     assert info2.value.retryable is False
+
+    def malformed(**kwargs: object) -> object:
+        raise anthropic.APIResponseValidationError(response=_response(200), body=None)
+
+    with pytest.raises(ProviderError) as info3:
+        AnthropicProvider(model="m", create=malformed).complete(system="s", messages=[], tools=[])
+    assert info3.value.retryable is False

@@ -52,7 +52,7 @@ class OpenAIProvider:
             openai.APIConnectionError,
         ) as exc:
             raise ProviderError(str(exc), retryable=True) from exc
-        except openai.APIStatusError as exc:
+        except openai.APIError as exc:
             raise ProviderError(str(exc), retryable=False) from exc
         return from_openai_response(response)
 
