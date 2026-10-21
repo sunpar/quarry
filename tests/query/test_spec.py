@@ -19,7 +19,7 @@ def test_agg_default_name() -> None:
 
 
 def test_group_by_and_pivot_rejected() -> None:
-    with pytest.raises(ValidationError, match="group_by"):
+    with pytest.raises(ValidationError, match="group_by and pivot cannot both be set"):
         QuerySpec(
             dataset="r",
             group_by=["a"],
@@ -29,12 +29,12 @@ def test_group_by_and_pivot_rejected() -> None:
 
 
 def test_aggs_require_group_by() -> None:
-    with pytest.raises(ValidationError, match="group_by"):
+    with pytest.raises(ValidationError, match="aggs require group_by"):
         QuerySpec(dataset="r", aggs=[Agg(col="x", fn="sum")])
 
 
 def test_group_by_requires_aggs() -> None:
-    with pytest.raises(ValidationError, match="aggs"):
+    with pytest.raises(ValidationError, match="group_by requires at least one entry in aggs"):
         QuerySpec(dataset="r", group_by=["a"])
 
 
@@ -97,18 +97,18 @@ def test_same_column_with_different_fns_is_allowed() -> None:
 
 
 def test_between_requires_pair() -> None:
-    with pytest.raises(ValidationError, match="between"):
+    with pytest.raises(ValidationError, match="between requires a two-element list value"):
         Filter(col="x", op="between", value=[1])
     Filter(col="x", op="between", value=[1, 2])
 
 
 def test_in_requires_list() -> None:
-    with pytest.raises(ValidationError, match="list"):
+    with pytest.raises(ValidationError, match=r"\bin requires a non-empty list value"):
         Filter(col="x", op="in", value=1)
 
 
 def test_null_ops_take_no_value() -> None:
-    with pytest.raises(ValidationError, match="value"):
+    with pytest.raises(ValidationError, match="is_null takes no value"):
         Filter(col="x", op="is_null", value=1)
     Filter(col="x", op="not_null")
 
@@ -206,7 +206,7 @@ def test_list_ops_reject_null_items(op: FilterOp, value: Json) -> None:
     ids=["in", "not_in", "between"],
 )
 def test_list_values_reject_nested_items(op: FilterOp, value: Json) -> None:
-    with pytest.raises(ValidationError, match=f"{op} requires scalar items"):
+    with pytest.raises(ValidationError, match=rf"\b{op} requires scalar items"):
         Filter(col="x", op=op, value=value)
 
 

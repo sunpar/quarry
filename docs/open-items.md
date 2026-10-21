@@ -49,6 +49,14 @@ Decisions already made are in [decisions.md](context/decisions.md).
   relation but raises on a polars backing. A malformed ISO date raises a bare
   `ValueError` that does not name the column. Loud on polars backings; silent
   coercion on relations.
+- **Integer sums lose their exact type without a schema**: `to_source` casts an
+  integer sum to `Decimal(38, 0)` only when it is given the dataset's schema.
+  Without one, a pivot's sum on either backing, and a group-by sum on a polars
+  backing, keep polars' native sum type (Int32 stays Int32) and can wrap at its
+  limit, while `to_polars` and DuckDB's SQL return Decimal. "To code" and
+  export always pass the schema, so only direct callers see this. The
+  equivalence tests compare values without dtypes, so they do not catch it.
+  Silent.
 - **Raw aggregate errors**: an aggregate the column's type cannot take, such as
   `sum` over strings, surfaces as the engine's own error with its query plan,
   for group-by and pivot alike. Fails loudly.
@@ -312,10 +320,6 @@ one up when a researcher needs it.
   `_json_native`, which says milliseconds though the guard covers every unit.
 - Smoke-test `sql()` against the firm's SQL Server with `VARCHAR(MAX)` columns,
   which may need arrow-odbc's `max_text_size`.
-- Close test gaps: the shutdown tests pass even if the kernel never exits. The
-  equivalence `normalize` sorts rows, so order is compared only under a limit.
-- Tighten tests further: some `match=` patterns in `test_spec.py` also match
-  pydantic's echoed input, and the polars target has no direct nulls-first test.
 - Merge canvas layout writes: `CanvasPage` sends the whole card list from its
   own copy of the layout, half a second after a drag, so a write sent after a
   pin made elsewhere drops that card. A `set_canvas` that takes positions by

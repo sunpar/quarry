@@ -38,10 +38,17 @@ def execute(source: str, datasets: dict[str, object]) -> pl.DataFrame:
     return result
 
 
-def assert_same_rows(expected: pl.DataFrame, actual: pl.DataFrame) -> None:
-    expected = expected.select(sorted(expected.columns)).sort(sorted(expected.columns))
-    actual = actual.select(sorted(actual.columns)).sort(sorted(actual.columns))
-    assert_frame_equal(expected, actual, check_dtypes=False, rel_tol=1e-9)
+def assert_same_rows(spec: QuerySpec, expected: pl.DataFrame, actual: pl.DataFrame) -> None:
+    """The same columns in the same order and the same rows, with the `spec.row_order` keys the
+    output keeps in the same order: targets order rows only by those keys, so ties may differ.
+
+    Dtypes are not compared. A Float column against a Float column matches within a relative
+    1e-9. Any other pair matches exactly, but a column facing a Float one is cast to Float64
+    first, so a Decimal above 2^53 matches the Float it rounds to.
+    """
+    keys = [s.col for s in spec.row_order if s.col in expected.columns]
+    assert_frame_equal(expected.select(keys), actual.select(keys), check_dtypes=False, rel_tol=1e-9)
+    assert_frame_equal(expected, actual, check_row_order=False, check_dtypes=False, rel_tol=1e-9)
 
 
 def trades() -> pl.DataFrame:
