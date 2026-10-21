@@ -196,6 +196,9 @@ def _ended(*blocks: SimpleNamespace) -> SimpleNamespace:
     [
         lambda **kwargs: "<html>oops</html>",
         lambda **kwargs: SimpleNamespace(stop_reason=None, content=None),
+        lambda **kwargs: SimpleNamespace(
+            stop_reason=None, stop_details=None, content=[SimpleNamespace(type="text", text="hi")]
+        ),
         lambda **kwargs: _ended(SimpleNamespace(type="text", text=None)),
         lambda **kwargs: _ended(SimpleNamespace(type="tool_use", id=None, name="t", input={})),
         lambda **kwargs: _ended(SimpleNamespace(type="tool_use", id="c1", name=None, input={})),
@@ -206,6 +209,7 @@ def _ended(*blocks: SimpleNamespace) -> SimpleNamespace:
     ids=[
         "html",
         "missing fields",
+        "no stop reason",
         "no text",
         "no id",
         "no name",

@@ -116,6 +116,8 @@ def to_api_tools(tools: list[ToolDef]) -> list[dict[str, Json]]:
 
 
 def from_api_response(response: Any) -> AssistantTurn:
+    if response.stop_reason is None:
+        raise ValueError("no stop reason")
     stop = STOP_MAP.get(response.stop_reason, "end")
     text_parts: list[str] = []
     calls: list[ToolCall] = []

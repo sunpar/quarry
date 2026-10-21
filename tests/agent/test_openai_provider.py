@@ -196,6 +196,13 @@ def _called(call_id: str | None, name: str | None, arguments: str) -> SimpleName
         lambda **kwargs: SimpleNamespace(choices=None),
         lambda **kwargs: SimpleNamespace(choices=[]),
         lambda **kwargs: SimpleNamespace(choices={}),
+        lambda **kwargs: SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason=None, message=SimpleNamespace(content="hi", tool_calls=None)
+                )
+            ]
+        ),
         lambda **kwargs: _called(None, "run_python", "{}"),
         lambda **kwargs: _called("c1", None, "{}"),
         lambda **kwargs: _called("c1", "run_python", "[" * 100000),
@@ -215,6 +222,7 @@ def _called(call_id: str | None, name: str | None, arguments: str) -> SimpleName
         "missing fields",
         "no choices",
         "choices object",
+        "no finish reason",
         "no id",
         "no name",
         "arguments too deep",
