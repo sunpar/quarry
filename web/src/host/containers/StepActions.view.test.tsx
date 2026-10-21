@@ -101,9 +101,8 @@ describe("StepActions to code", () => {
     });
     expect(box.value).toBe("df_1 = df.group_by('a')");
     expect(screen.getByText("Left out: expression e.")).toBeTruthy();
-    expect(bodies.get("POST /sessions/s1/steps/st1/to-code")).toEqual({
-      snapshot_ts: "t0",
-    });
+    // Without a pick the server reads its latest.
+    expect(bodies.get("POST /sessions/s1/steps/st1/to-code")).toEqual({});
     fireEvent.change(box, { target: { value: "df_1 = 1" } });
     fireEvent.click(screen.getByRole("button", { name: "Run as step" }));
     await waitFor(() =>

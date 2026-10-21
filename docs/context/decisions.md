@@ -1370,22 +1370,25 @@ them.
   the host's `toCodeSource` and the export each held the `spec` rule and had to
   change together.
 - **A picked snapshot is named by its server `ts`**: `ViewFrameContainer` hands
-  the picked snapshot's `ts` to its `actions`, and "To code", "Save view" and
-  "Pin to canvas" send it as `snapshot_ts`, or else the latest snapshot's, taken
-  when the button is pressed, so a report while the save dialog is open does not
-  change what is saved; before the view has reported they send none and the
-  server reads its initial state. The server stamps each snapshot under its lock
-  with a microsecond `ts`, and a report of the same state replaces the last
-  snapshot under a fresh one, so a `ts` names one snapshot of a view. The
-  snapshot POST answers with the stored snapshot and the host caches it as is,
-  so a refetch brings the same `ts` and keeps the pick; an earlier `ts` key
-  failed only because the cache stamped posted snapshots with the browser's
-  time. A position named a different snapshot whenever the cached list and the
-  server's differed: past the cap of 500, with a report in flight, or after a
-  same-state replace. A `ts` the server no longer holds is a 400 on save or To
-  code and no pick in the scrubber. A change made in the view within the 300 ms
-  report debounce before a press has not reported yet, so the press still uses
-  the snapshot shown before it.
+  the `ts` of a picked snapshot older than the latest to its `actions`, and "To
+  code", "Save view" and "Pin to canvas" send it as `snapshot_ts`, taken when
+  the button is pressed, so a report while the save dialog is open does not
+  change what is saved. Without such a pick they send none, and the server reads
+  its latest snapshot when the request arrives, or the initial state before the
+  view has reported. The server stamps each snapshot under its lock with a
+  microsecond `ts`, and a report of the same state replaces the last snapshot
+  under a fresh one, so a `ts` names one snapshot of a view. Some views send
+  such a report on every query change, so a `ts` taken for the latest at a press
+  could be a 400 by the time the save dialog sends it. The snapshot POST answers
+  with the stored snapshot and the host caches it as is, so a refetch brings the
+  same `ts` and keeps the pick; an earlier `ts` key failed only because the
+  cache stamped posted snapshots with the browser's time. A position named a
+  different snapshot whenever the cached list and the server's differed: past
+  the cap of 500, with a report in flight, or after a same-state replace. A `ts`
+  the server no longer holds is a 400 on save or To code and no pick in the
+  scrubber. A change made in the view within the 300 ms report debounce before a
+  press has not reported yet, so a pick still holds at the press, and To code
+  without one reads the snapshot shown before it.
 
 ### TanStack table and OHLC
 

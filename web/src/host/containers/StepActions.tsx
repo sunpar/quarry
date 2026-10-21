@@ -21,12 +21,13 @@ import { ToCodeDrawer } from "../components/ToCodeDrawer";
 interface StepActionsProps {
   sessionId: string;
   step: Step;
-  /** The ts of the snapshot picked in the view's history, absent without a pick. */
+  /** The ts of an older snapshot picked in the view's history, absent otherwise. */
   picked?: string;
   dataset?: string;
   onDone: (message: string) => void;
 }
 
+// A view save keeps the pick made at the press: a report while the dialog is open drops it.
 type Pending =
   | { kind: "dataset"; name: string }
   | { kind: "view"; pin: boolean; snapshotTs?: string }
@@ -51,9 +52,6 @@ export function StepActions({
   const saveComponent = useSaveComponent();
   const [toLibrary, setToLibrary] = useState<View | null>(null);
   const refusal = saveComponent.error;
-  // The snapshot the view shows at a press, picked or latest, so a save names it even after the
-  // view reports another while the dialog is open. None before the view reports one.
-  const shownTs = () => picked ?? step.view?.snapshots.at(-1)?.ts;
 
   const onSave = (choice: SaveChoice) => {
     const { slug } = choice;
@@ -134,7 +132,7 @@ export function StepActions({
             size="xs"
             disabled={saving}
             onClick={() =>
-              setPending({ kind: "view", pin: false, snapshotTs: shownTs() })
+              setPending({ kind: "view", pin: false, snapshotTs: picked })
             }
           >
             Save view
@@ -144,7 +142,7 @@ export function StepActions({
             size="xs"
             disabled={saving}
             onClick={() =>
-              setPending({ kind: "view", pin: true, snapshotTs: shownTs() })
+              setPending({ kind: "view", pin: true, snapshotTs: picked })
             }
           >
             Pin to canvas
@@ -158,7 +156,7 @@ export function StepActions({
             }
             onClick={() =>
               toCodeRequest.mutate(
-                { stepId: step.id, snapshotTs: shownTs() },
+                { stepId: step.id, snapshotTs: picked },
                 {
                   onSuccess: (rendered) => {
                     submitManual.reset();

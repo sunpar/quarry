@@ -394,6 +394,28 @@ describe("ViewFrameContainer", () => {
       ]);
     });
 
+    it("restores the latest when it is picked but hands the actions no ts", async () => {
+      const { iframe, send, qc } = mount();
+      const posted: HostToRuntime[] = [];
+      vi.spyOn(
+        iframe.contentWindow as Window,
+        "postMessage",
+      ).mockImplementation((m: HostToRuntime) => posted.push(m));
+      await cache(qc, [a, b]);
+      await act(async () => iframe.dispatchEvent(new Event("load")));
+      const connection = posted[0];
+      if (connection?.type !== "connect") throw new Error("not connected");
+      await act(async () => send({ type: "ready", id: connection.id }));
+      pickFirst();
+      fireEvent.change(screen.getByRole("slider"), { target: { value: "1" } });
+      expect(screen.getByText("2 of 2")).toBeTruthy();
+      expect(screen.getByText("picked none")).toBeTruthy();
+      expect(posted.filter((m) => m.type === "restore")).toEqual([
+        { type: "restore", viewId: "s1", state: a.state },
+        { type: "restore", viewId: "s1", state: b.state },
+      ]);
+    });
+
     it("follows the picked snapshot when a refetch drops older ones", async () => {
       const { qc } = mount();
       await cache(qc, [a, b, c]);

@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ProjectMeta, Step } from "@/shared/api-types";
+import type { JsonObject } from "@/shared/json";
 import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
 import { StepActions } from "./StepActions";
@@ -133,49 +134,47 @@ describe("StepActions pin to canvas", () => {
   });
 
   it.each([
-    ["picked", "t0", "t0"],
-    ["latest", undefined, "t2"],
-  ])(
-    "saves the %s snapshot shown when the button was pressed",
-    async (_, picked, shown) => {
-      const withSnapshots = (count: number): Step => ({
-        ...step,
-        view: step.view && {
-          ...step.view,
-          snapshots: Array.from({ length: count }, (_, n) => ({
-            ts: `t${n}`,
-            state: { n },
-            queries: [],
-          })),
-        },
-      });
-      const { bodies, finishSave, onDone, rerender } = setup(
-        false,
-        withSnapshots(3),
-        picked,
-      );
-      finishSave();
-      fireEvent.click(screen.getByRole("button", { name: "Save view" }));
-      // A report while the dialog is open adds a snapshot and drops any pick.
-      rerender(withSnapshots(4));
-      const dialog = screen.getByRole("dialog");
-      fireEvent.change(within(dialog).getByLabelText("Name"), {
-        target: { value: "closes" },
-      });
-      const save = within(dialog).getByRole<HTMLButtonElement>("button", {
-        name: "Save view",
-      });
-      await waitFor(() => expect(save.disabled).toBe(false));
-      fireEvent.click(save);
-      await waitFor(() =>
-        expect(onDone).toHaveBeenCalledWith("Saved view closes"),
-      );
-      expect(bodies.get("POST /projects/p/views")).toMatchObject({
-        pin: false,
-        snapshot_ts: shown,
-      });
-    },
-  );
+    ["the picked snapshot", "t0", "t0"],
+    // The server reads its latest then, which a report of the same state restamps.
+    ["no snapshot without a pick", undefined, undefined],
+  ])("names %s as of the press", async (_, picked, named) => {
+    const withSnapshots = (count: number): Step => ({
+      ...step,
+      view: step.view && {
+        ...step.view,
+        snapshots: Array.from({ length: count }, (_, n) => ({
+          ts: `t${n}`,
+          state: { n },
+          queries: [],
+        })),
+      },
+    });
+    const { bodies, finishSave, onDone, rerender } = setup(
+      false,
+      withSnapshots(3),
+      picked,
+    );
+    finishSave();
+    fireEvent.click(screen.getByRole("button", { name: "Save view" }));
+    // A report while the dialog is open adds a snapshot and drops any pick.
+    rerender(withSnapshots(4));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Name"), {
+      target: { value: "closes" },
+    });
+    const save = within(dialog).getByRole<HTMLButtonElement>("button", {
+      name: "Save view",
+    });
+    await waitFor(() => expect(save.disabled).toBe(false));
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(onDone).toHaveBeenCalledWith("Saved view closes"),
+    );
+    const body = bodies.get("POST /projects/p/views") as JsonObject;
+    expect(body).toMatchObject({ pin: false });
+    // Parsed JSON holds no undefined, so this also checks the key is absent.
+    expect(body.snapshot_ts).toBe(named);
+  });
 
   it("marks the project stale when the save fails", async () => {
     const { finishSave, onDone, qc } = setup(true);

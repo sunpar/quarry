@@ -19,7 +19,7 @@ interface ViewFrameContainerProps {
   /** Changes whenever kernel data may have: a step finished or a new kernel started. */
   dataVersion: string;
   onRepair: (repair: RepairRequest) => void;
-  /** Given the ts of the snapshot picked in the history, absent without a pick. */
+  /** Given the ts of an older snapshot picked in the history, absent otherwise. */
   actions?: (picked?: string) => ReactNode;
 }
 
@@ -58,7 +58,9 @@ export function ViewFrameContainer({
   const view = step.view;
   if (view === null) return null;
   const { snapshots } = view;
-  const picked = snapshots.findIndex((s) => s.ts === pick);
+  // A pick of the latest counts as none, so the actions send no ts and the server reads its latest:
+  // a report of the same state restamps the latest, and its old ts would then name nothing.
+  const picked = snapshots.slice(0, -1).findIndex((s) => s.ts === pick);
   return (
     <div className="flex flex-col gap-2">
       <ViewHost
