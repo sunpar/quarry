@@ -137,6 +137,29 @@ def test_from_openai_response_truncated_tool_call_is_max_tokens() -> None:
     assert turn.tool_calls == []
 
 
+def test_complete_passes_required_parameters() -> None:
+    captured: dict[str, object] = {}
+
+    def create(**kwargs: object) -> object:
+        captured.update(kwargs)
+        message = SimpleNamespace(content="done", tool_calls=None)
+        return SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop", message=message)])
+
+    messages = [Message(role="user", text="q")]
+    turn = OpenAIProvider(model="gpt", create=create).complete(
+        system="sys", messages=messages, tools=[]
+    )
+    assert turn.stop == "end" and turn.text == "done"
+    assert captured == {
+        "model": "gpt",
+        "messages": to_openai_messages("sys", messages),
+        "max_completion_tokens": 16000,
+    }
+    tool = ToolDef(name="t", description="d", input_schema={"type": "object", "properties": {}})
+    OpenAIProvider(model="gpt", create=create).complete(system="s", messages=[], tools=[tool])
+    assert captured["tools"] == to_openai_tools([tool])
+
+
 def test_complete_maps_errors() -> None:
     def rate_limited(**kwargs: object) -> object:
         raise openai.RateLimitError("slow", response=_response(429), body=None)
