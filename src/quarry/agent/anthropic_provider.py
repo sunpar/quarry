@@ -39,21 +39,19 @@ class AnthropicProvider:
     def complete(
         self, *, system: str, messages: list[Message], tools: list[ToolDef]
     ) -> AssistantTurn:
-        extra: dict[str, list[dict[str, Json]]] = {}
+        kwargs: dict[str, object] = {
+            "model": self._model,
+            "max_tokens": MAX_TOKENS,
+            "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+            "messages": to_api_messages(messages),
+            "output_config": {"effort": EFFORT},
+            "betas": [FALLBACK_BETA],
+            "fallbacks": "default",
+        }
         if tools:
-            extra["tools"] = to_api_tools(tools)
+            kwargs["tools"] = to_api_tools(tools)
         try:
-            response = self._create(
-                model=self._model,
-                max_tokens=MAX_TOKENS,
-                system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-                messages=to_api_messages(messages),
-                output_config={"effort": EFFORT},
-                betas=[FALLBACK_BETA],
-                fallbacks="default",
-                **extra,
-            )
-            return from_api_response(response)
+            return from_api_response(self._create(**kwargs))
         except (
             anthropic.RateLimitError,
             anthropic.InternalServerError,
@@ -118,14 +116,13 @@ def from_api_response(response: object) -> AssistantTurn:
     text_parts: list[str] = []
     calls: list[ToolCall] = []
     for block in response.content:  # type: ignore[attr-defined]
-        kind = getattr(block, "type", "")
-        if kind == "text":
+        if block.type == "text":
             text_parts.append(str(block.text))
-        elif kind == "tool_use":
+        elif block.type == "tool_use":
             calls.append(ToolCall(id=str(block.id), name=str(block.name), input=dict(block.input)))
     refusal = None
     if stop == "refusal":
-        details = getattr(response, "stop_details", None)
+        details = response.stop_details  # type: ignore[attr-defined]
         refusal = str(
             getattr(details, "explanation", None) or "request declined by safety classifier"
         )

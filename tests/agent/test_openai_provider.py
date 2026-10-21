@@ -183,17 +183,13 @@ def test_complete_maps_errors() -> None:
     assert info2.value.retryable is False
 
 
-def _not_json(**kwargs: object) -> object:
-    raise json.JSONDecodeError("Expecting value", "<html>", 0)
-
-
 @pytest.mark.parametrize(
     "create",
     [
         lambda **kwargs: "<html>oops</html>",
         lambda **kwargs: SimpleNamespace(choices=None),
         lambda **kwargs: SimpleNamespace(choices=[]),
-        _not_json,
+        lambda **kwargs: json.loads("<html>oops</html>"),
     ],
     ids=["html", "missing fields", "no choices", "not json"],
 )
