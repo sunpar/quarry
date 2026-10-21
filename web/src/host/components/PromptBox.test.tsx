@@ -71,6 +71,24 @@ describe("PromptBox", () => {
     ).toBeTruthy();
   });
 
+  it("locks without Stop while the server holds the session", () => {
+    render(
+      <PromptBox
+        running={false}
+        held
+        onSubmit={() => Promise.resolve()}
+        onStop={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("textbox")).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Run" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(screen.getByPlaceholderText("Waiting for the kernel")).toBeTruthy();
+  });
+
   it("disables input and offers Stop while running", () => {
     const onStop = vi.fn();
     render(

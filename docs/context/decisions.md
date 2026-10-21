@@ -656,7 +656,11 @@ them.
   the plan's rule, but the server also reports `busy` while a step runs, and the
   status poll slows from 750 ms to 5 s once the page sees its step end, so its
   last answer, taken while the step ran, locked the prompt for up to 5 s after
-  many steps.
+  many steps. Stop shows only while a step runs, from this page or elsewhere,
+  since interrupt stops nothing else; a hold with no `running_step` shows a
+  disabled Run. Cost: a restart cancelling a step still reports that step as
+  `running_step` until it ends, so Stop shows, and its interrupt gets a 409 the
+  page does not show.
 - **Recall is a manual step**: `start_recall` creates a `recall` step, carrying
   the saved view for a view recall, and runs it on the manual-step path, so
   `runs` is filled, lineage records the writes and restart replays it. `_begin`

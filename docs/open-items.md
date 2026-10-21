@@ -235,6 +235,12 @@ Decisions already made are in [decisions.md](context/decisions.md).
   thread pool, so when two reports of the same state race, the older one can
   replace the newer, and "To code" and "Save view" use stale queries until the
   next report. Silent.
+- **The "To code" drawer can run past the column**: the drawer is 40rem wide
+  inside the actions box, which shares a row that does not wrap with the History
+  slider. Once a view has two or more snapshots, the drawer runs past the column
+  on narrower windows: at a 1280px window its right edge is at 1038px, past the
+  column's 912px. Rendering it below that row at full width would fix it. Loud:
+  the overflow is visible.
 - **A busy session's component save shares a 409**: a busy session's 409 on
   `POST /components` shares its code with an existing id's, though its message
   says the session is busy. The open question on its code covers the fix.
@@ -347,9 +353,6 @@ one up when a researcher needs it.
   in Firefox and Safari; the Playwright test runs Chromium only.
 - Review the chart built-ins' visuals and accessibility, which no Stage 5 review
   covered: table header sorts are mouse-only.
-- Small host fixes from the Stage 5 reviews: clicking "To code" again replaces
-  code edited in the drawer, Stop shows during a hold, and a dead
-  `basis-full`/`w-[40rem]` class remains.
 - Tidy Stage 5 code: the library statuses are computed twice at startup
   (`create_app` and `enabled_libraries`); `to_code` builds the importable
   projection twice per relation and runs `_imported_names` twice per polars
