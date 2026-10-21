@@ -58,6 +58,11 @@ export function ViewFrameContainer({
   const view = step.view;
   if (view === null) return null;
   const { snapshots } = view;
+  // Once a refetch drops the picked snapshot, the view goes back to the latest, like the scrubber.
+  if (pick !== null && !snapshots.some((s) => s.ts === pick)) {
+    setPick(null);
+    setRestoreState(snapshots.at(-1)?.state ?? null);
+  }
   // A pick of the latest counts as none, so the actions send no ts and the server reads its latest:
   // a report of the same state restamps the latest, and its old ts would then name nothing.
   const picked = snapshots.slice(0, -1).findIndex((s) => s.ts === pick);
