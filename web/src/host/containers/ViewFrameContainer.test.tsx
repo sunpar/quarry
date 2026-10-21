@@ -37,7 +37,7 @@ const step: Step = {
     component_id: "inline",
     content_hash: "h",
     source: "export default () => null",
-    initial_state: {},
+    initial_state: { k: "initial" },
     datasets: ["df"],
     snapshots: [],
   },
@@ -73,7 +73,9 @@ function CachedStep(props: { dataVersion: string; onRepair: () => void }) {
   );
 }
 
-function mount(onRepair = vi.fn()) {
+// Given snapshots, the session is cached with them before the view mounts, as after a reload.
+function mount(snapshots?: Snapshot[]) {
+  const onRepair = vi.fn();
   let stamped = 0;
   const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
     // The server answers with the snapshot it stored, stamped with its own ts.
@@ -101,6 +103,8 @@ function mount(onRepair = vi.fn()) {
   const qc = new QueryClient();
   // ViewHost mounts once the libraries answer is in; these tests start with it cached.
   qc.setQueryData(keys.libraries(), []);
+  if (snapshots)
+    qc.setQueryData(keys.session("sess"), cachedSession(snapshots));
   const api = new ApiClient("t", fetchImpl);
   const tree = (dataVersion: string) => (
     <QueryClientProvider client={qc}>
@@ -252,9 +256,44 @@ describe("ViewFrameContainer", () => {
     const connection = posted[0];
     if (connection?.type !== "connect") throw new Error("not connected");
     await act(async () => send({ type: "ready", id: connection.id }));
+    // With no snapshots yet, the view starts from its initial state.
     expect(posted).toEqual([
       expect.objectContaining({ type: "connect", viewId: "s1" }),
-      expect.objectContaining({ type: "mount", viewId: "s1" }),
+      expect.objectContaining({
+        type: "mount",
+        viewId: "s1",
+        initialState: { k: "initial" },
+      }),
+    ]);
+  });
+
+  it("mounts the view on its latest snapshot, and only once", async () => {
+    const { iframe, send } = mount([
+      { ts: "t0", state: { k: "a" }, queries: [] },
+      { ts: "t1", state: { k: "b" }, queries: [] },
+    ]);
+    const posted: HostToRuntime[] = [];
+    vi.spyOn(iframe.contentWindow as Window, "postMessage").mockImplementation(
+      (m: HostToRuntime) => posted.push(m),
+    );
+    await act(async () => iframe.dispatchEvent(new Event("load")));
+    const connection = posted[0];
+    if (connection?.type !== "connect") throw new Error("not connected");
+    await act(async () => send({ type: "ready", id: connection.id }));
+    await act(async () => {
+      send({
+        type: "stateChanged",
+        viewId: "s1",
+        state: { k: "c" },
+        queries: [],
+      });
+    });
+    // The report's snapshot reaches the step, but the view already shows its state.
+    await vi.waitFor(() => expect(screen.getByText("3 of 3")).toBeTruthy());
+    expect(
+      posted.filter((m) => m.type === "mount" || m.type === "restore"),
+    ).toEqual([
+      expect.objectContaining({ type: "mount", initialState: { k: "b" } }),
     ]);
   });
 

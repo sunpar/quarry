@@ -1004,9 +1004,12 @@ them.
   same snapshot again restores it again. A restore sends no report. Each posted
   snapshot goes into the cached session as the server answers it, by the
   server's rule of replacing a last snapshot of the same state, so new snapshots
-  reach it during a visit without a refetch. The plan's scrubber read the count
-  once, so a view that gained snapshots while mounted showed "1 of N". Cost if
-  wrong: the cached list can pass the server's cap of 500 until the next
+  reach it during a visit without a refetch. A mount starts the view from its
+  latest snapshot, and from `initial_state` only before it has one, so a reload
+  shows what the scrubber does, and the report the view then sends with its
+  queries replaces that snapshot instead of adding one. The plan's scrubber read
+  the count once, so a view that gained snapshots while mounted showed "1 of N".
+  Cost if wrong: the cached list can pass the server's cap of 500 until the next
   refetch.
 - **The dev proxy forwards `/projects`**: `web/vite.config.ts` proxies it beside
   `/sessions` and `/healthz`. The plan added project routes without it, so

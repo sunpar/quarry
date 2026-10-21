@@ -72,7 +72,9 @@ export function ViewFrameContainer({
         sessionId={sessionId}
         contentKey={view.content_hash}
         source={view.source}
-        initialState={view.initial_state}
+        // A reload starts the view where the researcher left it. ViewHost reads this only to
+        // mount, so the snapshots the view reports never come back to it.
+        initialState={snapshots.at(-1)?.state ?? view.initial_state}
         datasets={view.datasets}
         restoreState={restoreState}
         dataVersion={dataVersion}
