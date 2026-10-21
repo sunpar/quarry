@@ -162,29 +162,29 @@ def test_a_stuck_close_holds_up_no_other_session(
     a = manager.get("a")
     manager.get("b")
     entered, released = threading.Event(), threading.Event()
+    real_close = a.close
 
     def stuck() -> None:  # a kernel that outlives SIGKILL holds close() for 5 s
         entered.set()
         released.wait()
+        real_close()
 
     def lookup() -> None:
         with contextlib.suppress(KernelDead):  # close_all leaves no kernel to find
             manager.get("b")
 
+    monkeypatch.setattr(a, "close", stuck)
     closer = threading.Thread(target=close, args=(manager,))
     looker = threading.Thread(target=lookup)
-    with monkeypatch.context() as patch:
-        patch.setattr(a, "close", stuck)
-        closer.start()
-        try:
-            assert entered.wait(timeout=5)
-            looker.start()
-            looker.join(timeout=5)
-            assert not looker.is_alive(), "the lookup waited on another session's close"
-        finally:
-            released.set()
-            closer.join()
-    a.close()  # its stand-in closed nothing
+    closer.start()
+    try:
+        assert entered.wait(timeout=5)
+        looker.start()
+        looker.join(timeout=5)
+        assert not looker.is_alive(), "the lookup waited on another session's close"
+    finally:
+        released.set()
+        closer.join()
 
 
 def test_closed_manager_starts_no_kernel(manager: KernelManager) -> None:
