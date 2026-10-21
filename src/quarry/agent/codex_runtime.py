@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import queue
@@ -180,14 +181,15 @@ class _Connection:
                     continue
                 if isinstance(response, ProviderError) or response.get("id") == self.serial:
                     break
-        try:
+        # ProcessLookupError: the group is empty. macOS raises PermissionError instead when only
+        # zombies are left in it, as when the app-server exited and nothing has reaped it yet.
+        with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(self.process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
         try:
             self.process.wait(timeout=1)
         except subprocess.TimeoutExpired:
-            os.killpg(self.process.pid, signal.SIGKILL)
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(self.process.pid, signal.SIGKILL)
             self.process.wait()
         self.outgoing.put(None)
         self.writer.join(timeout=1)

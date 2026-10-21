@@ -119,12 +119,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   instead of falling back to the raw recipe, and a prompt step fails without its
   transcript. The Anthropic adapter reads a `text/html` 200 as an empty turn
   that succeeded. Loud, except the last.
-- **Closing a Codex runtime can raise `PermissionError` on macOS**: cleanup
-  signals the app-server's process group and catches only `ProcessLookupError`.
-  One gate run failed this way in
-  `test_native_cleanup_finishes_while_real_python_is_still_executing[True]` and
-  passed on rerun; a group whose processes have exited but are not yet reaped
-  may answer `EPERM`. Loud.
 - **Cancel waits for the model**: `/interrupt` and `/restart` stop a prompt step
   only once the provider answers the call in flight, bounded only by the
   provider client's timeout. Meanwhile `/restart` holds its request, a second

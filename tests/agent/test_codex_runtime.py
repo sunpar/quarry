@@ -1,6 +1,7 @@
 import json
 import os
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -11,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from quarry.agent.codex_runtime import CodexRuntime
+from quarry.agent.codex_runtime import CodexRuntime, _Connection
 from quarry.agent.loop import StepOutcome
 from quarry.agent.tools import TOOL_DEFS, ToolExecutor
 from quarry.agent.transpile import NoopTranspiler
@@ -674,6 +675,17 @@ def test_cancellation_stays_responsive_when_native_stops_reading_results(
             except ProcessLookupError:
                 pass
     assert out.status == "interrupted"
+
+
+def test_close_after_the_app_server_exited_unreaped(tmp_path: Path) -> None:
+    connection = _Connection([sys.executable, "-c", ""], tmp_path, threading.Event())
+    # A zombie, exited but not reaped: on macOS, signalling its group then fails with EPERM.
+    ps = ["ps", "-o", "stat=", "-p", str(connection.process.pid)]
+    deadline = time.monotonic() + 5
+    while not subprocess.run(ps, capture_output=True, text=True).stdout.startswith("Z"):
+        assert time.monotonic() < deadline
+    connection.close(None, None)
+    assert connection.process.returncode == 0
 
 
 def test_missing_terminal_status_returns_error_and_closes_transport(
