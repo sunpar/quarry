@@ -89,9 +89,10 @@ export function SessionPage({ token }: SessionPageProps) {
           // list: the cached one can still hold it, or not have arrived. Unless the researcher
           // picked one meanwhile, which the hash would name.
           onMissing={() =>
-            void sessions.refetch().then(({ data }) => {
+            void sessions.refetch().then(({ data, isError }) => {
               const linked = readSession(window.location.hash);
-              if (linked !== null && linked !== current) return;
+              // A failed list leaves only the cached one, which can still name it.
+              if (isError || (linked !== null && linked !== current)) return;
               const other = data?.find((s) => s.id !== current)?.id ?? null;
               setActiveId(other);
               history.replaceState(null, "", sessionHash(token, other));

@@ -197,6 +197,17 @@ describe("SessionPage session choice", () => {
     await waitFor(() => expect(window.location.hash).toBe("#token=t"));
   });
 
+  it("stays on a gone session when the list fails to load again", async () => {
+    history.replaceState(null, "", "#token=t&session=gone");
+    const fetched = serve([meta], { listing: 500 });
+    await waitFor(() =>
+      expect(fetched.filter((p) => p === "/sessions")).toHaveLength(2),
+    );
+    // Time for the fallback to run, had it not stepped aside.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(readSession(window.location.hash)).toBe("gone");
+  });
+
   it("keeps a linked session the list does not show yet", async () => {
     history.replaceState(null, "", "#token=t&session=s3");
     const fetched = serve([meta]);
