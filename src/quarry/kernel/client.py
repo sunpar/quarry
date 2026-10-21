@@ -185,6 +185,7 @@ class KernelClient:
             if self._closed:
                 return
             self._closed = True
+            self._dead = True  # a lookup during the close sees it gone; new calls fail at once
             # Once the kernel is reaped, `_poll` has killed its group: the group's id is the
             # kernel's pid, which another process can have by now.
             if self._process.returncode is None:

@@ -297,7 +297,7 @@ def test_close_does_not_signal_a_kernel_the_client_already_reaped(
     assert signalled == []
 
 
-def test_a_second_close_does_not_signal_the_group_the_first_is_reaping(
+def test_a_closing_kernel_is_dead_and_a_second_close_returns_without_signalling(
     stand_in: StandIn, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client, _ = stand_in(60)
@@ -316,10 +316,12 @@ def test_a_second_close_does_not_signal_the_group_the_first_is_reaping(
         first.start()
         try:
             assert reaping.wait(timeout=5)
+            assert not client.is_alive()
             # The first close has killed the group: a signal from here on is the second's.
             patch.setattr(os, "killpg", lambda pgid, sig: signalled.append(pgid))
             second.start()
             second.join(timeout=1)
+            assert not second.is_alive()  # it returned without waiting on the first
         finally:
             resume.set()
             first.join()
