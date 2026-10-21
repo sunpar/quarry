@@ -199,9 +199,10 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **A failed Perspective engine start sticks**: `ensureEngine` caches its
   promise, so once the wasm fetch or the worker start fails, every pivot in that
   frame fails until the frame reloads. Loud.
-- **A corrupt Arrow answer leaves a view loading**: `cache.ts` decodes
-  `arrow_base64` inside the success callback, so a decode error skips the error
-  branch and the query stays "Loading". Silent.
+- **Arrow bytes Perspective cannot read leave the pivot blank**: a corrupt
+  Arrow stream that is still valid base64 decodes, so `client.table` rejects
+  inside `PerspectiveViewer`'s load effect. The runtime reports the unhandled
+  rejection to the host, and the pivot stays empty. Loud.
 - **A hung `GET /libraries` never mounts a view**: `ViewHost` waits for that one
   answer with no timeout. Silent: the frame stays empty.
 - **OHLC fails on a case-only name clash**: `Close` and `close` in one dataset
