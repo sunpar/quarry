@@ -1001,11 +1001,19 @@ them.
   that replaces the last one moves it to the latest. It drops the pick in state
   rather than keying the scrubber, so a report that lands mid-drag keeps the
   slider and its focus, and clears the restored state with it, so picking the
-  same snapshot again restores it again. A restore sends no report. Each posted
+  same snapshot again restores it again. A restore sends no report. Every mount,
+  a frame reload's too, starts the view from the latest snapshot the host holds
+  as it sends the mount, and from `initial_state` only before it has one, so a
+  page reload shows what the scrubber does, and the report the view then sends
+  with its queries replaces that snapshot instead of adding one. Each posted
   snapshot goes into the cached session as the server answers it, by the
   server's rule of replacing a last snapshot of the same state, so new snapshots
   reach it during a visit without a refetch. The plan's scrubber read the count
-  once, so a view that gained snapshots while mounted showed "1 of N". Cost if
+  once, so a view that gained snapshots while mounted showed "1 of N". Cost: a
+  view whose latest state makes it throw throws again on every reload, since no
+  reload goes back to `initial_state` and [a restore never clears a caught
+  render error](../open-items.md#any-time), and once a view has a snapshot, it
+  returns to `initial_state` only through a snapshot that holds it. Cost if
   wrong: the cached list can pass the server's cap of 500 until the next
   refetch.
 - **The dev proxy forwards `/projects`**: `web/vite.config.ts` proxies it beside

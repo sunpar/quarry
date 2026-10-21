@@ -52,7 +52,7 @@ describe("runtime mount", () => {
       onError: () => undefined,
     });
     await act(async () => {
-      bridge.mount({
+      bridge.mount(() => ({
         source: `
         import { useQuery, useViewState } from "@quarry/hooks";
         export default function V() {
@@ -62,7 +62,7 @@ describe("runtime mount", () => {
         }`,
         initialState: { n: 1 },
         datasets: [],
-      });
+      }));
       bridge.connect();
       bridge.restore({ n: 7 });
       bridge.handleEvent({ data: sent[0], source: null });

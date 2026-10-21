@@ -61,10 +61,11 @@ export function ViewFrameContainer({
   const view = step.view;
   if (view === null) return null;
   const { snapshots } = view;
+  const latest = snapshots.at(-1)?.state;
   // Once a refetch drops the picked snapshot, the view goes back to the latest, like the scrubber.
   if (pick !== null && !snapshots.some((s) => s.ts === pick)) {
     setPick(null);
-    setRestoreState(snapshots.at(-1)?.state ?? null);
+    setRestoreState(latest ?? null);
   }
   const picked = snapshots.findIndex((s) => s.ts === pick);
   return (
@@ -75,7 +76,9 @@ export function ViewFrameContainer({
         sessionId={sessionId}
         contentKey={view.content_hash}
         source={view.source}
-        initialState={view.initial_state}
+        // Every mount, a frame reload's too, starts on the latest snapshot, even while an older
+        // one is picked. ViewHost reads this only to mount, so a report never remounts the view.
+        initialState={latest ?? view.initial_state}
         datasets={view.datasets}
         restoreState={restoreState}
         dataVersion={dataVersion}

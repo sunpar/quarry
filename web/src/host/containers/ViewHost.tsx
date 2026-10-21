@@ -116,13 +116,10 @@ export function ViewHost(props: ViewHostProps) {
   useEffect(() => {
     const bridge = bridgeRef.current;
     if (bridge === null) return;
-    const { source, initialState, datasets } = latest.current;
     setError(null);
-    bridge.mount({
-      source,
-      initialState,
-      datasets,
-      licensed: licensed.current,
+    bridge.mount(() => {
+      const { source, initialState, datasets } = latest.current;
+      return { source, initialState, datasets, licensed: licensed.current };
     });
   }, [sessionId, viewId, contentKey, isFetched]);
 

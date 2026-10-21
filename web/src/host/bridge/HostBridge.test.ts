@@ -39,7 +39,7 @@ describe("HostBridge", () => {
   it("holds the latest restore for the new mount, with later linked changes overlaid", () => {
     const { bridge, posted, ready } = setup();
     bridge.connect();
-    bridge.mount({ source: "first", initialState: {}, datasets: [] });
+    bridge.mount(() => ({ source: "first", initialState: {}, datasets: [] }));
     ready();
     posted.length = 0;
     bridge.connect();
@@ -64,11 +64,11 @@ describe("HostBridge", () => {
   it("queues changed content and linked state until a reloaded frame acknowledges connect", () => {
     const { bridge, posted, ready } = setup();
     bridge.connect();
-    bridge.mount({ source: "first", initialState: {}, datasets: [] });
+    bridge.mount(() => ({ source: "first", initialState: {}, datasets: [] }));
     ready();
     posted.length = 0;
     bridge.connect();
-    bridge.mount({ source: "next", initialState: {}, datasets: [] });
+    bridge.mount(() => ({ source: "next", initialState: {}, datasets: [] }));
     bridge.merge({ "shared:k": 2 });
     expect(posted).toEqual([
       expect.objectContaining({ type: "connect", viewId: "v1" }),
@@ -127,7 +127,12 @@ describe("HostBridge", () => {
     const licensed: LicensedLibrary[] = [
       { id: "highcharts", entry: "/libs/h.js", license: null },
     ];
-    bridge.mount({ source: "x", initialState: {}, datasets: ["df"], licensed });
+    bridge.mount(() => ({
+      source: "x",
+      initialState: {},
+      datasets: ["df"],
+      licensed,
+    }));
     expect(posted).toHaveLength(0);
     bridge.connect();
     ready();
@@ -149,7 +154,7 @@ describe("HostBridge", () => {
 
   it("connects before mounting, then waits for the acknowledgment", () => {
     const { bridge, posted, ready } = setup();
-    bridge.mount({ source: "x", initialState: {}, datasets: ["df"] });
+    bridge.mount(() => ({ source: "x", initialState: {}, datasets: ["df"] }));
     bridge.connect();
     expect(posted).toEqual([
       expect.objectContaining({ type: "connect", viewId: "v1" }),
@@ -165,7 +170,7 @@ describe("HostBridge", () => {
     bridge.connect();
     ready();
     expect(posted).toHaveLength(1); // ready, but nothing mounted to merge into
-    bridge.mount({ source: "x", initialState: {}, datasets: [] });
+    bridge.mount(() => ({ source: "x", initialState: {}, datasets: [] }));
     expect(posted.map((m) => m.type)).toEqual(["connect", "mount", "merge"]);
     expect(posted[2]).toMatchObject({
       state: { "shared:k": 1, "shared:j": 2 },
@@ -190,7 +195,7 @@ describe("HostBridge", () => {
 
   it("consumes only the current connection's acknowledgment once", () => {
     const { bridge, posted, send } = setup();
-    bridge.mount({ source: "x", initialState: {}, datasets: ["df"] });
+    bridge.mount(() => ({ source: "x", initialState: {}, datasets: ["df"] }));
     bridge.connect();
     const first = posted[0];
     bridge.connect();
@@ -211,7 +216,7 @@ describe("HostBridge", () => {
   it("cancels an acknowledgment subscription when its listener stops", () => {
     const { bridge, posted, ready } = setup();
     const stop = bridge.listen(window);
-    bridge.mount({ source: "x", initialState: {}, datasets: [] });
+    bridge.mount(() => ({ source: "x", initialState: {}, datasets: [] }));
     bridge.connect();
     stop();
     ready();
@@ -224,7 +229,7 @@ describe("HostBridge", () => {
     ready();
     bridge.restore({ n: 7 });
     expect(posted).toHaveLength(1);
-    bridge.mount({ source: "x", initialState: { n: 1 }, datasets: [] });
+    bridge.mount(() => ({ source: "x", initialState: { n: 1 }, datasets: [] }));
     expect(posted.map((m) => m.type)).toEqual(["connect", "mount", "restore"]);
     expect(posted[1]).toMatchObject({ initialState: { n: 1 } });
     expect(posted[2]).toMatchObject({ state: { n: 7 } });
