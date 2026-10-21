@@ -49,7 +49,8 @@ def test_tool_defs_names() -> None:
 def _objects(schema: Json) -> Iterator[dict[str, Json]]:
     """Every object schema in `schema`, nested ones included."""
     if isinstance(schema, dict):
-        if schema.get("type") == "object":
+        kind = schema.get("type")
+        if kind == "object" or (isinstance(kind, list) and "object" in kind):
             yield schema
         for value in schema.values():
             yield from _objects(value)
@@ -60,16 +61,16 @@ def _objects(schema: Json) -> Iterator[dict[str, Json]]:
 
 @pytest.mark.parametrize("tool", TOOL_DEFS, ids=lambda tool: tool.name)
 def test_every_tool_schema_is_strict(tool: ToolDef) -> None:
-    # Strict mode in both APIs wants every property required and no extra properties, in nested
-    # objects too, which the converters do not close.
+    # OpenAI's strict mode wants every property required and no extra properties, in nested
+    # objects too, which the converters do not close; Quarry sends both providers the same.
     for sent in [*to_openai_tools([tool]), *to_api_tools([tool])]:
         objects = list(_objects(sent))
         assert objects
         for item in objects:
-            properties, required = item["properties"], item["required"]
-            assert isinstance(properties, dict) and isinstance(required, list)
-            assert item["additionalProperties"] is False
-            assert properties.keys() == set(required)
+            properties, required = item.get("properties"), item.get("required")
+            assert isinstance(properties, dict) and isinstance(required, list), item
+            assert item.get("additionalProperties") is False, item
+            assert sorted(map(str, required)) == sorted(properties), item
 
 
 def test_run_python_success_and_failure(kernel: KernelClient, tmp_path: Path) -> None:

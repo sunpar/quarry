@@ -155,9 +155,15 @@ def test_complete_passes_required_parameters() -> None:
         "messages": to_openai_messages("sys", messages),
         "max_completion_tokens": 16000,
     }
+    captured.clear()
     tool = ToolDef(name="t", description="d", input_schema={"type": "object", "properties": {}})
     OpenAIProvider(model="gpt", create=create).complete(system="s", messages=[], tools=[tool])
-    assert captured["tools"] == to_openai_tools([tool])
+    assert captured == {
+        "model": "gpt",
+        "messages": to_openai_messages("s", []),
+        "max_completion_tokens": 16000,
+        "tools": to_openai_tools([tool]),
+    }
 
 
 def test_complete_maps_errors() -> None:
