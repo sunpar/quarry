@@ -35,11 +35,14 @@ export function createRuntime(
     component: ViewComponent,
     datasets: string[],
   ) => {
+    // The boundary resets per mount, not per view id: a repaired view remounts under the same id.
     root.render(
       <RuntimeProvider value={{ bridge: m.bridge, store: m.store, cache }}>
         <ErrorBoundary
-          resetKey={m.bridge.viewId}
-          onError={(e) => m.bridge.error(e.message, e.stack)}
+          resetKey={m}
+          onError={(e) => {
+            if (mounted === m) m.bridge.error(e.message, e.stack);
+          }}
         >
           <View component={component} datasets={datasets} />
         </ErrorBoundary>

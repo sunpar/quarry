@@ -2,13 +2,13 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 
 interface Props {
   onError: (error: Error) => void;
-  resetKey: string;
+  resetKey: object;
   children: ReactNode;
 }
 
 interface State {
   error: Error | null;
-  resetKey: string;
+  resetKey: object;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
