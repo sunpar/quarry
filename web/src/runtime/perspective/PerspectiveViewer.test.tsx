@@ -24,6 +24,7 @@ let gate = deferred();
 class FakeViewer extends HTMLElement {
   load = vi.fn(() => gate.promise);
   restore = vi.fn(async (_config: ViewerConfigUpdate) => undefined);
+  reset = vi.fn(async (_all?: boolean) => undefined);
   save = vi.fn(async (): Promise<ViewerConfigUpdate> => ({}));
   delete = vi.fn(async () => undefined);
 }
@@ -67,6 +68,36 @@ describe("PerspectiveViewer", () => {
     rerender(<PerspectiveViewer arrow={arrow} config={{ group_by: ["b"] }} />);
     await vi.waitFor(() => expect(node.restore).toHaveBeenCalledTimes(2));
     expect(node.restore).toHaveBeenLastCalledWith(next);
+  });
+
+  it("resets a layout once when the config goes missing", async () => {
+    gate = deferred();
+    gate.resolve();
+    const config = { group_by: ["a"] };
+    const { container, rerender } = render(
+      <PerspectiveViewer arrow={arrow} config={config} />,
+    );
+    const node = viewerIn(container);
+    await vi.waitFor(() => expect(node.restore).toHaveBeenCalledTimes(1));
+    rerender(<PerspectiveViewer arrow={arrow} />);
+    rerender(<PerspectiveViewer arrow={arrow} />);
+    expect(node.reset).toHaveBeenCalledTimes(1);
+    expect(node.reset).toHaveBeenCalledWith(true);
+    rerender(<PerspectiveViewer arrow={arrow} config={config} />);
+    expect(node.restore).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not reset a viewer that never had a layout", async () => {
+    gate = deferred();
+    gate.resolve();
+    const { container, rerender } = render(<PerspectiveViewer arrow={arrow} />);
+    const node = viewerIn(container);
+    await vi.waitFor(() => expect(node.load).toHaveBeenCalledTimes(1));
+    await gate.promise;
+    await Promise.resolve();
+    rerender(<PerspectiveViewer arrow={arrow} />);
+    expect(node.reset).not.toHaveBeenCalled();
+    expect(node.restore).not.toHaveBeenCalled();
   });
 
   it("does not restore the config the viewer itself just saved", async () => {

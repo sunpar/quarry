@@ -23,7 +23,7 @@ export function PerspectiveViewer({
   const viewer = useRef<HTMLPerspectiveViewerElement | null>(null);
   const latest = useRef({ config, onConfig });
   latest.current = { config, onConfig };
-  // The config the viewer last restored or saved, so its own echo is not restored again.
+  // The config the viewer last restored or saved ("" for none), so its own echo is not restored again.
   const applied = useRef("");
   const loaded = useRef(false);
 
@@ -83,11 +83,13 @@ export function PerspectiveViewer({
   // Before the first load, the load path restores whatever config is latest by then.
   useEffect(() => {
     const node = viewer.current;
-    if (node === null || config === undefined || !loaded.current) return;
-    const key = JSON.stringify(config);
+    if (node === null || !loaded.current) return;
+    const key = config === undefined ? "" : JSON.stringify(config);
     if (key === applied.current) return;
     applied.current = key;
-    void node.restore(config);
+    // No config, as in a snapshot from before the first layout, means the default
+    // layout; `true` also drops expressions, which such a snapshot never had.
+    void (config === undefined ? node.reset(true) : node.restore(config));
   }, [config]);
 
   return <div ref={host} className={className ?? "h-full w-full"} />;

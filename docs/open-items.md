@@ -196,10 +196,8 @@ Decisions already made are in [decisions.md](context/decisions.md).
   kernel and fails with a `QueryError`; `in` items on a Decimal column are not
   coerced to Decimal; and sub-millisecond datetime comparisons can differ
   between the viewer and the kernel. Mostly silent.
-- **Scrubbing can keep a later pivot layout**: `PerspectiveViewer` ignores a
-  missing `config`, so a snapshot from before the first layout keeps the later
-  one. Changing the viewer's settings, theme or title also writes view state.
-  Silent.
+- **Viewer chrome writes view state**: changing the pivot viewer's settings,
+  theme or title writes view state. Silent.
 - **A Perspective engine that never answers hangs the pivot**: a worker whose
   script fails to run, or a server wasm that is not wasm, leaves
   `perspective.worker` waiting with no error or timeout, so the start never
