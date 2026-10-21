@@ -101,11 +101,11 @@ export function useToCode(sessionId: string) {
   return useMutation({
     mutationFn: ({
       stepId,
-      snapshotsBack,
+      snapshotTs,
     }: {
       stepId: string;
-      snapshotsBack: number;
-    }) => api.toCode(sessionId, stepId, snapshotsBack),
+      snapshotTs?: string;
+    }) => api.toCode(sessionId, stepId, snapshotTs),
   });
 }
 

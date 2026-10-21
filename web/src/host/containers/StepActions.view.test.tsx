@@ -12,7 +12,11 @@ import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
 import { StepActions } from "./StepActions";
 
-const snapshot: Snapshot = { ts: "", state: {}, queries: [{ dataset: "df" }] };
+const snapshot: Snapshot = {
+  ts: "t0",
+  state: {},
+  queries: [{ dataset: "df" }],
+};
 
 const stepWith = (view: Partial<View>): Step => ({
   id: "st1",
@@ -48,7 +52,7 @@ const json = (body: unknown, status = 200) =>
 function setup(
   step: Step,
   respond: (key: string) => Response,
-  picked?: number,
+  picked?: string,
 ) {
   const bodies = new Map<string, unknown>();
   const fetchImpl = async (path: string, init?: RequestInit) => {
@@ -98,7 +102,7 @@ describe("StepActions to code", () => {
     expect(box.value).toBe("df_1 = df.group_by('a')");
     expect(screen.getByText("Left out: expression e.")).toBeTruthy();
     expect(bodies.get("POST /sessions/s1/steps/st1/to-code")).toEqual({
-      snapshots_back: 0,
+      snapshot_ts: "t0",
     });
     fireEvent.change(box, { target: { value: "df_1 = 1" } });
     fireEvent.click(screen.getByRole("button", { name: "Run as step" }));
@@ -110,13 +114,19 @@ describe("StepActions to code", () => {
     });
   });
 
-  it("asks for the picked snapshot, counted back from the latest", async () => {
-    const step = stepWith({ snapshots: [snapshot, snapshot, snapshot] });
-    const { bodies } = setup(step, () => json({ code: "", dropped: [] }), 0);
+  it("asks for the picked snapshot by its ts", async () => {
+    const step = stepWith({
+      snapshots: [
+        snapshot,
+        { ...snapshot, ts: "t1" },
+        { ...snapshot, ts: "t2" },
+      ],
+    });
+    const { bodies } = setup(step, () => json({ code: "", dropped: [] }), "t1");
     fireEvent.click(screen.getByRole("button", { name: "To code" }));
     await screen.findByRole("textbox", { name: "Python" });
     expect(bodies.get("POST /sessions/s1/steps/st1/to-code")).toEqual({
-      snapshots_back: 2,
+      snapshot_ts: "t1",
     });
   });
 });

@@ -631,11 +631,12 @@ buffer over the bridge.
 
 ### To code
 
-The host sends the current snapshot's query specs to
-`POST /sessions/{id}/to-code`. The server renders each with `to_source` and
-returns Python. The host creates a `manual` step with that code in an
-editable drawer. Running it executes in the kernel like any other step, so
-its outputs join the lineage graph.
+The host names the snapshot shown, picked in the history or the latest, by
+its `ts` to `POST /sessions/{id}/to-code`. The server reads that snapshot's
+query specs, renders each with `to_source` and returns Python. The host
+creates a `manual` step with that code in an editable drawer. Running it
+executes in the kernel like any other step, so its outputs join the lineage
+graph.
 
 ## 10. Projects
 
@@ -664,10 +665,12 @@ its outputs join the lineage graph.
 
 ### Save view
 
-Saves the step's frozen TSX, the current snapshot's state, and the
-component id. For each dataset the view's queries reference, saves that
-dataset into the project first if it isn't already there, prompting once for
-live versus pinned. The view's `meta.json` lists those dataset names.
+Saves the step's frozen TSX, the shown snapshot's state, and the component
+id. The host names the snapshot shown, picked in the history or the latest,
+by its `ts`, and the server reads it. For each dataset the view's queries
+reference, saves that dataset into the project first if it isn't already
+there, prompting once for live versus pinned. The view's `meta.json` lists
+those dataset names.
 
 ### Canvas
 

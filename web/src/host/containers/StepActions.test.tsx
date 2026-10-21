@@ -50,7 +50,7 @@ const step: Step = {
 
 const json = (body: unknown) => new Response(JSON.stringify(body));
 
-function setup(saveFails = false, shown = step, picked?: number) {
+function setup(saveFails = false, shown = step, picked?: string) {
   const calls: string[] = [];
   const bodies = new Map<string, unknown>();
   let finishSave = () => {};
@@ -71,7 +71,7 @@ function setup(saveFails = false, shown = step, picked?: number) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onDone = vi.fn();
   const api = new ApiClient("t", fetchImpl);
-  const tree = (s: Step, p?: number) => (
+  const tree = (s: Step, p?: string) => (
     <QueryClientProvider client={qc}>
       <ApiProvider client={api}>
         <StepActions sessionId="s1" step={s} picked={p} onDone={onDone} />
@@ -85,7 +85,7 @@ function setup(saveFails = false, shown = step, picked?: number) {
     finishSave,
     onDone,
     qc,
-    rerender: (s: Step, p?: number) => rerender(tree(s, p)),
+    rerender: (s: Step, p?: string) => rerender(tree(s, p)),
   };
 }
 
@@ -128,49 +128,54 @@ describe("StepActions pin to canvas", () => {
     expect(bodies.get("POST /projects/p/views")).toMatchObject({
       name: "closes",
       pin: true,
-      snapshots_back: 0,
     });
     expect(calls.filter((c) => c.startsWith("PUT"))).toEqual([]);
   });
 
-  it("saves the snapshot picked when the button was pressed", async () => {
-    const withSnapshots = (count: number): Step => ({
-      ...step,
-      view: step.view && {
-        ...step.view,
-        snapshots: Array.from({ length: count }, (_, n) => ({
-          ts: `t${n}`,
-          state: { n },
-          queries: [],
-        })),
-      },
-    });
-    const { bodies, finishSave, onDone, rerender } = setup(
-      false,
-      withSnapshots(3),
-      0,
-    );
-    finishSave();
-    fireEvent.click(screen.getByRole("button", { name: "Save view" }));
-    // A report while the dialog is open adds a snapshot and drops the pick.
-    rerender(withSnapshots(4));
-    const dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Name"), {
-      target: { value: "closes" },
-    });
-    const save = within(dialog).getByRole<HTMLButtonElement>("button", {
-      name: "Save view",
-    });
-    await waitFor(() => expect(save.disabled).toBe(false));
-    fireEvent.click(save);
-    await waitFor(() =>
-      expect(onDone).toHaveBeenCalledWith("Saved view closes"),
-    );
-    expect(bodies.get("POST /projects/p/views")).toMatchObject({
-      pin: false,
-      snapshots_back: 3,
-    });
-  });
+  it.each([
+    ["picked", "t0", "t0"],
+    ["latest", undefined, "t2"],
+  ])(
+    "saves the %s snapshot shown when the button was pressed",
+    async (_, picked, shown) => {
+      const withSnapshots = (count: number): Step => ({
+        ...step,
+        view: step.view && {
+          ...step.view,
+          snapshots: Array.from({ length: count }, (_, n) => ({
+            ts: `t${n}`,
+            state: { n },
+            queries: [],
+          })),
+        },
+      });
+      const { bodies, finishSave, onDone, rerender } = setup(
+        false,
+        withSnapshots(3),
+        picked,
+      );
+      finishSave();
+      fireEvent.click(screen.getByRole("button", { name: "Save view" }));
+      // A report while the dialog is open adds a snapshot and drops any pick.
+      rerender(withSnapshots(4));
+      const dialog = screen.getByRole("dialog");
+      fireEvent.change(within(dialog).getByLabelText("Name"), {
+        target: { value: "closes" },
+      });
+      const save = within(dialog).getByRole<HTMLButtonElement>("button", {
+        name: "Save view",
+      });
+      await waitFor(() => expect(save.disabled).toBe(false));
+      fireEvent.click(save);
+      await waitFor(() =>
+        expect(onDone).toHaveBeenCalledWith("Saved view closes"),
+      );
+      expect(bodies.get("POST /projects/p/views")).toMatchObject({
+        pin: false,
+        snapshot_ts: shown,
+      });
+    },
+  );
 
   it("marks the project stale when the save fails", async () => {
     const { finishSave, onDone, qc } = setup(true);

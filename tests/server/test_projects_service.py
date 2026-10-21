@@ -298,16 +298,16 @@ def test_save_view_keeps_the_latest_or_the_picked_snapshot(tmp_path: Path) -> No
     sessions, projects = build(tmp_path, provider)
     sid, step_id = run_prices(sessions)
     queries: list[dict[str, Json]] = [{"dataset": "prices", "limit": 9}]
-    sessions.record_snapshot(sid, step_id, {"limit": 3}, [])
+    picked = sessions.record_snapshot(sid, step_id, {"limit": 3}, [])
     sessions.record_snapshot(sid, step_id, {"limit": 9}, queries)
     slug = projects.create("p", "").slug
     latest = SaveViewRequest(session_id=sid, step_id=step_id, name="table", mode="live")
     # Refused before it saves the view's datasets.
-    with pytest.raises(ValueError, match="no snapshot 2 back"):
-        projects.save_view(slug, latest.model_copy(update={"snapshots_back": 2}))
+    with pytest.raises(ValueError, match="no snapshot at nope"):
+        projects.save_view(slug, latest.model_copy(update={"snapshot_ts": "nope"}))
     assert projects.get(slug).datasets == []
     projects.save_view(slug, latest)
-    projects.save_view(slug, latest.model_copy(update={"name": "first", "snapshots_back": 1}))
+    projects.save_view(slug, latest.model_copy(update={"name": "first", "snapshot_ts": picked.ts}))
     store = ProjectStore(tmp_path)
     saved, first = store.read_view(slug, "table"), store.read_view(slug, "first")
     assert saved.state == {"limit": 9} and saved.queries == queries

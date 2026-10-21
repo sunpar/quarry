@@ -299,13 +299,14 @@ def test_to_code_route_renders_what_the_view_shows_and_rejects(tmp_path: Path) -
         wait_idle(client, sid)
         route = f"/sessions/{sid}/steps/{step_id}/to-code"
 
-        def show(state: dict[str, Json], queries: list[Json]) -> None:
+        def show(state: dict[str, Json], queries: list[Json]) -> str:
             body = {"state": state, "queries": queries}
-            client.post(f"/sessions/{sid}/steps/{step_id}/snapshots", json=body)
+            response = client.post(f"/sessions/{sid}/steps/{step_id}/snapshots", json=body)
+            return str(response.json()["ts"])
 
         unqueried = client.post(route)
         assert unqueried.status_code == 400 and "no query" in unqueried.json()["detail"]
-        show({}, [{"dataset": "df"}])
+        first = show({}, [{"dataset": "df"}])
         ok = client.post(route).json()
         assert "df_1 = (" in ok["code"] and ok["dropped"] == []
         # A published spec wins over the queries the view ran, as the pivot's do.
@@ -317,13 +318,12 @@ def test_to_code_route_renders_what_the_view_shows_and_rejects(tmp_path: Path) -
         show({"spec": spec, "dropped": ["expression e"]}, [{"dataset": "df", "limit": 1}])
         pivot = client.post(route).json()
         assert "group_by" in pivot["code"] and pivot["dropped"] == ["expression e"]
-        # A snapshot picked in the history, counted back from the latest.
-        picked = client.post(route, json={"snapshots_back": 1}).json()
+        # A snapshot picked in the history, named by its ts.
+        picked = client.post(route, json={"snapshot_ts": first}).json()
         assert "df_1 = (" in picked["code"] and "group_by" not in picked["code"]
         assert picked["dropped"] == []
-        for back in (2, -1):
-            gone = client.post(route, json={"snapshots_back": back})
-            assert gone.status_code == 400 and gone.json()["detail"] == f"no snapshot {back} back"
+        gone = client.post(route, json={"snapshot_ts": "nope"})
+        assert gone.status_code == 400 and gone.json()["detail"] == "no snapshot at nope"
         show({}, [{"dataset": "df", "filters": [{"col": "x", "op": "eq", "value": 1}]}])
         bad = client.post(route)
         assert bad.status_code == 400
@@ -801,12 +801,11 @@ def test_snapshot_appends_to_persisted_step(tmp_path: Path) -> None:
         step_id = client.post(f"/sessions/{sid}/steps", json={"prompt": "show"}).json()["id"]
         wait_idle(client, sid)
         body = {"state": {"sort": None}, "queries": [{"dataset": "df", "limit": 1000}]}
-        assert client.post(f"/sessions/{sid}/steps/{step_id}/snapshots", json=body).json() == {
-            "count": 1
-        }
+        saved = client.post(f"/sessions/{sid}/steps/{step_id}/snapshots", json=body).json()
         snapshots = client.get(f"/sessions/{sid}").json()["steps"][0]["view"]["snapshots"]
-        assert snapshots[0]["state"] == {"sort": None}
-        assert snapshots[0]["queries"] == body["queries"]
+        assert snapshots == [saved]
+        assert saved["state"] == {"sort": None}
+        assert saved["queries"] == body["queries"]
         assert client.post(f"/sessions/{sid}/steps/nope/snapshots", json=body).status_code == 404
 
 
@@ -817,25 +816,24 @@ def test_snapshot_with_the_last_state_replaces_it(tmp_path: Path) -> None:
         step_id = client.post(f"/sessions/{sid}/steps", json={"prompt": "show"}).json()["id"]
         wait_idle(client, sid)
 
-        def report(state: dict[str, Json], limit: int) -> int:
+        def report(state: dict[str, Json], limit: int) -> dict[str, Json]:
             body = {"state": state, "queries": [{"dataset": "df", "limit": limit}]}
             response = client.post(f"/sessions/{sid}/steps/{step_id}/snapshots", json=body)
-            return int(response.json()["count"])
+            return dict(response.json())
 
         def snapshots() -> list[dict[str, Json]]:
             session = client.get(f"/sessions/{sid}").json()
             return list(session["steps"][0]["view"]["snapshots"])
 
-        assert report({"on": 1}, 1) == 1
-        first = snapshots()[0]
+        first = report({"on": 1}, 1)
         # The same state with new queries, as a view querying from local state reports.
-        assert report({"on": 1}, 2) == 1
-        [latest] = snapshots()
+        latest = report({"on": 1}, 2)
+        assert snapshots() == [latest]
         assert latest["queries"] == [{"dataset": "df", "limit": 2}]
         assert latest["ts"] != first["ts"]
         # True is a different state from 1, and A, B, A keeps all three.
-        assert report({"on": True}, 2) == 2
-        assert report({"on": 1}, 2) == 3
+        report({"on": True}, 2)
+        report({"on": 1}, 2)
         assert [s["state"] for s in snapshots()] == [{"on": 1}, {"on": True}, {"on": 1}]
 
 

@@ -50,7 +50,7 @@ class SaveViewRequest(BaseModel):
     description: str = ""
     mode: SaveMode
     pin: bool = False  # also put the view on the project's canvas
-    snapshots_back: int = 0  # the snapshot picked in the history, counted back from the latest
+    snapshot_ts: str | None = None  # the snapshot shown, by its ts; None for the latest
 
 
 class RecallRequest(BaseModel):
@@ -167,7 +167,7 @@ class ProjectService:
         step = self._sessions.step(req.session_id, req.step_id)
         if step.view is None:
             raise StepNotFound(req.step_id)
-        state, queries = step.view.shown(req.snapshots_back)  # before any dataset save, too
+        state, queries = step.view.shown(req.snapshot_ts)  # before any dataset save, too
         saved = {d.name for d in self._store.get(slug).datasets}
         for name in step.view.datasets:
             if name not in saved:

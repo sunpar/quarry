@@ -19,8 +19,8 @@ interface ViewFrameContainerProps {
   /** Changes whenever kernel data may have: a step finished or a new kernel started. */
   dataVersion: string;
   onRepair: (repair: RepairRequest) => void;
-  /** Given the position of the snapshot picked in the history, absent without a pick. */
-  actions?: (picked?: number) => ReactNode;
+  /** Given the ts of the snapshot picked in the history, absent without a pick. */
+  actions?: (picked?: string) => ReactNode;
 }
 
 // An updater that leaves an uncached session (undefined) as it is.
@@ -50,16 +50,15 @@ export function ViewFrameContainer({
   const api = useApi();
   const queryClient = useQueryClient();
   const [restoreState, setRestoreState] = useState<JsonObject | null>(null);
-  // A pick in the scrubber holds only while the snapshot count it was made at holds, and each
-  // report drops it: the view has left the picked state even when its report replaces the last
-  // snapshot and the count holds. A restore sends no report, and a refetch alone keeps the pick.
+  // The picked snapshot's ts, as the server stamped it, so the pick follows its snapshot through a
+  // refetch and lapses once the server drops it. Each report drops it too: the view has left the
+  // picked state even when its report replaces the last snapshot. A restore sends no report.
   // Dropped here, not by keying the scrubber, so it keeps its focus.
-  const [pick, setPick] = useState<{ at: number; of: number } | null>(null);
+  const [pick, setPick] = useState<string | null>(null);
   const view = step.view;
   if (view === null) return null;
   const { snapshots } = view;
-  const picked =
-    pick !== null && pick.of === snapshots.length ? pick.at : undefined;
+  const picked = snapshots.findIndex((s) => s.ts === pick);
   return (
     <div className="flex flex-col gap-2">
       <ViewHost
@@ -75,19 +74,17 @@ export function ViewFrameContainer({
         title={`View for step ${step.index + 1}`}
         disabled={running}
         onStateChanged={(state, queries) => {
+          // Cleared with the pick, so picking the same snapshot again restores it again.
           setPick(null);
+          setRestoreState(null);
           void api
             .postSnapshot(sessionId, step.id, { state, queries })
-            // The scrubber reads snapshots from the session; record this one there instead of
-            // refetching the whole session. An uncached session stays uncached.
-            .then(() =>
+            // The scrubber reads snapshots from the session; record the server's there instead
+            // of refetching the whole session. An uncached session stays uncached.
+            .then((saved) =>
               queryClient.setQueryData(
                 keys.session(sessionId),
-                withSnapshot(step.id, {
-                  ts: new Date().toISOString(),
-                  state,
-                  queries,
-                }),
+                withSnapshot(step.id, saved),
               ),
             )
             .catch((e: unknown) => console.error("snapshot not saved", e));
@@ -97,15 +94,15 @@ export function ViewFrameContainer({
       <div className="flex items-center gap-4 empty:hidden">
         <SnapshotScrubber
           count={snapshots.length}
-          value={picked ?? snapshots.length - 1}
+          value={picked === -1 ? snapshots.length - 1 : picked}
           onPick={(at) => {
-            setPick({ at, of: snapshots.length });
             const shown = snapshots[at];
-            if (shown !== undefined) setRestoreState(shown.state);
+            setPick(shown?.ts ?? null);
+            setRestoreState(shown?.state ?? null);
           }}
         />
         {actions !== undefined && (
-          <div className="ml-auto">{actions(picked)}</div>
+          <div className="ml-auto">{actions(snapshots[picked]?.ts)}</div>
         )}
       </div>
     </div>

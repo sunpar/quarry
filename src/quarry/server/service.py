@@ -166,7 +166,7 @@ class SessionService:
         step_id: str,
         state: dict[str, Json],
         queries: builtins.list[dict[str, Json]],
-    ) -> int:
+    ) -> Snapshot:
         with self._lock:
             step = self._finished_step(session_id, step_id)
             if step.view is None:
@@ -176,10 +176,11 @@ class SessionService:
             # Compared as JSON, since == takes True for 1.
             if kept and json.dumps(kept[-1].state) == json.dumps(state):
                 kept = kept[:-1]
-            snapshots = [*kept, Snapshot(ts=now_iso(), state=state, queries=queries)]
-            view = step.view.model_copy(update={"snapshots": snapshots[-MAX_SNAPSHOTS:]})
+            # Stamped under the lock, so a ts names one snapshot of the view.
+            saved = Snapshot(ts=now_iso(), state=state, queries=queries)
+            view = step.view.model_copy(update={"snapshots": [*kept, saved][-MAX_SNAPSHOTS:]})
             self._store.update_step(session_id, step.model_copy(update={"view": view}))
-            return len(view.snapshots)
+            return saved
 
     def step(self, session_id: str, step_id: str) -> Step:
         """A finished step; SessionBusy while it still runs, StepNotFound when there is none."""
@@ -233,15 +234,16 @@ class SessionService:
         return self._kernel(session_id).query(spec)
 
     def to_code(
-        self, session_id: str, step_id: str, snapshots_back: int
+        self, session_id: str, step_id: str, snapshot_ts: str | None
     ) -> tuple[str, builtins.list[str]]:
-        """The step's view as Python, from the snapshot `snapshots_back` before the latest, and
-        what that leaves out. StepNotFound for a step without a view; ValueError when there is no
-        such snapshot, it has run no query or one of its queries is malformed."""
+        """The step's view as Python, from the snapshot stamped `snapshot_ts` or with None from
+        what it shows now, and what that leaves out. StepNotFound for a step without a view;
+        ValueError when there is no such snapshot, it has run no query or one of its queries is
+        malformed."""
         view = self.step(session_id, step_id).view
         if view is None:
             raise StepNotFound(step_id)
-        queries, dropped = to_code_input(*view.shown(snapshots_back))
+        queries, dropped = to_code_input(*view.shown(snapshot_ts))
         if not queries:
             raise ValueError("the view has run no query yet")
         specs = [QuerySpec.model_validate(q) for q in queries]

@@ -74,9 +74,17 @@ function CachedStep(props: { dataVersion: string; onRepair: () => void }) {
 }
 
 function mount(onRepair = vi.fn()) {
-  const fetchImpl = vi.fn(async (url: string) => {
-    if (url.endsWith("/snapshots"))
-      return new Response(JSON.stringify({ count: 1 }), { status: 200 });
+  let stamped = 0;
+  const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+    // The server answers with the snapshot it stored, stamped with its own ts.
+    if (url.endsWith("/snapshots")) {
+      const posted = JSON.parse(String(init?.body)) as JsonObject;
+      stamped += 1;
+      return new Response(
+        JSON.stringify({ ts: `server-${stamped}`, ...posted }),
+        { status: 200 },
+      );
+    }
     if (url.endsWith("/query"))
       return new Response(
         JSON.stringify({
@@ -285,7 +293,7 @@ describe("ViewFrameContainer", () => {
       expect(
         qc.getQueryData<Session>(keys.session("sess"))?.steps[0]?.view
           ?.snapshots,
-      ).toEqual([{ ts: expect.any(String), state: { k: 1 }, queries: [] }]),
+      ).toEqual([{ ts: "server-1", state: { k: 1 }, queries: [] }]),
     );
     expect(qc.getQueryState(keys.session("sess"))?.isInvalidated).toBe(false);
     expect(qc.getQueryState(keys.status("sess"))?.isInvalidated).toBe(false);
@@ -311,14 +319,9 @@ describe("ViewFrameContainer", () => {
     await report({ k: 1 });
     await vi.waitFor(() =>
       expect(cached()).toEqual([
-        {
-          ts: expect.any(String),
-          state: { k: 1 },
-          queries: [{ dataset: "df" }],
-        },
+        { ts: "server-1", state: { k: 1 }, queries: [{ dataset: "df" }] },
       ]),
     );
-    expect(cached()?.[0]?.ts).not.toBe("t0");
     await report({ k: true });
     await vi.waitFor(() =>
       expect(cached()?.map((s) => s.state)).toEqual([{ k: 1 }, { k: true }]),
@@ -328,6 +331,7 @@ describe("ViewFrameContainer", () => {
   describe("after a pick in the scrubber", () => {
     const a: Snapshot = { ts: "t0", state: { k: "a" }, queries: [] };
     const b: Snapshot = { ts: "t1", state: { k: "b" }, queries: [] };
+    const c: Snapshot = { ts: "t2", state: { k: "c" }, queries: [] };
     // The query cache tells its observers on a timer, so wait one out before reading the screen.
     const cache = (qc: QueryClient, snapshots: Snapshot[]) =>
       act(async () => {
@@ -337,7 +341,7 @@ describe("ViewFrameContainer", () => {
     const pickFirst = () =>
       fireEvent.change(screen.getByRole("slider"), { target: { value: "0" } });
 
-    it("restores the picked snapshot's state and hands the pick to its actions", async () => {
+    it("restores the picked snapshot's state and hands its ts to the actions", async () => {
       const { iframe, send, qc } = mount();
       const posted: HostToRuntime[] = [];
       vi.spyOn(
@@ -347,7 +351,7 @@ describe("ViewFrameContainer", () => {
       await cache(qc, [a, b]);
       expect(screen.getByText("picked none")).toBeTruthy();
       pickFirst();
-      expect(screen.getByText("picked 0")).toBeTruthy();
+      expect(screen.getByText("picked t0")).toBeTruthy();
       // The restore waits for the mount.
       await act(async () => iframe.dispatchEvent(new Event("load")));
       const connection = posted[0];
@@ -360,12 +364,48 @@ describe("ViewFrameContainer", () => {
       });
     });
 
-    it("moves to the latest when a new snapshot arrives", async () => {
-      const { qc } = mount();
+    it("restores the same snapshot again when it is picked after a report", async () => {
+      const { iframe, send, qc } = mount();
+      const posted: HostToRuntime[] = [];
+      vi.spyOn(
+        iframe.contentWindow as Window,
+        "postMessage",
+      ).mockImplementation((m: HostToRuntime) => posted.push(m));
       await cache(qc, [a, b]);
+      await act(async () => iframe.dispatchEvent(new Event("load")));
+      const connection = posted[0];
+      if (connection?.type !== "connect") throw new Error("not connected");
+      await act(async () => send({ type: "ready", id: connection.id }));
       pickFirst();
-      await cache(qc, [a, b, { ts: "t2", state: { k: "c" }, queries: [] }]);
-      expect(screen.getByText("3 of 3")).toBeTruthy();
+      await act(async () => {
+        send({
+          type: "stateChanged",
+          viewId: "s1",
+          state: c.state,
+          queries: [],
+        });
+      });
+      await vi.waitFor(() => expect(screen.getByText("3 of 3")).toBeTruthy());
+      pickFirst();
+      const restore = { type: "restore", viewId: "s1", state: a.state };
+      expect(posted.filter((m) => m.type === "restore")).toEqual([
+        restore,
+        restore,
+      ]);
+    });
+
+    it("follows the picked snapshot when a refetch drops older ones", async () => {
+      const { qc } = mount();
+      await cache(qc, [a, b, c]);
+      fireEvent.change(screen.getByRole("slider"), { target: { value: "1" } });
+      // Past the server's cap the oldest drop off, and a refetch brings the shorter list.
+      await cache(qc, [b, c]);
+      expect(screen.getByText("1 of 2")).toBeTruthy();
+      expect(screen.getByText("picked t1")).toBeTruthy();
+      // Once the picked snapshot is gone too, the scrubber shows the latest.
+      await cache(qc, [c, { ts: "t3", state: { k: "d" }, queries: [] }]);
+      expect(screen.getByText("2 of 2")).toBeTruthy();
+      expect(screen.getByText("picked none")).toBeTruthy();
     });
 
     it("moves to the latest when the view reports the last state again", async () => {
@@ -374,6 +414,7 @@ describe("ViewFrameContainer", () => {
       pickFirst();
       expect(screen.getByText("1 of 2")).toBeTruthy();
       const slider = screen.getByRole("slider");
+      slider.focus();
       await act(async () => {
         send({
           type: "stateChanged",
@@ -390,15 +431,7 @@ describe("ViewFrameContainer", () => {
       });
       // The same input, so a report that lands mid-drag keeps the drag and focus.
       expect(screen.getByRole("slider")).toBe(slider);
-    });
-
-    it("keeps the pick when a refetch brings the same snapshots", async () => {
-      const { qc } = mount();
-      await cache(qc, [a, b]);
-      pickFirst();
-      // The server stamps its own ts, so a refetch after a recorded snapshot changes the last one's.
-      await cache(qc, [a, { ...b, ts: "t1-server" }]);
-      expect(screen.getByText("1 of 2")).toBeTruthy();
+      expect(document.activeElement).toBe(slider);
     });
   });
 

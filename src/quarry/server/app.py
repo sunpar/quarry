@@ -30,7 +30,7 @@ from quarry.projects.store import ProjectStore
 from quarry.query.spec import Json, QueryError, QuerySpec
 from quarry.server.component_routes import register_component_routes
 from quarry.server.kernels import KernelManager, ReplayReport, SessionBusy
-from quarry.server.models import Session, SessionMeta, Step
+from quarry.server.models import Session, SessionMeta, Snapshot, Step
 from quarry.server.project_routes import register_project_routes
 from quarry.server.projects import ProjectService
 from quarry.server.service import (
@@ -155,15 +155,14 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"no view on step {exc}") from exc
 
     @api.post("/sessions/{session_id}/steps/{step_id}/snapshots")
-    def post_snapshot(session_id: str, step_id: str, body: SnapshotRequest) -> dict[str, int]:
+    def post_snapshot(session_id: str, step_id: str, body: SnapshotRequest) -> Snapshot:
         session_or_404(session_id)
         try:
-            count = service.record_snapshot(session_id, step_id, body.state, body.queries)
+            return service.record_snapshot(session_id, step_id, body.state, body.queries)
         except StepNotFound as exc:
             raise HTTPException(status_code=404, detail=f"no view on step {exc}") from exc
         except SessionBusy as exc:
             raise HTTPException(status_code=409, detail="step is still running") from exc
-        return {"count": count}
 
     @api.post("/sessions/{session_id}/steps/manual", status_code=202)
     def post_manual(session_id: str, body: ManualStepRequest) -> Step:
@@ -195,11 +194,11 @@ def create_app(
 
     @api.post("/sessions/{session_id}/steps/{step_id}/to-code")
     def to_code(
-        session_id: str, step_id: str, snapshots_back: Annotated[int, Body(embed=True)] = 0
+        session_id: str, step_id: str, snapshot_ts: Annotated[str | None, Body(embed=True)] = None
     ) -> ToCode:
         session_or_404(session_id)
         try:
-            code, dropped = service.to_code(session_id, step_id, snapshots_back)
+            code, dropped = service.to_code(session_id, step_id, snapshot_ts)
         except StepNotFound as exc:
             raise HTTPException(status_code=404, detail=f"no view on step {exc}") from exc
         except (ValueError, QueryError, RpcFailure) as exc:  # a ValidationError is a ValueError

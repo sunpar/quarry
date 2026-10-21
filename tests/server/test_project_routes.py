@@ -29,8 +29,8 @@ def test_project_crud_and_save_flow(tmp_path: Path) -> None:
     bad = client.post("/projects/momentum/views", json={**body, "name": "Bad Name"})
     assert bad.status_code == 400
     # The view has reported no snapshot, so there is none to pick.
-    unpicked = client.post("/projects/momentum/views", json={**body, "snapshots_back": 1})
-    assert unpicked.status_code == 400
+    unpicked = client.post("/projects/momentum/views", json={**body, "snapshot_ts": "nope"})
+    assert unpicked.status_code == 400 and unpicked.json()["detail"] == "no snapshot at nope"
     missing = client.post(
         "/projects/momentum/datasets", json={"session_id": sid, "dataset": "nope", "mode": "live"}
     )
