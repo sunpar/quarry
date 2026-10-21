@@ -757,7 +757,14 @@ them.
   through `child`. A save that names only one of `session_id` and `dataset`
   answers 422, since a half binding had saved `requires: []`, and "no such
   session" (404) comes only from the session lookup: a `KeyError` from deeper in
-  had read as one. A missing dataset is its own 404.
+  had read as one. A missing dataset is its own 404. `create_app` makes
+  `<root>/components`, so a regular file there stops `quarry serve` at startup
+  rather than turning every save into a 409 "folder already exists". Each save
+  makes it too, so one deleted while the server runs comes back. Neither makes
+  a missing root: that is `quarry serve`'s to create private.
+  `SaveComponentRequest` trims tags and drops blank and repeated ones, keeping
+  the first, so every caller's manifest gets the same tags; they stay
+  case-sensitive, like tag search.
 - **Licensed library status lives in `quarry/libraries.py`**: `LibraryStatus`
   and `licensed_libraries` import only the config and pydantic, because
   `enabled_libraries` in `quarry.agent` needs them and `quarry.server` already
@@ -1453,7 +1460,8 @@ them.
   line chart resolves the value first and skips `<value>_<fn>`, the aggregate's
   name, as a category; with no other column left it groups by a numeric one,
   then by the value itself, which the kernel accepts, because the manifest's
-  `any` role matches all-numeric datasets.
+  `any` role matches all-numeric datasets. A loading or failed query never hides
+  the pickers either: its message shows under them.
 - **The heatmap never defaults to a numeric key**: the pivot runs eagerly and
   makes one column per distinct value of its column key, which `row_cap` and
   `limit` do not bound, so a float key made a grid thousands of columns wide on

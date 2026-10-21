@@ -125,7 +125,7 @@ def write_component(root: Path, manifest: ComponentManifest, source: str) -> Pat
     already there is a FileExistsError: the library skips one with a bad manifest, so it may
     hold files a researcher wrote. The library lists a component once both files exist, so
     the manifest goes last."""
-    root.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
+    root.mkdir(mode=PRIVATE_DIR, exist_ok=True)
     target = child(root, manifest.id)
     target.mkdir(mode=PRIVATE_DIR)
     write_atomic(target / "component.tsx", source)

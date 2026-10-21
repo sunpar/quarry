@@ -160,10 +160,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   a peer connection's ICE traffic or a DNS prefetch, so a generated view can put
   rows in a STUN host name or a prefetched name despite the runtime CSP and the
   host's `frame-src 'self'`. Silent.
-- **A refused column choice hides the chart pickers**: every chart built-in
-  returns early on a query error, so when the kernel refuses a saved column
-  choice, the pickers that could change it are gone. Loud, and the view stays on
-  the error.
 - **The first browser test can time out on load**: in 1 of 5 local full runs,
   the session's first Playwright test waited 30 s for the "New session" button
   in `open_session` and failed, before any step ran; reruns passed. The cause is
@@ -227,19 +223,28 @@ Decisions already made are in [decisions.md](context/decisions.md).
   instead of the new view and posts it under the new mount, which brings back
   the host's "Fix this view". Loud.
 - **OHLC fails on a case-only name clash**: `Close` and `close` in one dataset
-  make its select fail, and the error hides the pickers. Loud. A table's saved
-  sort also goes out before the schema loads, so a sort on a dropped column
-  fails that first query.
+  make its select fail. Loud. A table's saved sort also goes out before the
+  schema loads, so a sort on a dropped column fails that first query.
+- **Arrowing through a chart picker runs a query per option**: the pickers stay
+  mounted while a query loads, and on Windows and Linux a closed `<select>`
+  fires a change for each option the arrow keys pass. Nothing cancels a running
+  query, so each option runs its own kernel query to the end. Large-series and
+  the table built-ins already did this. Silent cost.
 - **Picked snapshots are not what "To code" and "Save view" use**: after a pick
   in the scrubber, both use the newest snapshot. Silent.
 - **Snapshot reports are not ordered**: the server handles each report in a
   thread pool, so when two reports of the same state race, the older one can
   replace the newer, and "To code" and "Save view" use stale queries until the
   next report. Silent.
-- **Component save messages mislead**: a busy session answers `POST /components`
-  with 409, the code an existing id gets; `<root>/components` as a regular file
-  makes every save a 409 "folder already exists"; and "Save to library" stays
-  disabled with no message for an id over 64 characters. Loud but misleading.
+- **A busy session's component save shares a 409**: a busy session's 409 on
+  `POST /components` shares its code with an existing id's, though its message
+  says the session is busy. Giving it another code is a decision to make.
+- **A failed component save can block its id**: a save that fails after its
+  folder is made, such as on a full disk, leaves a folder without a manifest.
+  The library skips it, and every later save of that id gets the 409 "a
+  component folder named ... already exists" until it is removed. The
+  components root is also not fsynced after a new folder, so a crash can lose
+  the folder. Loud.
 
 ## Deferred work
 
@@ -334,11 +339,9 @@ one up when a researcher needs it.
 - Check that the host's `frame-src 'self'` stops a view frame's own navigation
   in Firefox and Safari; the Playwright test runs Chromium only.
 - Review the chart built-ins' visuals and accessibility, which no Stage 5 review
-  covered: table header sorts are mouse-only, and OHLC shows a blank pane while
-  loading.
+  covered: table header sorts are mouse-only.
 - Small host fixes from the Stage 5 reviews: clicking "To code" again replaces
-  code edited in the drawer, a 409's message stays while the id is edited, Stop
-  shows during a hold, "Save to library" keeps duplicate tags, and a dead
+  code edited in the drawer, Stop shows during a hold, and a dead
   `basis-full`/`w-[40rem]` class remains.
 - Tidy Stage 5 code: the library statuses are computed twice at startup
   (`create_app` and `enabled_libraries`); `to_code` builds the importable

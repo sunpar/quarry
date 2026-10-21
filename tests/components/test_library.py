@@ -200,6 +200,19 @@ def test_write_component_then_library_finds_it(tmp_path: Path) -> None:
     assert entry.source_path.read_text().startswith("export default")
 
 
+def test_write_component_leaves_a_missing_root_to_quarry_serve(tmp_path: Path) -> None:
+    manifest = ComponentManifest(
+        id="my-scatter",
+        name="My scatter",
+        description="",
+        origin="generated",
+        created_at="2026-10-09T00:00:00Z",
+    )
+    with pytest.raises(FileNotFoundError):
+        library.write_component(tmp_path / "gone" / "components", manifest, "")
+    assert not (tmp_path / "gone").exists()
+
+
 def test_component_id_pattern() -> None:
     assert COMPONENT_ID_RE.match("ok-id-9")
     assert COMPONENT_ID_RE.match("Bad") is None and COMPONENT_ID_RE.match("a/b") is None
