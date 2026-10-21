@@ -43,7 +43,7 @@ Hosted Linux runs passed on each merged head:
 gate on #35's merge with main passed 1,309 Python tests (3 skipped) and 277
 frontend tests. One gate run failed once in
 `test_native_cleanup_finishes_while_real_python_is_still_executing[True]` and
-passed on rerun; the open items record it.
+passed on rerun.
 
 Running `uv run` in a fresh worktree installs Quarry into `.venv`, and
 `make check` then stops at its dependency check; rerun `make deps` to recover.

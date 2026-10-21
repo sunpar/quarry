@@ -12,7 +12,8 @@ from typing import Any
 import pytest
 
 from quarry import __version__
-from quarry.agent.codex_runtime import CodexRuntime
+from quarry.agent import codex_runtime
+from quarry.agent.codex_runtime import CodexRuntime, _Connection
 from quarry.agent.loop import StepOutcome
 from quarry.agent.tools import TOOL_DEFS, ToolExecutor
 from quarry.agent.transpile import NoopTranspiler
@@ -22,6 +23,7 @@ from quarry.config import ProviderConfig, QuarryConfig
 from quarry.kernel.client import KernelClient
 from quarry.projects.tidy import tidy_recipe
 from tests.components.test_library import write_component
+from tests.kernel.test_client import exits_soon
 
 _FAKE = r"""
 import json, os, signal, sys, time
@@ -678,6 +680,33 @@ def test_cancellation_stays_responsive_when_native_stops_reading_results(
             except ProcessLookupError:
                 pass
     assert out.status == "interrupted"
+
+
+def test_close_after_the_app_server_exited_unreaped(tmp_path: Path) -> None:
+    connection = _Connection([sys.executable, "-c", ""], tmp_path, threading.Event())
+    try:
+        # A zombie, exited but not reaped: on macOS, signalling its group then fails with EPERM.
+        assert exits_soon(connection.process.pid) and connection.process.returncode is None
+    finally:
+        connection.close(None, None)
+    assert connection.process.returncode == 0
+
+
+def test_close_fails_for_an_app_server_it_cannot_signal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    connection = _Connection(["sleep", "30"], tmp_path, threading.Event())
+    try:
+        # A refused signal, as macOS answers for a process another user owns: no endless wait.
+        monkeypatch.setattr(codex_runtime, "kill_group", lambda process, sig=0: None)
+        monkeypatch.setattr(codex_runtime, "_SIGKILL_WAIT", 0.1)
+        with pytest.raises(ProviderError, match="outlived SIGKILL"):
+            connection.close(None, None)
+        connection.writer.join(timeout=1)
+        assert not connection.writer.is_alive()
+    finally:
+        os.killpg(connection.process.pid, signal.SIGKILL)
+        connection.process.wait()
 
 
 def test_missing_terminal_status_returns_error_and_closes_transport(
