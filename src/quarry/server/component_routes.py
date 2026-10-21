@@ -37,6 +37,13 @@ class SaveComponentRequest(BaseModel):
             raise ValueError("session_id and dataset are set together or not at all")
         return self
 
+    @model_validator(mode="after")
+    def _clean_tags(self) -> SaveComponentRequest:
+        # Here, not in a client, so every caller's manifest gets the same tags; first seen wins.
+        stripped = (t.strip() for t in self.tags)
+        self.tags = list(dict.fromkeys(t for t in stripped if t != ""))
+        return self
+
 
 def register_component_routes(
     api: APIRouter,
@@ -53,7 +60,11 @@ def register_component_routes(
     @api.post("/components", status_code=201)
     def save_component(body: SaveComponentRequest) -> ComponentManifest:
         if COMPONENT_ID_RE.match(body.id) is None:
-            raise HTTPException(status_code=400, detail="ids are lowercase letters, digits and '-'")
+            raise HTTPException(
+                status_code=400,
+                detail="ids are 1 to 64 lowercase letters, digits and '-', "
+                "starting with a letter or digit",
+            )
         if library.get(body.id) is not None:
             raise HTTPException(status_code=409, detail=f"component {body.id!r} already exists")
         problem = transpiler.check(body.source)
