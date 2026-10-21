@@ -386,12 +386,13 @@ them.
   `string`, `date32`, `timestamp` and `bool`. Perspective reads every unsigned
   width as signed, so 255 in a UInt8 came back as -1 and 4,000,000,000 in a
   UInt32 as -294,967,296: UInt8, UInt16 and UInt32 become Int64, which holds
-  them exactly, and UInt64 becomes Float64, as Decimal and the 128-bit integers
-  do, since pyarrow cannot read polars' Int128; Categorical, Enum and Time
-  become strings, Duration polars' own text such as `1d 2h`, Binary base64 and
-  nested values JSON strings; and `large_string` is narrowed to `string`. Cost:
-  decimals and large integers can lose precision in Arrow, so JSON rows stay the
-  exact form.
+  them exactly, and UInt64 becomes Float64, as Decimal, Float16 and the 128-bit
+  integers do, since pyarrow cannot read polars' Int128 and Perspective refuses
+  `halffloat`; Categorical, Enum and Time become strings, Duration polars' own
+  text such as `1d 2h`, Binary base64 and nested values JSON strings; an
+  extension column becomes its storage, converted the same way; and
+  `large_string` is narrowed to `string`. Cost: decimals and large integers can
+  lose precision in Arrow, so JSON rows stay the exact form.
 - **INTERVAL and UNION become text**: one helper projects these columns, at any
   depth, as VARCHAR before `.pl()` and reports them as String. `.pl()` rejects
   INTERVAL, nested INTERVAL panics, and polars' environment-variable import path
@@ -655,7 +656,11 @@ them.
   the plan's rule, but the server also reports `busy` while a step runs, and the
   status poll slows from 750 ms to 5 s once the page sees its step end, so its
   last answer, taken while the step ran, locked the prompt for up to 5 s after
-  many steps.
+  many steps. Stop shows only while a step runs, from this page or elsewhere,
+  since interrupt stops nothing else; a hold with no `running_step` shows a
+  disabled Run. Cost: a restart cancelling a step still reports that step as
+  `running_step` until it ends, so Stop shows, and its interrupt gets a 409 the
+  page does not show.
 - **Recall is a manual step**: `start_recall` creates a `recall` step, carrying
   the saved view for a view recall, and runs it on the manual-step path, so
   `runs` is filled, lineage records the writes and restart replays it. `_begin`
@@ -750,9 +755,14 @@ them.
   lists one whose manifest names another id under that id, so the check against
   the library alone had let a save replace files a researcher wrote. It writes
   `component.tsx`, then `manifest.json`: the library lists a component only once
-  both exist, so a crash between them leaves nothing listed. Cost: that crash,
-  or any failed write after the folder exists, leaves a folder that refuses the
-  id until it is removed. The id pattern ends in `\Z`, not the plan's `$`, which
+  both exist, so a crash between them leaves nothing listed. It then fsyncs the
+  root so the new folder survives a crash. A save that fails after the folder
+  exists removes both files and the folder, with `rmdir`, not `rmtree`, so a
+  file someone else put there stays; such a folder had refused the id until it
+  was removed. Each removal is best-effort and logs a warning when it fails, so
+  the save's own error is the one reported. Cost: a removal that fails, or a
+  crash mid-save, still leaves a folder that refuses the id until it is
+  removed. The id pattern ends in `\Z`, not the plan's `$`, which
   in Python also matches before a trailing newline, and the id reaches the path
   through `child`. A save that names only one of `session_id` and `dataset`
   answers 422, since a half binding had saved `requires: []`, and "no such
@@ -875,8 +885,7 @@ them.
   marks every answer stale and keeps showing it until the refetch lands, so a
   long-lived view follows a rebound dataset without flashing to "Loading". Each
   request carries a ticket, and only the newest per key may write, so an answer
-  from before the refresh cannot overwrite one from after. A saved sort on a
-  column the live schema lacks is dropped from the query.
+  from before the refresh cannot overwrite one from after.
 - **Views may ask for Arrow**: `useQuery` with `format: "arrow"` returns the IPC
   stream bytes as an `ArrayBuffer` in `arrow`, with `rows` empty, for
   Perspective.
@@ -1402,7 +1411,8 @@ them.
   refuses `enableSorting` without that feature. The numeric flag is typed
   through the `columnMeta: metaHelper<…>()` slot instead of a cast. As the AG
   Grid table does, it keeps a saved sort visible with a Clear sort action when
-  the live schema loses its column, and shows "Showing the first N rows." when a
+  the live schema loses its column. Cost: the sort still goes out, so the query
+  fails until Clear sort is pressed. It shows "Showing the first N rows." when a
   page is full; the plan's "N of M rows" would repeat the page size, since
   `row_count` counts the rows returned.
 - **Both tables keep their last answer while a changed query loads**: a new sort
@@ -1425,8 +1435,16 @@ them.
   then takes the first free numeric column named like it, then the first free
   numeric column. A column the researcher picks for two roles keeps both, and
   the query selects it once, since the kernel refuses a repeated `select` name.
-  The chart effect is keyed on the rows and the five names, so a re-render with
-  the same result keeps the chart.
+  The kernel also refuses two names that differ only in case, as `Close` and
+  `close`, so saved columns, guesses and picker options compare names ignoring
+  case: a saved column that clashes with one resolved before it is guessed like
+  a missing one, the time is resolved after the saved prices but takes the only
+  time column over a saved price that clashes with it, and a picker leaves out a
+  column that clashes with another role's. A dataset without a time column and
+  four price columns distinct ignoring case shows the "needs ... columns"
+  message; when the guesses leave a role empty otherwise, the pickers stay with
+  that role blank and ask for a column. The chart effect is keyed on the rows
+  and the five names, so a re-render with the same result keeps the chart.
 
 ### Recharts, Plotly and ECharts
 

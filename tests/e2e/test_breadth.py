@@ -43,6 +43,8 @@ def code_for_view(page: Page) -> Locator:
         expect(box).to_have_value(re.compile(r"\S"), timeout=30_000)
         if "group_by" in box.input_value() or time.monotonic() > deadline:
             return box
+        # To code stays off while the drawer is open, so its edits survive.
+        page.get_by_role("region", name="To code").get_by_role("button", name="Close").click()
         page.wait_for_timeout(500)
 
 

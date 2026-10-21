@@ -4,6 +4,8 @@ import { Textarea } from "@/components/ui/textarea";
 
 interface PromptBoxProps {
   running: boolean;
+  /** The server holds the session, so it would refuse a prompt; Stop shows only while `running`. */
+  held?: boolean;
   /** The kernel is dead: steps would fail until a restart. */
   kernelDead?: boolean;
   onSubmit: (prompt: string) => Promise<unknown>;
@@ -12,12 +14,13 @@ interface PromptBoxProps {
 
 export function PromptBox({
   running,
+  held = false,
   kernelDead = false,
   onSubmit,
   onStop,
 }: PromptBoxProps) {
   const [text, setText] = useState("");
-  const locked = running || kernelDead;
+  const locked = running || held || kernelDead;
   const submit = () => {
     const prompt = text.trim();
     if (prompt === "" || locked) return;
@@ -45,9 +48,11 @@ export function PromptBox({
         placeholder={
           running
             ? "Working on the last step"
-            : kernelDead
-              ? "Restart the kernel to continue"
-              : "Ask about the data"
+            : held
+              ? "Waiting for the kernel"
+              : kernelDead
+                ? "Restart the kernel to continue"
+                : "Ask about the data"
         }
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKeyDown}
@@ -59,7 +64,7 @@ export function PromptBox({
           Stop
         </Button>
       ) : (
-        <Button disabled={kernelDead} onClick={submit}>
+        <Button disabled={locked} onClick={submit}>
           Run
         </Button>
       )}

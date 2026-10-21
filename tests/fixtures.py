@@ -1,5 +1,5 @@
-"""Helpers for tests that change process-wide state: file modes, the umask and DuckDB's
-default connection."""
+"""Helpers for tests that change process-wide state: file modes, the umask, `os.fsync` and
+DuckDB's default connection."""
 
 import os
 import stat
@@ -39,6 +39,19 @@ def umask(mask: int) -> Iterator[None]:
         yield
     finally:
         os.umask(previous)
+
+
+def record_fsyncs(monkeypatch: pytest.MonkeyPatch) -> list[os.stat_result]:
+    """Each file `os.fsync` is given from now on, as `fstat` saw it."""
+    synced: list[os.stat_result] = []
+    fsync = os.fsync
+
+    def recording_fsync(fd: int) -> None:
+        synced.append(os.fstat(fd))
+        fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", recording_fsync)
+    return synced
 
 
 def setting(conn: duckdb.DuckDBPyConnection, name: str) -> object:

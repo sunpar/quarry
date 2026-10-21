@@ -208,8 +208,8 @@ class SessionService:
         return step
 
     def status(self, session_id: str) -> SessionStatus:
-        running = self._running.get(session_id)
         with self._lock:
+            running = self._running.get(session_id)
             busy = self._busy(session_id)
         return SessionStatus(
             session_id=session_id,
@@ -450,7 +450,6 @@ class SessionService:
             self._last_error.pop(session_id, None)
         self._cancels.pop(session_id, None)
         self._released.notify_all()  # waiters wake once the caller lets go of the lock
-        # Last: status() reads _running without the lock and treats None as fully finished.
         self._running.pop(session_id, None)
 
     def _system_context(self) -> SystemContext:

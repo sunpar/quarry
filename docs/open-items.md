@@ -210,12 +210,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   stream that is still valid base64 decodes, so `client.table` rejects inside
   `PerspectiveViewer`'s load effect. The runtime reports the unhandled rejection
   to the host, and the pivot stays empty. Loud.
-- **Float16 and extension columns break the pivot**: `for_viewer` leaves a
-  Float16 column as Arrow `halffloat` and passes an extension column's storage
-  type through unconverted. Perspective 3.8.0 refuses `halffloat` and an
-  extension over Duration or Struct, so the pivot stays empty, and reads an
-  extension over UInt64 as signed, so 2^64 - 1 shows as -1. `to_json_rows`
-  handles both. Loud, except the UInt64 case, which is silent.
 - **A hung `GET /libraries` never mounts a view**: `ViewHost` waits for that one
   answer with no timeout. Silent: the frame stays empty.
 - **An outgoing view's cleanup error replaces the incoming view**: the frame
@@ -223,9 +217,13 @@ Decisions already made are in [decisions.md](context/decisions.md).
   an effect cleanup as the next view mounts, the boundary shows that error
   instead of the new view and posts it under the new mount, which brings back
   the host's "Fix this view". Loud.
-- **OHLC fails on a case-only name clash**: `Close` and `close` in one dataset
-  make its select fail. Loud. A table's saved sort also goes out before the
-  schema loads, so a sort on a dropped column fails that first query.
+- **Time-series and large-series can guess a case-only clash**: each picks the
+  first datetime column and the first numeric one, which can differ only in
+  case, as `Date` and `date`, so the query fails. Loud.
+- **OHLC can chart a column named like a price as that price**: its name pass
+  takes the first numeric column whose name starts with the role, so
+  `open_interest` listed before `open`, or `lower_band` before `low`, is charted
+  as that price. Silent.
 - **Arrowing through a chart picker runs a query per option**: the pickers stay
   mounted while a query loads, and on Windows and Linux a closed `<select>`
   fires a change for each option the arrow keys pass. Nothing cancels a running
@@ -235,15 +233,26 @@ Decisions already made are in [decisions.md](context/decisions.md).
   thread pool, so when two reports of the same state race, the older one can
   replace the newer, and "To code" and "Save view" use stale queries until the
   next report. Silent.
+- **The "To code" drawer can run past the column**: the drawer is 40rem wide
+  inside the actions box, which shares a row that does not wrap with the History
+  slider. Once a view has two or more snapshots, the drawer runs past the column
+  on narrower windows: at a 1280px window its right edge is at 1038px, past the
+  column's 912px. Rendering it below that row at full width would fix it. Loud:
+  the overflow is visible.
 - **A busy session's component save shares a 409**: a busy session's 409 on
   `POST /components` shares its code with an existing id's, though its message
   says the session is busy. The open question on its code covers the fix.
-- **A failed component save can block its id**: a save that fails after its
-  folder is made, such as on a full disk, leaves a folder without a manifest.
-  The library skips it, and every later save of that id gets the 409 "a
-  component folder named ... already exists" until it is removed. The
-  components root is also not fsynced after a new folder, so a crash can lose
-  the folder. Loud.
+- **Pivot filters on Float32 and Float16 compare at different precisions**:
+  the viewer reads those columns as doubles, while the kernel rounds the filter
+  literal to the column's width, so for a stored 0.1 the viewer's `== 0.1`
+  keeps no rows and "To code"'s keeps the row. Silent.
+- **Extension columns load into the pivot but not into its queries**: polars
+  refuses comparisons, `is_in`, sums, means, min, max and a string cast on an
+  extension column, so a pivot that filters, aggregates or splits on one shows
+  "This layout cannot run as a query". `toSpec` and `filters.ts` also read the
+  `Extension(...)` dtype string as non-numeric, so a default aggregate maps to
+  `count`. Unwrapping extension columns where the kernel takes a frame would
+  cover the queries, the schema and the transport at once. Loud.
 
 ## Deferred work
 
@@ -292,8 +301,6 @@ one up when a researcher needs it.
   released first.
 - A failed view recall keeps its view on the step, so the frame shows a query
   error under the recall's traceback.
-- Canvas cards: a card is blank when its saved view fails to load, a card whose
-  view is missing has no Remove, and recall and layout errors never clear.
 - `SaveDialog` gets an empty list while projects load or fail, so it shows
   "Create a project in the rail first." until they arrive.
 - Count in-place mutation inside a function as a write of the frame it changes:
@@ -326,8 +333,6 @@ one up when a researcher needs it.
   `_wasm/scichart.wasm` and nothing else.
 - Export a single view with `quarry projects export`, and import a `.ipynb`.
   Neither is in the spec.
-- Name the target path in a failed export's message, which names its temporary
-  file (`.out.ipynb.<random>.tmp`) instead.
 - Keep TIMETZ offsets in JSON rows.
 - Smoke-test `sql()` against the firm's SQL Server with `VARCHAR(MAX)` columns,
   which may need arrow-odbc's `max_text_size`.
@@ -340,9 +345,6 @@ one up when a researcher needs it.
   in Firefox and Safari; the Playwright test runs Chromium only.
 - Review the chart built-ins' visuals and accessibility, which no Stage 5 review
   covered: table header sorts are mouse-only.
-- Small host fixes from the Stage 5 reviews: clicking "To code" again replaces
-  code edited in the drawer, Stop shows during a hold, and a dead
-  `basis-full`/`w-[40rem]` class remains.
 - Tidy Stage 5 code: the library statuses are computed twice at startup
   (`create_app` and `enabled_libraries`); `to_code` builds the importable
   projection twice per relation and runs `_imported_names` twice per polars
@@ -353,15 +355,15 @@ one up when a researcher needs it.
   store or `del df["k"]`, which validation still catches; and
   `@types/d3-selection` resolves to 1.0.10 through Perspective, hidden by
   `skipLibCheck`.
-- Close Stage 5 test gaps:
-  - Server: no test sends an all-null column to Perspective.
-  - Web and browser tests: the Perspective cache-hit test checks React's row
-    count, not the viewer's table. `ViewHost.test.tsx` is at 240 lines with
-    fixed 20 ms sleeps. `state.test.ts` uses fake timers without `try/finally`,
-    `mount.queries.test` leaves roots mounted, and two tests leave `URL`
-    patched. The ECharts browser assertion passes with zero points, and the
-    Plotly one depends on the plot's width. OHLC has no non-zero-offset or
-    microsecond case, and no browser test loads Highstock or SciChart.
+- Close Stage 5 web and browser test gaps: the Perspective cache-hit test
+  checks React's row count, not the viewer's table. `ViewHost.test.tsx` is at
+  240 lines with fixed 20 ms sleeps. `state.test.ts` uses fake timers without
+  `try/finally`, `mount.queries.test` leaves roots mounted, and two tests leave
+  `URL` patched. The ECharts browser assertion passes with zero points, and the
+  Plotly one depends on the plot's width. OHLC has no non-zero-offset or
+  microsecond case, and no browser test loads Highstock or SciChart. No
+  automated test loads an all-null, Float16 or extension column into
+  Perspective itself; `test_arrow.py` checks only the Arrow types.
 
 ## Open questions
 
