@@ -1,13 +1,14 @@
-import stat
 from pathlib import Path
 
 import pytest
 
 from quarry.agent.transpile import NoopTranspiler, default_transpiler
 from quarry.components.library import builtin_root
-from quarry.config import LibrariesConfig, QuarryConfig
 from tests.agent.test_transpile import STATIC
+from tests.components.test_library import write_component
 from tests.server.test_app import make_client, wait_idle
+from tests.server.test_libraries import config_with
+from tests.server.test_store import mode
 
 SOURCE = (
     'import { useQuery } from "@quarry/hooks";\n'
@@ -62,19 +63,13 @@ def test_save_component_without_a_dataset_requires_nothing(tmp_path: Path) -> No
         listed = {m["id"] for m in client.get("/components").json()}
     assert {"plain", "data-table"} <= listed
     for folder in (tmp_path / "components", tmp_path / "components" / "plain"):
-        assert stat.S_IMODE(folder.stat().st_mode) == 0o700
+        assert mode(folder) == 0o700
 
 
 def test_save_component_refuses_an_id_the_team_library_has(tmp_path: Path) -> None:
     team = tmp_path / "team"
-    (team / "shared").mkdir(parents=True)
-    (team / "shared" / "manifest.json").write_text(
-        '{"id": "shared", "name": "Shared", "description": "", '
-        '"origin": "imported", "created_at": ""}'
-    )
-    (team / "shared" / "component.tsx").write_text(SOURCE)
-    config = QuarryConfig(root=tmp_path, libraries=LibrariesConfig(team_components=team))
-    with make_client(tmp_path, [], config=config) as client:
+    write_component(team, "shared", [], [])
+    with make_client(tmp_path, [], config=config_with(tmp_path, team_components=team)) as client:
         saved = client.post("/components", json={"id": "shared", "name": "Mine", "source": SOURCE})
         assert saved.status_code == 409, saved.text
         assert saved.json()["detail"] == "component 'shared' already exists"
