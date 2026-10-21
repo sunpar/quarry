@@ -1,7 +1,6 @@
 import { Button } from "@/components/ui/button";
 
 interface ToCodeDrawerProps {
-  open: boolean;
   code: string;
   dropped: string[];
   pending: boolean;
@@ -12,7 +11,6 @@ interface ToCodeDrawerProps {
 }
 
 export function ToCodeDrawer({
-  open,
   code,
   dropped,
   pending,
@@ -21,7 +19,6 @@ export function ToCodeDrawer({
   onRun,
   onClose,
 }: ToCodeDrawerProps) {
-  if (!open) return null;
   return (
     <section
       aria-label="To code"

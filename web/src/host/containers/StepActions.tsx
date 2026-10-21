@@ -188,7 +188,6 @@ export function StepActions({
       </div>
       {toCode !== null && (
         <ToCodeDrawer
-          open
           code={toCode.code}
           dropped={toCode.dropped}
           pending={submitManual.isPending}

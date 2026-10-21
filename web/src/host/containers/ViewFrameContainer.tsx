@@ -19,7 +19,10 @@ interface ViewFrameContainerProps {
   /** Changes whenever kernel data may have: a step finished or a new kernel started. */
   dataVersion: string;
   onRepair: (repair: RepairRequest) => void;
-  /** Given the ts of an older snapshot picked in the history, absent otherwise. */
+  /**
+   * Given the ts of an older snapshot picked in the history, absent otherwise.
+   * Its nodes join the History slider's wrapping row.
+   */
   actions?: (picked?: string) => ReactNode;
 }
 
