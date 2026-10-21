@@ -6,6 +6,8 @@ import time
 from collections.abc import Callable, Iterator
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
+from typing import NoReturn
 
 import duckdb
 import polars as pl
@@ -1282,6 +1284,21 @@ def test_a_literal_duckdb_cannot_take_still_returns_the_step() -> None:
     # The step's parser makes a lone surrogate of the escape, which pybind11 cannot pass on.
     code = r"""y = pl.DataFrame({"a": [1]}) if True else _conn.sql("SELECT '\ud800'")"""
     result = make().execute(code)
+    assert result.status == "ok" and result.writes == ["y"] and result.reads == []
+
+
+def test_a_tree_json_cannot_read_still_returns_the_step(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Which depth makes `json.loads` recurse too deep depends on the Python version, so the
+    # error is forced; DuckDB itself caps how deep a parsed expression goes.
+    def too_deep(_text: str) -> NoReturn:
+        raise RecursionError("maximum recursion depth exceeded")
+
+    ex = make()
+    ex.execute("recent = pl.DataFrame({'a': [1]})")
+    monkeypatch.setattr(executor_module, "json", SimpleNamespace(loads=too_deep))
+    result = ex.execute(
+        "y = pl.DataFrame({'a': [1]}) if True else _conn.sql('SELECT * FROM recent')"
+    )
     assert result.status == "ok" and result.writes == ["y"] and result.reads == []
 
 

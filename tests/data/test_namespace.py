@@ -12,7 +12,7 @@ from quarry.data.namespace import build_namespace, configure_connection
 from quarry.kernel.datasets import dataset_names
 from quarry.kernel.executor import Executor
 from quarry.query import Filter, QuerySpec
-from tests.fixtures import kept_default_connection, setting
+from tests.fixtures import NAMESPACE_SETTINGS, kept_default_connection, setting
 
 # Every namespace shares DuckDB's default connection, so names here are unique per test.
 UTC_ROWS = (
@@ -43,6 +43,15 @@ def test_memory_limit_stays_the_default_without_a_cap(tmp_path: Path) -> None:
     conn = duckdb.connect()
     configure_connection(conn, tmp_path, memory_mb=0, threads=0)
     assert setting(conn, "memory_limit") == setting(duckdb.connect(), "memory_limit")
+
+
+def test_kept_default_connection_undoes_a_capped_configuration(tmp_path: Path) -> None:
+    conn = duckdb.default_connection()
+    names = (*NAMESPACE_SETTINGS, "memory_limit")
+    before = {name: setting(conn, name) for name in names}
+    with kept_default_connection():
+        configure_connection(conn, tmp_path, memory_mb=1000, threads=2)
+    assert {name: setting(conn, name) for name in names} == before
 
 
 def test_threads_caps_duckdb(tmp_path: Path) -> None:

@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 
 from quarry.agent import transpile
-from quarry.agent.transpile import CommandTranspiler, NoopTranspiler, default_transpiler
+from quarry.agent.transpile import (
+    CommandTranspiler,
+    NoopTranspiler,
+    Transpiler,
+    default_transpiler,
+)
 
 
 def test_noop_accepts_anything() -> None:
@@ -49,9 +54,17 @@ def test_default_transpiler_warns_when_node_is_missing(
 STATIC = Path(__file__).resolve().parents[2] / "src" / "quarry" / "static"
 
 
-@pytest.mark.skipif(not (STATIC / "transpile-check.mjs").exists(), reason="web build missing")
-def test_default_transpiler_uses_bundle() -> None:
+def bundle_checker() -> Transpiler:
+    """The server's transpile check, skipping the test where it is the no-op. Called inside
+    the test, not at collection, where a missing node would log a warning on every worker."""
     checker = default_transpiler(STATIC)
+    if isinstance(checker, NoopTranspiler):
+        pytest.skip("the transpile check needs the web build and node")
+    return checker
+
+
+def test_default_transpiler_uses_bundle() -> None:
+    checker = bundle_checker()
     assert checker.check("export default () => <div/>") is None
     problem = checker.check("const a = (")
     assert problem is not None

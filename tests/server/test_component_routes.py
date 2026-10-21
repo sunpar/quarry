@@ -5,8 +5,11 @@ from pathlib import Path
 import pytest
 
 from quarry.components.library import builtin_root
-from tests.agent.test_transpile import STATIC
+from tests.agent.test_transpile import bundle_checker
+from tests.components.test_library import write_component
+from tests.fixtures import mode, umask
 from tests.server.test_app import make_client, wait_idle
+from tests.server.test_libraries import config_with
 
 SOURCE = (
     'import { useQuery } from "@quarry/hooks";\n'
@@ -51,6 +54,28 @@ def test_save_component_writes_manifest_and_lists_it(tmp_path: Path) -> None:
         unknown = client.post("/components", json={**body, "id": "nosess", "session_id": "nope"})
         assert unknown.status_code == 404
         assert not (tmp_path / "components" / "nosess").exists()
+
+
+def test_save_component_without_a_dataset_requires_nothing(tmp_path: Path) -> None:
+    # Under umask 0o022 a folder made without its private mode would be 0o755.
+    with umask(0o022), make_client(tmp_path, []) as client:
+        created = client.post("/components", json={"id": "plain", "name": "P", "source": SOURCE})
+        assert created.status_code == 201, created.text
+        assert created.json()["schema"]["requires"] == []
+        listed = {m["id"] for m in client.get("/components").json()}
+    assert {"plain", "data-table"} <= listed
+    for folder in (tmp_path / "components", tmp_path / "components" / "plain"):
+        assert mode(folder) == 0o700
+
+
+def test_save_component_refuses_an_id_the_team_library_has(tmp_path: Path) -> None:
+    team = tmp_path / "team"
+    write_component(team, "shared", [], [])
+    with make_client(tmp_path, [], config=config_with(tmp_path, team_components=team)) as client:
+        saved = client.post("/components", json={"id": "shared", "name": "Mine", "source": SOURCE})
+        assert saved.status_code == 409, saved.text
+        assert saved.json()["detail"] == "component 'shared' already exists"
+    assert not (tmp_path / "components" / "shared").exists()
 
 
 # A folder the library skips: a misspelled key, or an id that is not the folder's name.
@@ -124,11 +149,8 @@ def test_save_component_needs_session_and_dataset_together(tmp_path: Path) -> No
     assert not (tmp_path / "components" / "half").exists()
 
 
-@pytest.mark.skipif(
-    not (STATIC / "transpile-check.mjs").exists() or shutil.which("node") is None,
-    reason="the transpile check needs the web build and node",
-)
 def test_save_component_refuses_source_that_does_not_transpile(tmp_path: Path) -> None:
+    bundle_checker()
     with make_client(tmp_path, []) as client:
         body = {"id": "broken", "name": "Broken", "source": "export default ("}
         broken = client.post("/components", json=body)
