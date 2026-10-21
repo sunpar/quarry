@@ -204,7 +204,7 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **Scrubbing can keep a later pivot layout**: `PerspectiveViewer` ignores a
   missing `config`, so a snapshot from before the first layout keeps the later
   one. Changing the viewer's settings, theme or title also writes view state.
-  Silent.
+  Silent; the open question on a missing pivot `config` covers the fix.
 - **A Perspective engine that never answers hangs the pivot**: a worker whose
   script fails to run, or a server wasm that is not wasm, leaves
   `perspective.worker` waiting with no error or timeout, so the start never
@@ -386,6 +386,13 @@ one up when a researcher needs it.
   change.
 - **Restart UX**: restart always works, and it kills a running step. When the UI
   offers or forces a restart, and what the researcher sees meanwhile, is open.
+- **What a missing pivot `config` means**: `PerspectiveViewer` treats a missing
+  `config` as "leave the layout alone", so scrubbing to a snapshot from before
+  the first layout keeps the later one. Treating it as "default layout" would
+  call `reset(true)`, which also clears expressions, column styles and theme.
+  It would change what `config={undefined}` means for agent-written views, and
+  its echo writes view state, adding a snapshot that moves the scrubber off the
+  pick. Which should a missing config mean?
 - **Live provider calls**: neither adapter has called its real API. Whether the
   Anthropic API accepts `fallbacks="default"` with the
   `server-side-fallback-2026-07-01` beta, and whether `gpt-5` is the right

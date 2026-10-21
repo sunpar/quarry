@@ -1,6 +1,6 @@
 # Working state
 
-Checkpoint as of 2026-10-21, after PRs #36 to #40 merged. This page records
+Checkpoint as of 2026-10-21, after PRs #41 to #45 merged. This page records
 current work and verification. The [docs index](README.md) describes the
 permanent context and [open-items.md](open-items.md) holds unresolved work.
 
@@ -8,44 +8,65 @@ permanent context and [open-items.md](open-items.md) holds unresolved work.
 
 Five backlog items merged by squash, each from its own branch:
 
-- [PR #36](https://github.com/sunpar/quarry/pull/36) as `04c5ede`: closing a
-  Codex runtime passes over the `EPERM` macOS gives for a process group that is
-  exiting, through the kernel client's `kill_group`. An app-server that outlives
-  SIGKILL fails the close after 5 seconds instead of hanging it.
-- [PR #37](https://github.com/sunpar/quarry/pull/37) as `49f012c`: the version
-  lives only in `src/quarry/__init__.py`. Hatchling reads it from there, and the
-  Codex client reports it.
-- [PR #38](https://github.com/sunpar/quarry/pull/38) as `28f93fd`: export, tidy
-  and the dataset script treat a recipe nested too deep for `ast.parse` as one
-  that does not parse, and `recipe.py` no longer answers 500 for such a recipe.
-- [PR #39](https://github.com/sunpar/quarry/pull/39) as `2ee4e70`: tests pin the
-  OpenAI adapter's request arguments and check that every tool schema is strict.
-- [PR #40](https://github.com/sunpar/quarry/pull/40) as `0e32889`: a session link
-  whose session is gone opens the first other session, and the hash follows.
+- [PR #41](https://github.com/sunpar/quarry/pull/41) as `9ee780d`: a view's
+  error boundary resets on every mount, so a repaired view that remounts under
+  the same id drops its old error. A replaced view no longer posts an error
+  under the next mount.
+- [PR #42](https://github.com/sunpar/quarry/pull/42) as `12187af`: both Codex
+  version checks are exact. The app-server's `userAgent` must start with
+  `quarry/0.162.1`, and `CODEX_INTERNAL_ORIGINATOR_OVERRIDE` is stripped from
+  its environment.
+- [PR #43](https://github.com/sunpar/quarry/pull/43) as `33c9be6`: a 200 whose
+  body does not decode, or that converts into missing or mistyped fields, is a
+  `ProviderError`. The SDKs' own client-side errors still surface unchanged.
+- [PR #44](https://github.com/sunpar/quarry/pull/44) as `0f9ef81`: tests check
+  row order by the spec's keys, wait for the kernel to exit on shutdown, match
+  full validator messages and test polars nulls-first directly.
+- [PR #45](https://github.com/sunpar/quarry/pull/45) as `55ce496`: the
+  Perspective filter mapping drops terms the kernel and the engine read
+  differently: dates outside years 1 to 9999 or impossible days, and integer
+  items that are not safe plain digits or exceed an Int8 to Int32 column's
+  width.
+
+A sixth branch, `claude/pivot-scrub-reset`, was dropped before its PR. Making a
+missing pivot `config` reset the viewer changes what `config={undefined}` means
+for agent-written views and writes a snapshot. The open items now ask what a
+missing config should mean.
 
 Each branch ran Opus 5.5 (xhigh), Astra 6 (medium) and Muse Wonder (high) once
-before its PR. Opus raised findings on all five; Astra found nothing on four and
-Muse nothing on two. Valid findings were fixed or recorded in the open items. On
-GitHub, Claude's first review found nothing blocking on #37 to #40; its points
-on #36 were fixed in `7216c2d`, which Codex then reviewed clean. Codex's opening
-review was clean on #37, #39 and #40; on #38 it had not finished when the PR
-merged.
+before its PR. Opus raised findings on all five. Astra found nothing on four,
+and Muse nothing on one. Valid findings were fixed or recorded in the open
+items. On GitHub, Claude's first review found nothing blocking on all five, and
+Codex's opening review was clean on all five.
 
 Hosted Linux runs passed on each merged head:
-[#36](https://github.com/sunpar/quarry/actions/runs/39565930668),
-[#37](https://github.com/sunpar/quarry/actions/runs/39564752865),
-[#38](https://github.com/sunpar/quarry/actions/runs/39564380405),
-[#39](https://github.com/sunpar/quarry/actions/runs/39564383298) and
-[#40](https://github.com/sunpar/quarry/actions/runs/39565089997). #36 merged
-main, with the other four, before its last run, so its head has the same tree as
-main at `04c5ede`. Its pre-push gate passed 1,326 Python tests (3 skipped) and
-285 frontend tests.
+[#41](https://github.com/sunpar/quarry/actions/runs/39591603201),
+[#42](https://github.com/sunpar/quarry/actions/runs/39591763409),
+[#43](https://github.com/sunpar/quarry/actions/runs/39593667373),
+[#44](https://github.com/sunpar/quarry/actions/runs/39595515951) and
+[#45](https://github.com/sunpar/quarry/actions/runs/39595748729). The full gate
+on main at `55ce496` passed 1,357 Python tests (3 skipped) and 300 frontend
+tests.
 
 Running `uv run` in a fresh worktree installs Quarry into `.venv`, and
 `make check` then stops at its dependency check; rerun `make deps` to recover.
-Rerun it too after merging a lockfile change, as #37's was.
+Rerun it too after merging a lockfile change. The local reviewers' own probes
+can trigger the same stop.
 
 ## Earlier merges
+
+PRs #36 to #40 merged on 2026-10-21.
+[PR #36](https://github.com/sunpar/quarry/pull/36) (`04c5ede`) closes a Codex
+runtime past macOS's `EPERM` for an exiting process group;
+[PR #37](https://github.com/sunpar/quarry/pull/37) (`49f012c`) keeps the version
+only in `src/quarry/__init__.py`;
+[PR #38](https://github.com/sunpar/quarry/pull/38) (`28f93fd`) treats a recipe
+too deep for `ast.parse` as one that does not parse;
+[PR #39](https://github.com/sunpar/quarry/pull/39) (`2ee4e70`) pins the OpenAI
+request arguments and strict tool schemas;
+[PR #40](https://github.com/sunpar/quarry/pull/40) (`0e32889`) falls back from a
+stale session link. #36's last head had the same tree as main at `04c5ede` and
+passed 1,326 Python tests (3 skipped) and 285 frontend tests.
 
 PRs #30 to #35 merged on 2026-10-20.
 [PR #30](https://github.com/sunpar/quarry/pull/30) (`75b100d`) makes Arrow bytes
