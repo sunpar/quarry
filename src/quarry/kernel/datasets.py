@@ -12,6 +12,7 @@ from duckdb.sqltypes import DuckDBPyType
 from polars.datatypes import DataTypeClass
 from pydantic import BaseModel, ConfigDict, Field
 
+from quarry.kernel.arrow import convert_columns
 from quarry.query.spec import Backing, Json
 from quarry.query.sql_target import quote_ident
 
@@ -163,13 +164,7 @@ def to_json_rows(df: pl.DataFrame) -> list[dict[str, Json]]:
     Decimals stay exact decimal strings at any depth, as write_json emits them ("1.50"), so
     integer sums (Decimal(38, 0) on every target) arrive as strings; a float would round them.
     """
-    # pl.nth, not pl.col: a column named like a regex (`^a.*$`) or `*` would select others.
-    converted = [
-        expr.alias(name)
-        for index, (name, dtype) in enumerate(df.schema.items())
-        if (expr := _json_native(pl.nth(index), dtype)) is not None
-    ]
-    rows: list[dict[str, Json]] = json.loads(df.with_columns(converted).write_json())
+    rows: list[dict[str, Json]] = json.loads(convert_columns(df, _json_native).write_json())
     return rows
 
 
@@ -209,7 +204,7 @@ def _json_native(expr: pl.Expr, dtype: pl.DataType | DataTypeClass) -> pl.Expr |
             return in_range.dt.to_string(_NAIVE_ISO_FORMAT)
         case pl.Datetime(time_unit=unit):
             return _representable(expr, ticks_per_day=_TICKS_PER_DAY[unit])
-        case pl.Duration():
+        case pl.Duration(time_unit="ms"):
             # write_json panics on i64::MIN milliseconds.
             return pl.when(expr.to_physical() != _I64_MIN).then(expr)
         case pl.Object():
