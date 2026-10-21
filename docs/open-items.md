@@ -125,11 +125,12 @@ Decisions already made are in [decisions.md](context/decisions.md).
   unreadable directory without a log line, and misses a dataset whose parquet
   files sit only in nested directories not named `key=value`. A dangling
   `*.parquet` symlink still lists its dataset. Silent.
-- **Some malformed provider responses still pass**: the SDKs fill a missing
-  field with None, so a 200 without a stop reason reads as a turn that ended
-  normally. An Anthropic reply whose content is empty or holds only block types
-  the adapter does not know, or an OpenAI message with neither content nor tool
-  calls, reads as an empty turn that succeeded. Silent.
+- **Empty or contradicting provider turns pass as a success**: an Anthropic
+  reply whose content is empty or holds only block types the adapter does not
+  know, or an OpenAI message with neither content nor tool calls, reads as an
+  empty turn that succeeded; the open question on an empty provider turn
+  decides whether it should. A reply that stops for tool use but carries no
+  tool calls reads as a final answer. Silent.
 - **Cancel waits for the model**: `/interrupt` and `/restart` stop a prompt step
   only once the provider answers the call in flight, bounded only by the
   provider client's timeout. Meanwhile `/restart` holds its request, a second
@@ -403,6 +404,11 @@ one up when a researcher needs it.
   so that it can show a saving state. The session stays usable, since the hold
   is released first. Give validation a deadline, and how long, when a slow but
   valid recipe would then fail its save?
+- **An empty provider turn**: Anthropic can end a turn with no content, so a
+  reply with a stop reason but no text or tool calls may be a real answer or a
+  malformed body, and an OpenAI message with neither is just as ambiguous. Both
+  adapters read it as a turn that ended. Treat it as an error, or keep it as a
+  turn that ended?
 - **Live provider calls**: neither adapter has called its real API. Whether the
   Anthropic API accepts `fallbacks="default"` with the
   `server-side-fallback-2026-07-01` beta, and whether `gpt-5` is the right
