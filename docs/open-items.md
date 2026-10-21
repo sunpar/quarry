@@ -223,6 +223,9 @@ Decisions already made are in [decisions.md](context/decisions.md).
   an effect cleanup as the next view mounts, the boundary shows that error
   instead of the new view and posts it under the new mount, which brings back
   the host's "Fix this view". Loud.
+- **Time-series and large-series can guess a case-only clash**: each picks the
+  first datetime column and the first numeric one, which can differ only in
+  case, as `Date` and `date`, so the select fails. Loud.
 - **Arrowing through a chart picker runs a query per option**: the pickers stay
   mounted while a query loads, and on Windows and Linux a closed `<select>`
   fires a change for each option the arrow keys pass. Nothing cancels a running
