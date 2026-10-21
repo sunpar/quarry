@@ -103,6 +103,29 @@ describe("hooks", () => {
     expect(screen.getByTestId("arrow").textContent).toBe("0,1,2");
   });
 
+  it("an Arrow answer that does not decode is a query error", async () => {
+    const { bridge, sent, wrap } = harness();
+    render(wrap(<ArrowProbe />));
+    const msg = sent.find((m) => m.type === "query");
+    if (msg?.type !== "query") throw new Error("expected query");
+    await act(async () => {
+      bridge.handle({
+        type: "queryResult",
+        viewId: "v1",
+        id: msg.id,
+        ok: true,
+        result: {
+          schema: [{ name: "a", dtype: "Int64" }],
+          rows: null,
+          arrow_base64: "not base64!",
+          row_count: 1,
+          truncated: false,
+        },
+      });
+    });
+    expect(screen.getByTestId("status").textContent).toBe("error");
+  });
+
   it("a snapshot carries the specs its mounted hooks hold", () => {
     const { bridge, sent, wrap } = harness();
     const Held = ({ dataset }: { dataset: string }) => {

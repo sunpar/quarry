@@ -13,6 +13,24 @@ export type SchemaState =
 const LOADING: QueryState = { status: "loading" };
 const SCHEMA_LOADING: SchemaState = { status: "loading" };
 
+function answered(result: QueryResult): QueryState {
+  try {
+    // Decoded once per answer, so the buffer is stable across renders.
+    const arrow =
+      result.arrow_base64 === null ? null : decodeBase64(result.arrow_base64);
+    return { status: "success", result, arrow };
+  } catch (error) {
+    return failed(error);
+  }
+}
+
+function failed(error: unknown): QueryState {
+  return {
+    status: "error",
+    message: error instanceof Error ? error.message : String(error),
+  };
+}
+
 /** Idempotent per-view request cache; `ensure*` may be called during render. */
 export class RequestCache {
   private readonly queries = new Map<string, QueryState>();
@@ -43,20 +61,9 @@ export class RequestCache {
     const ticket = this.ticket(`q:${key}`);
     this.bridge.query(spec).then(
       (result) =>
-        this.settle(this.queries, key, `q:${key}`, ticket, {
-          status: "success",
-          result,
-          // Decoded once per answer, so the buffer is stable across renders.
-          arrow:
-            result.arrow_base64 === null
-              ? null
-              : decodeBase64(result.arrow_base64),
-        }),
+        this.settle(this.queries, key, `q:${key}`, ticket, answered(result)),
       (error: unknown) =>
-        this.settle(this.queries, key, `q:${key}`, ticket, {
-          status: "error",
-          message: error instanceof Error ? error.message : String(error),
-        }),
+        this.settle(this.queries, key, `q:${key}`, ticket, failed(error)),
     );
     return known ?? LOADING;
   }
