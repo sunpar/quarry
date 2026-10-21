@@ -631,12 +631,12 @@ buffer over the bridge.
 
 ### To code
 
-The host posts to `POST /sessions/{id}/to-code` with the `ts` of a snapshot
-picked in the history before the latest, or without one for the latest. The
-server reads that snapshot's query specs, renders each with `to_source` and
-returns Python. The host creates a `manual` step with that code in an editable
-drawer. Running it executes in the kernel like any other step, so its outputs
-join the lineage graph.
+The host posts to `POST /sessions/{id}/steps/{step_id}/to-code` with the `ts` of
+a snapshot picked in the history before the latest, or without one for the
+latest. The server reads that snapshot's query specs, renders each with
+`to_source` and returns Python. The host creates a `manual` step with that code
+in an editable drawer. Running it executes in the kernel like any other step, so
+its outputs join the lineage graph.
 
 ## 10. Projects
 
