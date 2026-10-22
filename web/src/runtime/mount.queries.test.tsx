@@ -136,6 +136,21 @@ describe("runtime query reports", () => {
     expect(m.reports()).toHaveLength(1);
   });
 
+  it("a restore before the mount's report cancels that report", async () => {
+    const m = await mount(QUERY_VIEW, { n: 5 });
+    await vi.waitFor(() => expect(m.view.getByText("more")).toBeTruthy());
+    await act(async () => {
+      m.runtime.handle({ type: "restore", viewId: "v1", state: { n: 9 } });
+    });
+    await vi.waitFor(() =>
+      expect(m.sent).toContainEqual(
+        expect.objectContaining({ spec: { dataset: "df", limit: 9 } }),
+      ),
+    );
+    await m.runTimers();
+    expect(m.reports()).toHaveLength(0);
+  });
+
   it("a replaced view reports nothing as its hooks let go", async () => {
     const m = await mount(QUERY_VIEW, { n: 5 });
     await m.runTimers();

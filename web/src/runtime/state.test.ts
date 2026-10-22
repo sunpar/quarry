@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ViewStateStore } from "./state";
+
+afterEach(() => vi.useRealTimers());
 
 describe("ViewStateStore", () => {
   it("debounces onChange and reports the whole state", () => {
@@ -12,7 +14,6 @@ describe("ViewStateStore", () => {
     vi.advanceTimersByTime(300);
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith({ a: 1, b: 3 });
-    vi.useRealTimers();
   });
 
   it("replace notifies subscribers without reporting a change", () => {
@@ -42,7 +43,19 @@ describe("ViewStateStore", () => {
     // The pending edit still reports, now with the merged key.
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith({ "shared:k": 2, limit: 9 });
-    vi.useRealTimers();
+  });
+
+  it("a restore cancels a report still waiting", () => {
+    vi.useFakeTimers();
+    const onChange = vi.fn();
+    const store = new ViewStateStore({ a: 1 }, onChange, 300);
+    store.queriesChanged(); // as a view's queries do when it mounts
+    store.replace({ a: 2 });
+    vi.advanceTimersByTime(300);
+    store.set("a", 3);
+    store.replace({ a: 4 });
+    vi.advanceTimersByTime(300);
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("reports changed queries, except those a restored state brings", () => {
@@ -61,6 +74,5 @@ describe("ViewStateStore", () => {
     vi.advanceTimersByTime(300);
     expect(onChange).toHaveBeenCalledTimes(2);
     expect(onChange).toHaveBeenLastCalledWith({ a: 3 });
-    vi.useRealTimers();
   });
 });

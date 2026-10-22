@@ -239,10 +239,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   thread pool, so when two reports of the same state race, the older one can
   replace the newer, and "To code" and "Save view" use stale queries until the
   next report. Silent.
-- **A restore during a report's debounce is reported as new**: a restore in
-  `web/src/runtime/state.ts` does not cancel a report timer already waiting, so
-  picking a snapshot within 300 ms of a change, such as the report a view sends
-  as it mounts, posts the restored state as a new latest snapshot. Silent.
 - **A frame reload shows the latest while a pick stays**: a frame reload mounts
   the view on the latest snapshot, but the scrubber and the step actions keep an
   older pick, so "To code" and "Save view" use a snapshot the view no longer
@@ -362,8 +358,8 @@ one up when a researcher needs it.
   `skipLibCheck`.
 - Close Stage 5 web and browser test gaps: the Perspective cache-hit test
   checks React's row count, not the viewer's table. `ViewHost.test.tsx` is at
-  240 lines with fixed 20 ms sleeps. `state.test.ts` uses fake timers without
-  `try/finally`, `mount.queries.test` leaves roots mounted, and two tests leave
+  240 lines with fixed 20 ms sleeps. `mount.queries.test` leaves roots mounted,
+  and two tests leave
   `URL` patched. The ECharts browser assertion passes with zero points, and the
   Plotly one depends on the plot's width. OHLC has no non-zero-offset or
   microsecond case, and no browser test loads Highstock or SciChart. No

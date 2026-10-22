@@ -889,7 +889,12 @@ them.
   the schema came later. A restored state's queries are not reported, since that
   state is a snapshot already on record and a report would append a copy and fan
   `shared:` keys out again, and a replaced view reports nothing as its hooks let
-  go. Schemas come from the live kernel, as queries do, not from the step that
+  go. A restore also cancels a report still waiting, such as the one a view
+  sends 300 ms after it mounts, which would post the restored state as a new
+  latest and drop the scrubber's pick. So an edit made in the view within the
+  debounce before a restore is never recorded as a snapshot; the restore
+  replaced it. A merge keeps the waiting report, which then carries the merged
+  keys. Schemas come from the live kernel, as queries do, not from the step that
   wrote the dataset.
 - **Mounted views refetch when kernel data may change**: the host sends
   `refresh` when a step finishes or the kernel's pid changes. The view's cache
