@@ -520,6 +520,18 @@ def test_source_reads_extension_columns_as_their_storage(spec: QuerySpec, backin
     assert_frame_equal(actual, to_polars(spec, trades()).collect())
 
 
+@pytest.mark.parametrize("backing", ["polars", "polars_lazy"])
+def test_source_finds_extension_columns_by_their_literal_names(backing: Backing) -> None:
+    # `pl.col` would read the name as a regex.
+    values = pl.Series([1, 2]).ext.to(pl.Extension("test.v", pl.Int64))
+    frame = pl.DataFrame({"k": ["a", "b"], "^v.*$": values})
+    source = to_source(QuerySpec(dataset="frame"), backing, schema=frame.schema)
+    # Pasted into a step whose frame has its columns in another order.
+    reordered = pl.DataFrame(list(reversed(frame.get_columns())))
+    actual = execute(source, {"frame": bind(reordered, backing)})
+    assert dict(actual.schema) == {"^v.*$": pl.Int64, "k": pl.String}
+
+
 def test_source_unwraps_nothing_without_extension_columns() -> None:
     schema = trades().schema
     assert not any(".ext." in to_source(spec, "polars", schema=schema) for spec in EXTENSION_SPECS)

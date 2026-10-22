@@ -255,6 +255,14 @@ def test_extension_columns_query_as_their_storage(spec: QuerySpec) -> None:
     assert_frame_equal(to_polars(spec, as_extensions(trades())).collect(), expected)
 
 
+def test_extension_columns_are_found_by_their_literal_names() -> None:
+    # `pl.col` would read the name as a regex.
+    values = pl.Series([1]).ext.to(pl.Extension("test.v", pl.Int64))
+    frame = pl.DataFrame({"k": ["a"], "^v.*$": values})
+    out = to_polars(QuerySpec(dataset="frame"), frame).collect()
+    assert dict(out.schema) == {"k": pl.String, "^v.*$": pl.Int64}
+
+
 @pytest.mark.parametrize("beside_extension", [False, True], ids=["plain", "beside_extension"])
 def test_filter_still_pushes_into_a_parquet_scan(tmp_path: Path, beside_extension: bool) -> None:
     frame = pl.DataFrame({"a": [1, 2, 3], "e": [4, 5, 6]})

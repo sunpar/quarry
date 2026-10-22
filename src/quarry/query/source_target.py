@@ -20,9 +20,11 @@ against a float column fails when run.
 Decimal(38, 0), as in `to_polars`. Without it, the source sums plainly, so an Int64 sum can
 wrap on overflow.
 
-Extension columns depend on `schema` as well. When it is given, the polars source reads each
-one as its storage, as `to_polars` does. Without it, they stay extension columns, which polars
-cannot filter or aggregate.
+Extension columns depend on `schema` as well. When it has one, the source reads extension
+columns as their storage, as the kernel does: the polars source each one by name before the
+spec runs, and a relation's source every column its SQL returns. Without it, they stay extension
+columns, which polars refuses to compare, sum or cast, and some of whose aggregates, such as a
+grouped median or max, it returns as null.
 """
 
 from __future__ import annotations
@@ -42,7 +44,7 @@ from quarry.query.polars_target import (
     CoercedLiteral,
     CompareOp,
     coerce_literal,
-    extension_positions,
+    extension_storage,
     sums_as_decimal,
 )
 from quarry.query.spec import (
@@ -105,9 +107,9 @@ def to_source(
     """
     require_identifier(spec.dataset, "dataset", spec)
     require_identifier(result_name, "result_name", spec)
-    extensions: list[int] = []
+    extensions: list[str] = []
     if schema is not None:
-        extensions = extension_positions(schema)
+        extensions = list(extension_storage(schema))
         schema = _storage_schema(schema)
         check_columns(spec, set(schema))
         if spec.line_reduce is not None:
@@ -125,12 +127,12 @@ def _render(
     result_name: str,
     schema: Schema | None,
     relation_projection: str | None,
-    extensions: list[int],
+    extensions: list[str],
 ) -> str:
     if backing != "duckdb":
         lazy = f"{spec.dataset}.lazy()"
         # Each extension column read as its storage, as `to_polars` reads it.
-        unwrap = f".with_columns(pl.nth({py_literal(extensions)}).ext.storage())"
+        unwrap = f".with_columns(pl.selectors.by_name({py_literal(extensions)}).ext.storage())"
         if spec.line_reduce is not None:
             time, value = spec.line_reduce.time, spec.line_reduce.value
             axes = [time, value]
@@ -228,6 +230,10 @@ def _render(
     if relation_projection is not None:
         source_rel = f"{spec.dataset}.project({py_literal(relation_projection)})"
     head = f"{source_rel}.query({py_literal(view)}, {py_literal(to_sql(sql_part, view))}).pl()"
+    if extensions:
+        # Every column the SQL returns, as the kernel reads it: the result is already a frame, so
+        # no scan loses its filter, and names would have to follow which columns the SQL keeps.
+        head += ".with_columns(pl.all().ext.storage())"
     if polars_part is None:
         assign = f"{result_name} = {head}"
     else:
@@ -488,9 +494,7 @@ def _temporal_names(value: object) -> set[str]:
 
 def _storage_schema(schema: Schema) -> pl.Schema:
     """`schema` with each extension column as its storage, the dtype `to_polars` queries."""
-    return pl.Schema(
-        {n: d.ext_storage() if isinstance(d, pl.BaseExtension) else d for n, d in schema.items()}
-    )
+    return pl.Schema({**schema, **extension_storage(schema)})
 
 
 def _dtype(schema: Schema | None, col: str) -> pl.DataType | None:

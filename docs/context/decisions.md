@@ -401,15 +401,23 @@ them.
   extension column becomes its storage, converted the same way; and
   `large_string` is narrowed to `string`. Cost: decimals and large integers can
   lose precision in Arrow, so JSON rows stay the exact form.
-- **Queries read extension columns as their storage**: `to_polars` and the
-  polars "To code" source unwrap each extension column with `.ext.storage()`
-  before the spec runs, since polars refuses to compare, sum or cast one. The
-  result's schema, from which the pivot types filters and default aggregates,
-  then reports the storage type, such as `Int64`. `describe` and snapshots keep
-  the extension type. Only extension columns are unwrapped, by position: a
+- **Queries read extension columns as their storage**: the kernel unwraps each
+  extension column with `.ext.storage()` where a query gets its frame:
+  `to_polars` before the spec runs, and a relation query on the frame its SQL
+  returns. "To code" source does the same. polars refuses to compare, sum or
+  cast an extension column, and returns null for some of its aggregates, such as
+  a grouped median or max. The result's schema, from which the pivot types
+  filters and default aggregates, then reports the storage type, such as
+  `Int64`. `describe` and snapshots keep the extension type. A polars frame
+  unwraps only its extension columns, by name through `pl.selectors.by_name`: a
   projection over every column stopped parquet scans filtering rows as they read
-  them. Cost: a filter on an extension column itself runs after the scan, not in
-  it.
+  them, `pl.col` reads a name like `^a.*$` as a regex, and positions picked the
+  wrong columns once a step reordered the frame. A relation's result is already
+  a frame, so its source unwraps every column when the dataset has an extension
+  column. Cost: a filter on an extension column itself runs after the scan, not
+  in it. A relation whose SQL returns an extension column its dataset lacks,
+  such as a HUGEINT sum under `arrow_lossless_conversion`, is unwrapped by the
+  kernel but not by its source.
 - **INTERVAL and UNION become text**: one helper projects these columns, at any
   depth, as VARCHAR before `.pl()` and reports them as String. `.pl()` rejects
   INTERVAL, nested INTERVAL panics, and polars' environment-variable import path

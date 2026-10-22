@@ -16,7 +16,7 @@ from polars.exceptions import ColumnNotFoundError
 
 from quarry.kernel import datasets
 from quarry.kernel import executor as executor_module
-from quarry.kernel.datasets import Dataset, DatasetMeta
+from quarry.kernel.datasets import Dataset, DatasetMeta, to_json_rows
 from quarry.kernel.executor import (
     TAIL_BYTES,
     Executor,
@@ -1113,6 +1113,38 @@ def test_query_reports_an_extension_column_as_its_storage() -> None:
     assert out.rows == [{"a": 2}]
     # The dataset itself is described as it is.
     assert [c.dtype for c in ex.describe("df").schema_] == ["Extension('t.a', Int64)"]
+
+
+def json_relation() -> Executor:
+    """An executor whose `rel` has a JSON column `j`, which DuckDB's lossless Arrow conversion
+    gives polars as an extension column over String."""
+    conn = duckdb.connect()
+    conn.execute("SET arrow_lossless_conversion = true")
+    ex = make(conn)
+    rows = "('1'::JSON, 'a', 1), ('2'::JSON, 'a', 2), ('1'::JSON, 'b', 3)"
+    sql = f"SELECT * FROM (VALUES {rows}) t(j, k, v)"
+    ex.execute(f"rel = _conn.sql({sql!r})")
+    return ex
+
+
+def test_relation_query_reports_an_extension_column_as_its_storage() -> None:
+    ex = json_relation()
+    assert [c.dtype for c in ex.query(QuerySpec(dataset="rel")).schema_] == [
+        "String",
+        "String",
+        "Int32",
+    ]
+    assert ex.describe("rel").schema_[0].dtype == "Extension('arrow.json', String, '')"
+
+
+def test_to_code_pivots_a_relation_extension_column_as_the_kernel_does() -> None:
+    ex = json_relation()
+    spec = QuerySpec(dataset="rel", pivot=Pivot(index=["k"], columns="j", values="v", agg="sum"))
+    rows = ex.query(spec).rows
+    assert rows == [{"k": "a", "1": "1", "2": "2"}, {"k": "b", "1": "3", "2": None}]
+    namespace = dict(ex._ns)
+    exec(ex.to_code([spec]).code, namespace)  # the test executes generated code on purpose
+    assert to_json_rows(frame_in(namespace, "rel_1")) == rows
 
 
 def test_query_arrow_format() -> None:

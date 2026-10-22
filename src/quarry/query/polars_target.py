@@ -5,16 +5,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Final, Literal
+from typing import Final, Literal, TypeVar
 from zoneinfo import ZoneInfo
 
 import duckdb
 import polars as pl
+from polars.datatypes import DataTypeClass
 
 from quarry.query.columns import check_columns, check_line_axes, check_output_columns
 from quarry.query.spec import Agg, AggFn, Filter, Json, Pivot, QueryError, QuerySpec
 from quarry.query.sql_target import LINE_CONNECTION_CONFIG, line_sql, quote_ident
 
+Frame = TypeVar("Frame", pl.DataFrame, pl.LazyFrame)
 CompareOp = Literal["eq", "ne", "lt", "le", "gt", "ge", "in", "not_in", "between"]
 _UP_TO_64_BIT_INTEGERS: Final = frozenset(
     {pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64}
@@ -40,13 +42,8 @@ def to_polars(
     *,
     reduction_stats: bool = False,
 ) -> pl.LazyFrame:
-    lf = frame.lazy()
+    lf = read_as_storage(frame.lazy())
     schema = lf.collect_schema()
-    if extensions := extension_positions(schema):
-        # Only these columns: a projection over every column would stop a parquet scan
-        # filtering rows as it reads them.
-        lf = lf.with_columns(pl.nth(extensions).ext.storage())
-        schema = lf.collect_schema()
     check_columns(spec, set(schema.names()))
     if spec.filters:
         lf = lf.filter(pl.all_horizontal([filter_expr(f, schema[f.col]) for f in spec.filters]))
@@ -95,13 +92,23 @@ def to_polars(
     return lf
 
 
-def extension_positions(schema: Mapping[str, pl.DataType]) -> list[int]:
-    """The positions of the extension columns, which a query reads as their storage.
+def read_as_storage(frame: Frame) -> Frame:
+    """`frame` with each extension column read as its storage.
 
-    polars refuses to compare, sum or cast an extension column, and its grouped median of one is
-    null. Positions, not names: `pl.col` reads a name like `^a.*$` as a regex.
+    polars refuses to compare, sum or cast an extension column, and returns null for some
+    aggregates of one, such as a grouped median or max. Only the extension columns: a projection
+    over every column would stop a parquet scan filtering rows as it reads them. By name, as
+    `by_name` matches it, not as `pl.col`, which reads a name like `^a.*$` as a regex.
     """
-    return [i for i, dtype in enumerate(schema.values()) if isinstance(dtype, pl.BaseExtension)]
+    names = list(extension_storage(frame.collect_schema()))
+    return frame.with_columns(pl.selectors.by_name(names).ext.storage()) if names else frame
+
+
+def extension_storage(
+    schema: Mapping[str, pl.DataType],
+) -> dict[str, pl.DataType | DataTypeClass]:
+    """Each extension column's storage dtype, the dtype `read_as_storage` gives it."""
+    return {n: d.ext_storage() for n, d in schema.items() if isinstance(d, pl.BaseExtension)}
 
 
 def filter_expr(f: Filter, dtype: pl.DataType) -> pl.Expr:
