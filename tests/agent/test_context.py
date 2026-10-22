@@ -12,6 +12,7 @@ from quarry.agent.context import (
 from quarry.config import QuarryConfig
 from quarry.data.parquet import PartitionLayout
 from quarry.kernel.datasets import Column, DatasetMeta
+from quarry.libraries import licensed_libraries
 from quarry.server.models import Step, now_iso
 
 
@@ -20,17 +21,17 @@ def test_estimate_tokens() -> None:
 
 
 def test_enabled_libraries(tmp_path: Path) -> None:
-    base = enabled_libraries(QuarryConfig(root=tmp_path))
+    base = enabled_libraries(licensed_libraries(QuarryConfig(root=tmp_path)))
     assert "plotly" in base and "highcharts" not in base
     key_only = {"highcharts_license": "k"}
     cfg = QuarryConfig.model_validate({"root": tmp_path, "libraries": key_only})
-    assert "highcharts" not in enabled_libraries(cfg)
+    assert "highcharts" not in enabled_libraries(licensed_libraries(cfg))
     install = tmp_path / "highcharts"
     install.mkdir()
     (install / "highstock.js").write_text("// stub")
     libraries = {**key_only, "highcharts_path": str(install)}
     cfg = QuarryConfig.model_validate({"root": tmp_path, "libraries": libraries})
-    assert "highcharts" in enabled_libraries(cfg)
+    assert "highcharts" in enabled_libraries(licensed_libraries(cfg))
 
 
 def test_build_system_is_deterministic_and_filtered() -> None:
@@ -121,12 +122,12 @@ def test_runtime_libraries_reads_manifest(tmp_path: Path) -> None:
 
 
 def test_enabled_libraries_gated_by_runtime(tmp_path: Path) -> None:
-    config = QuarryConfig(root=tmp_path)
-    assert enabled_libraries(config, ["ag-grid", "lightweight-charts"]) == [
+    licensed = licensed_libraries(QuarryConfig(root=tmp_path))
+    assert enabled_libraries(licensed, ["ag-grid", "lightweight-charts"]) == [
         "lightweight-charts",
         "ag-grid",
     ]
-    assert enabled_libraries(config, None) == enabled_libraries(config)
+    assert enabled_libraries(licensed, None) == enabled_libraries(licensed)
 
 
 def wide(name: str, columns: int) -> DatasetMeta:
