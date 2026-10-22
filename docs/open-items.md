@@ -184,7 +184,9 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **"To code" can rebind a plain `date`**: its generated
   `from datetime import date` (or `datetime`, `ZoneInfo`) is refused only when
   it would rebind a dataset, so a non-dataset global of that name, such as a
-  string, is replaced when the step runs. Silent.
+  string, is replaced when the step runs. A line reduction's source also runs
+  `import builtins` and `import duckdb`, which replace any global of those
+  names. Silent.
 - **Perspective rounds large integers**: Arrow sends UInt64, Decimal and 128-bit
   integers as Float64, so values past 2^53 round in the pivot, and a filter term
   the viewer writes for one may not match the exact integer "To code" filters
@@ -263,6 +265,26 @@ Decisions already made are in [decisions.md](context/decisions.md).
   component eligibility (`dtype_class`). So an extension Int64 column offers
   only null filters, is not offered as a price or value, and counts as `other`
   when the library matches components. Queries read it as its storage. Silent.
+- **The session rail asks for a session while sessions load or fail**:
+  `SessionPage` passes `sessions.data ?? []`, and `SessionRail` says "Start a
+  session to explore data." whenever the list is empty, so a failure of
+  `GET /sessions` other than a 401 is never shown. Silent.
+- **An opened project shows nothing while its detail loads or fails**:
+  `ProjectRail` falls back to an empty project while `GET /projects/{slug}`
+  loads or after it fails, so the sublist looks like an empty project. Silent.
+- **Column names that differ in a non-ASCII case are renamed**: `unique_names`
+  (`kernel/datasets.py`) folds names with Unicode `lower()`, but DuckDB folds
+  ASCII only and keeps `ä` and `Ä` apart, so `Ä` becomes `Ä_1`. Silent.
+- **A merge hides a view's late queries**: `merge` in `web/src/runtime/state.ts`
+  marks the state restored, so a schema that lands after another card's
+  `shared:` merge does not report the view's final queries until the user edits
+  it, and "To code" and "Save view" keep the placeholder. Silent.
+- **A VARINT column reads as bytes**: DuckDB hands VARINT to Arrow as an
+  `arrow.opaque` extension over Binary, so queries read the bytes, not the
+  number. Silent.
+- **A huge float literal fails raw on polars**: against an integer column, a
+  filter literal such as 1e300 raises polars' `InvalidOperationError` on a
+  polars backing, while a relation compares it as DOUBLE. Loud.
 
 ## Deferred work
 
