@@ -345,7 +345,7 @@ one up when a researcher needs it.
 - Check that the host's `frame-src 'self'` stops a view frame's own navigation
   in Firefox and Safari; the Playwright test runs Chromium only.
 - Review the chart built-ins' visuals and accessibility, which no Stage 5 review
-  covered: table header sorts are mouse-only.
+  covered.
 - Tidy Stage 5 code: `to_code` builds the importable projection twice per
   relation and runs `_imported_names` twice per polars spec, and
   `_imported_names` repeats the filter rendering's literal coercion; the Arrow
