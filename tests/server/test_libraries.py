@@ -4,10 +4,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from quarry.agent.context import enabled_libraries
+from quarry.agent.context import ALWAYS_ON
 from quarry.config import LibrariesConfig, QuarryConfig
 from quarry.libraries import licensed_libraries
-from tests.server.test_app import make_client
+from tests.server.test_app import make_client, service_of
 
 
 def config_with(tmp_path: Path, **libraries: str | Path) -> QuarryConfig:
@@ -42,7 +42,7 @@ def test_license_without_path_warns_once_and_stays_disabled(
     messages = [r.getMessage() for r in caplog.records if r.name == "quarry.server.app"]
     assert messages == ["scichart has a license key but is disabled: scichart_path is not set"]
     assert "sc-key-7f3q" not in caplog.text
-    assert "scichart" not in enabled_libraries(licensed_libraries(config))
+    assert service_of(client)._libraries == ALWAYS_ON
 
 
 def test_missing_path_is_reported_and_disabled(tmp_path: Path) -> None:
@@ -87,11 +87,7 @@ def test_enabled_library_is_mounted_with_cors_and_listed(tmp_path: Path) -> None
         assert served.status_code == 200 and served.headers["access-control-allow-origin"] == "*"
     bare = TestClient(client.app)  # no Authorization header at all
     assert bare.get("/libraries").status_code == 401
-    assert enabled_libraries(licensed_libraries(config)) == [
-        *enabled_libraries(licensed_libraries(QuarryConfig(root=tmp_path))),
-        "highcharts",
-        "scichart",
-    ]
+    assert service_of(client)._libraries == [*ALWAYS_ON, "highcharts", "scichart"]
 
 
 def test_unlicensed_library_is_not_mounted(tmp_path: Path) -> None:

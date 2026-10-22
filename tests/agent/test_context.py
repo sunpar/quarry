@@ -119,7 +119,6 @@ def test_enabled_libraries_gated_by_runtime() -> None:
         "lightweight-charts",
         "ag-grid",
     ]
-    assert enabled_libraries([], None) == enabled_libraries([])
 
 
 def wide(name: str, columns: int) -> DatasetMeta:
