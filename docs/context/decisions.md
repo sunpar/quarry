@@ -447,7 +447,7 @@ them.
   `not partitioned`, and reads only the dataset directory and its first-level
   partitions, taking the second key from the first readable one. An unreadable
   cache had stopped `quarry serve`. Cost: an unreadable cache looks empty to
-  the agent, and a missing `parquet_root` warns on every prompt.
+  the agent, and its warning repeats on every prompt.
 - **`sql()` keeps the schema on zero rows**: it reads arrow-odbc's pyarrow
   `RecordBatchReader` with `read_all()`, which carries the schema when no rows
   return. Parameters are sent as text, because arrow-odbc binds every parameter
