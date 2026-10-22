@@ -125,7 +125,8 @@ Decisions already made are in [decisions.md](context/decisions.md).
   never reads a partitioned dataset's leaves, so it lists one whose parquet
   files are all dangling links. On Python 3.14, which CI does not run,
   `is_dir()` returns False rather than raising, so a dataset directory whose
-  entries cannot be stat'd is dropped without a warning. Silent.
+  entries cannot be stat'd is dropped without a warning. Silent. The open
+  question on how deep the cache scan looks covers the first.
 - **Empty or contradicting provider turns pass as a success**: an Anthropic
   reply whose content is empty or holds only block types the adapter does not
   know, or an OpenAI message with neither content nor tool calls, reads as an
@@ -240,7 +241,7 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **A frame reload shows the latest while a pick stays**: a frame reload mounts
   the view on the latest snapshot, but the scrubber and the step actions keep an
   older pick, so "To code" and "Save view" use a snapshot the view no longer
-  shows. Silent.
+  shows. Silent. The open question on a frame reload's pick covers the fix.
 - **A busy session's component save shares a 409**: a busy session's 409 on
   `POST /components` shares its code with an existing id's, though its message
   says the session is busy. The open question on its code covers the fix.
@@ -279,6 +280,11 @@ Decisions already made are in [decisions.md](context/decisions.md).
   marks the state restored, so a schema that lands after another card's
   `shared:` merge does not report the view's final queries until the user edits
   it, and "To code" and "Save view" keep the placeholder. Silent.
+- **A report sent just before a restore clears the pick**: a state report the
+  frame posted before a restore reached it still arrives at the host after the
+  pick, and the host then drops the pick and its restore. The scrubber shows the
+  reported state as the latest while the view shows the picked one, and "To
+  code" and "Save view" use the latest. Silent.
 - **A VARINT column reads as bytes**: DuckDB hands VARINT to Arrow as an
   `arrow.opaque` extension over Binary, so queries read the bytes, not the
   number. Silent.
@@ -421,6 +427,16 @@ one up when a researcher needs it.
   malformed body, and an OpenAI message with neither is just as ambiguous. Both
   adapters read it as a turn that ended. Treat it as an error, or keep it as a
   turn that ended?
+- **What a frame reload does to a pick**: a frame reload mounts the view on the
+  latest snapshot while the scrubber and the step actions keep an older pick.
+  Drop the pick on a reload, which fits "every mount starts from the latest", or
+  send the picked state as a restore after the mount, which keeps what the
+  researcher chose but has to win over the mount's own report?
+- **How deep the cache scan looks**: `scan_layout` reads a dataset's directory
+  and its first-level partitions only, so a dataset whose parquet files sit only
+  in nested directories not named `key=value` is hidden. List it by walking the
+  tree, which can mean thousands of entries on every prompt, or keep requiring
+  files at the top or a `key=value` layout?
 - **Live provider calls**: neither adapter has called its real API. Whether the
   Anthropic API accepts `fallbacks="default"` with the
   `server-side-fallback-2026-07-01` beta, and whether `gpt-5` is the right
