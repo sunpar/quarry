@@ -79,13 +79,12 @@ Decisions already made are in [decisions.md](context/decisions.md).
   result is used (`x = lst.pop()`), that runs inside an expression such as a
   comprehension kept for its effects, or that a statement calls on a dataset
   (`df.extend(other)`) or a module (`random.seed(0)`, so replay draws unseeded
-  values). Changes through aliases are under the entry above. A literal reading
-  `FROM RECENT` is not matched to dataset `recent`, though DuckDB's catalog
-  ignores case. A step that reads `__annotations__` depends on the step that
-  created it, not on later steps that annotated, since counting those would
-  chain every annotated step to every earlier one; Python 3.14, which
-  `requires-python` allows but CI does not run, binds `__annotate__` instead.
-  Silent: a saved recipe can miss a source step.
+  values). Changes through aliases are under the entry above. A step that reads
+  `__annotations__` depends on the step that created it, not on later steps
+  that annotated, since counting those would chain every annotated step to
+  every earlier one; Python 3.14, which `requires-python` allows but CI does not
+  run, binds `__annotate__` instead. Silent: a saved recipe can miss a source
+  step.
 - **Lineage approximations**: a failed step's in-place mutation is not a write.
   A successful step's store that never ran is a write or define, but the step
   then also reads the name, so the step that bound it before stays in the
@@ -121,10 +120,12 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **A loader that hangs at import hangs startup**: the server imports loaders to
   describe them to the agent, and each kernel imports them at start. Loud only
   through a stderr notice naming the loader after 10 s.
-- **Some cache layouts are hidden or misread**: `scan_layout` skips an
-  unreadable directory without a log line, and misses a dataset whose parquet
-  files sit only in nested directories not named `key=value`. A dangling
-  `*.parquet` symlink still lists its dataset. Silent.
+- **Some cache layouts are hidden or misread**: `scan_layout` misses a dataset
+  whose parquet files sit only in nested directories not named `key=value`. It
+  never reads a partitioned dataset's leaves, so it lists one whose parquet
+  files are all dangling links. On Python 3.14, which CI does not run,
+  `is_dir()` returns False rather than raising, so a dataset directory whose
+  entries cannot be stat'd is dropped without a warning. Silent.
 - **Empty or contradicting provider turns pass as a success**: an Anthropic
   reply whose content is empty or holds only block types the adapter does not
   know, or an OpenAI message with neither content nor tool calls, reads as an
@@ -218,11 +219,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   to the host, and the pivot stays empty. Loud.
 - **A hung `GET /libraries` never mounts a view**: `ViewHost` waits for that one
   answer with no timeout. Silent: the frame stays empty.
-- **The project rail asks for a project while projects load or fail**:
-  `ProjectRail` builds its list from `metas.data ?? []`, so it shows "Create a
-  project to save datasets and views into." until the list arrives, or until
-  a refetch succeeds when `GET /projects` fails. Silent: the failure is never
-  shown.
 - **An outgoing view's cleanup error replaces the incoming view**: the frame
   keeps one error boundary across mounts, so when a replaced view throws from
   an effect cleanup as the next view mounts, the boundary shows that error
@@ -346,17 +342,15 @@ one up when a researcher needs it.
 - Check that the host's `frame-src 'self'` stops a view frame's own navigation
   in Firefox and Safari; the Playwright test runs Chromium only.
 - Review the chart built-ins' visuals and accessibility, which no Stage 5 review
-  covered: table header sorts are mouse-only.
-- Tidy Stage 5 code: the library statuses are computed twice at startup
-  (`create_app` and `enabled_libraries`); `to_code` builds the importable
-  projection twice per relation and runs `_imported_names` twice per polars
-  spec, and `_imported_names` repeats the filter rendering's literal coercion;
-  the Arrow cache keeps both the base64 and the decoded buffer;
-  `PerspectiveViewer` writes `latest.current` during render, as the plan wrote
-  it; `tidy._binds` accepts a recipe whose only mention of `df` is an attribute
-  store or `del df["k"]`, which validation still catches; and
-  `@types/d3-selection` resolves to 1.0.10 through Perspective, hidden by
-  `skipLibCheck`.
+  covered.
+- Tidy Stage 5 code: `to_code` builds the importable projection twice per
+  relation and runs `_imported_names` twice per polars spec, and
+  `_imported_names` repeats the filter rendering's literal coercion; the Arrow
+  cache keeps both the base64 and the decoded buffer; `PerspectiveViewer` writes
+  `latest.current` during render, as the plan wrote it; `tidy._binds` accepts a
+  recipe whose only mention of `df` is an attribute store or `del df["k"]`,
+  which validation still catches; and `@types/d3-selection` resolves to 1.0.10
+  through Perspective, hidden by `skipLibCheck`.
 - Close Stage 5 web and browser test gaps: the Perspective cache-hit test
   checks React's row count, not the viewer's table. `state.test.ts` uses fake
   timers without `try/finally`, and `mount.queries.test` leaves roots mounted.

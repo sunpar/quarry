@@ -110,17 +110,37 @@ export default function DataTableTanstack({ datasets }: Props) {
               <thead className="sticky top-0 bg-card">
                 {table.getHeaderGroups().map((group) => (
                   <tr key={group.id}>
-                    {group.headers.map((header) => (
-                      <th
-                        key={header.id}
-                        className="cursor-pointer border-b border-border px-2 py-1 text-left font-medium"
-                        onClick={() => onHeader(header.column.id)}
-                      >
-                        <table.FlexRender header={header} />
-                        {sort?.col === header.column.id &&
-                          (sort.desc ? " ▼" : " ▲")}
-                      </th>
-                    ))}
+                    {group.headers.map((header) => {
+                      // Only the sorted column carries aria-sort, as ARIA asks.
+                      const dir =
+                        sort?.col !== header.column.id
+                          ? undefined
+                          : sort.desc
+                            ? "descending"
+                            : "ascending";
+                      return (
+                        <th
+                          key={header.id}
+                          className="border-b border-border text-left font-medium"
+                          aria-sort={dir}
+                        >
+                          {/* The padding sits on the button so the whole cell sorts. */}
+                          <button
+                            type="button"
+                            className="w-full cursor-pointer px-2 py-1 text-left"
+                            onClick={() => onHeader(header.column.id)}
+                          >
+                            <table.FlexRender header={header} />
+                            {/* aria-sort carries the direction, so the arrow stays out of the name. */}
+                            {dir && (
+                              <span aria-hidden="true">
+                                {dir === "descending" ? " ▼" : " ▲"}
+                              </span>
+                            )}
+                          </button>
+                        </th>
+                      );
+                    })}
                   </tr>
                 ))}
               </thead>

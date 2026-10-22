@@ -42,7 +42,8 @@ const finished: Step = {
   duration_ms: 0,
 };
 
-const json = (body: unknown) => new Response(JSON.stringify(body));
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status });
 
 function renderPage(
   fetchImpl: (path: string, init?: RequestInit) => Promise<Response>,
@@ -117,6 +118,20 @@ describe("SessionPage prompt box", () => {
     );
     // Interrupt stops it wherever it began.
     expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+  });
+});
+
+describe("SessionPage project rail", () => {
+  it("shows why the projects did not load", async () => {
+    renderPage(async (path) => {
+      if (path === "/sessions") return json([]);
+      if (path === "/projects") return json({ detail: "db locked" }, 500);
+      return new Response(null, { status: 404 });
+    });
+    expect(await screen.findByText("500: db locked")).toBeTruthy();
+    expect(
+      screen.queryByText("Create a project to save datasets and views into."),
+    ).toBeNull();
   });
 });
 
