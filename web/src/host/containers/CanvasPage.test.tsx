@@ -1,26 +1,47 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   fireEvent,
   render,
   screen,
   waitFor,
   within,
 } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-import type { DatasetMeta, Project, Session, Step } from "@/shared/api-types";
+import type { ComponentProps } from "react";
+import type { Layout } from "react-grid-layout";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  CanvasCard,
+  DatasetMeta,
+  Project,
+  Session,
+  Step,
+} from "@/shared/api-types";
 import { ApiClient } from "../api/client";
 import { ApiProvider } from "../api/context";
 import { CanvasPage, cardsToLayout, layoutToCards } from "./CanvasPage";
 
-// jsdom measures nothing, so the grid gets a width; the frame is ViewHost's own business.
-vi.mock("react-grid-layout", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("react-grid-layout")>()),
-  useContainerWidth: () => ({
-    width: 1200,
-    mounted: true,
-    containerRef: { current: null },
-  }),
+// The page's latest layout callback, so a test can stand in for a drag.
+const grid = vi.hoisted(() => ({
+  onLayoutChange: undefined as ((layout: Layout) => void) | undefined,
 }));
+
+// jsdom measures nothing, so the grid gets a width; the frame is ViewHost's own business.
+vi.mock("react-grid-layout", async (importOriginal) => {
+  const real = await importOriginal<typeof import("react-grid-layout")>();
+  return {
+    ...real,
+    default: (props: ComponentProps<typeof real.default>) => {
+      grid.onLayoutChange = props.onLayoutChange;
+      return <real.default {...props} />;
+    },
+    useContainerWidth: () => ({
+      width: 1200,
+      mounted: true,
+      containerRef: { current: null },
+    }),
+  };
+});
 vi.mock("./ViewHost", () => ({
   ViewHost: ({ title }: { title: string }) => <p>{title} mounted</p>,
 }));
@@ -126,13 +147,17 @@ function renderCanvas(
       </ApiProvider>
     </QueryClientProvider>
   );
-  const { rerender } = render(page(shown));
-  return Object.assign(qc, { puts, show: (p: Project) => rerender(page(p)) });
+  const { rerender, unmount } = render(page(shown));
+  return { qc, puts, unmount, show: (p: Project) => rerender(page(p)) };
 }
+
+// A layout write as `puts` records it.
+const put = (cards: CanvasCard[]) =>
+  `/projects/p/canvas ${JSON.stringify(cards)}`;
 
 describe("CanvasPage availability", () => {
   it("offers Load when the kernel no longer holds a dataset a step wrote", async () => {
-    const qc = renderCanvas([]);
+    const { qc } = renderCanvas([]);
     // Every query answers first: before the session loads, any card lacks its datasets.
     await waitFor(() => expect(qc.isFetching()).toBe(0));
     expect(screen.getByRole("button", { name: "Load" })).toBeDefined();
@@ -181,9 +206,7 @@ describe("CanvasPage failures", () => {
     );
     expect(screen.queryByText("gone")).toBeNull();
     await waitFor(() =>
-      expect(canvas.puts).toEqual([
-        `/projects/p/canvas ${JSON.stringify(project.meta.canvas)}`,
-      ]),
+      expect(canvas.puts).toEqual([put(project.meta.canvas)]),
     );
   });
 
@@ -221,5 +244,46 @@ describe("CanvasPage failures", () => {
     expect(screen.getByRole("button", { name: "Loading" })).toBeDefined();
     fail("kernel died");
     expect(await screen.findByText("500: kernel died")).toBeDefined();
+  });
+});
+
+describe("CanvasPage layout writes", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    // So a drag reaches this test's grid, or fails when it has none.
+    grid.onLayoutChange = undefined;
+  });
+  afterEach(() => vi.useRealTimers());
+
+  const moved = (x: number) => project.meta.canvas.map((c) => ({ ...c, x }));
+  const drag = (cards: CanvasCard[]) =>
+    act(() => grid.onLayoutChange!(cardsToLayout(cards)));
+  // Runs the timers due by then, and the writes they start.
+  const wait = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+
+  it("writes only the last of two changes, once they pause", async () => {
+    const canvas = renderCanvas(["df"]);
+    drag(moved(1));
+    await wait(250);
+    drag(moved(2));
+    await wait(499);
+    expect(canvas.puts).toEqual([]);
+    await wait(1);
+    expect(canvas.puts).toEqual([put(moved(2))]);
+  });
+
+  it("writes nothing for a layout that did not change", async () => {
+    const canvas = renderCanvas(["df"]);
+    drag(project.meta.canvas);
+    await wait(500);
+    expect(canvas.puts).toEqual([]);
+  });
+
+  it("writes a waiting change at once when the page closes", async () => {
+    const canvas = renderCanvas(["df"]);
+    drag(moved(1));
+    canvas.unmount();
+    await wait(0);
+    expect(canvas.puts).toEqual([put(moved(1))]);
   });
 });

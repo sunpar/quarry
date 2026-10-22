@@ -548,14 +548,17 @@ describe("ViewHost", () => {
     await waitFor(() => expect(mounts()).toHaveLength(1));
     expect(mounts()[0]?.licensed).toEqual([]);
     // With no data, a refetch puts the status back to pending until it answers. React Query
-    // notifies on a timer, so each step waits for the render it causes.
-    const settle = () => act(() => new Promise((r) => setTimeout(r, 20)));
+    // notifies on a timer, so each step waits one out for the render it causes.
+    const settle = async (status: string) => {
+      await waitFor(() =>
+        expect(qc.getQueryState(keys.libraries())?.status).toBe(status),
+      );
+      await act(() => new Promise((r) => setTimeout(r, 0)));
+    };
     void qc.invalidateQueries({ queryKey: keys.libraries() });
-    await settle();
-    expect(qc.getQueryState(keys.libraries())?.status).toBe("pending");
+    await settle("pending");
     release();
-    await settle();
-    expect(qc.getQueryState(keys.libraries())?.status).toBe("error");
+    await settle("error");
     expect(mounts()).toHaveLength(1);
   });
 });

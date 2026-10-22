@@ -59,19 +59,22 @@ function renderPage(
   return qc;
 }
 
+// A server with the one session, holding `steps` and reporting `current`.
+const routes =
+  (steps: Step[], current: SessionStatus) => async (path: string) => {
+    if (path === "/sessions") return json([meta]);
+    if (path === "/sessions/s1") return json({ meta, steps });
+    if (path === "/sessions/s1/status") return json(current);
+    if (path === "/projects") return json([]);
+    return new Response(null, { status: 404 });
+  };
+
 function setup(
   busy: boolean,
   runningStep: string | null = null,
   steps: Step[] = [],
 ) {
-  const fetchImpl = async (path: string) => {
-    if (path === "/sessions") return json([meta]);
-    if (path === "/sessions/s1") return json({ meta, steps });
-    if (path === "/sessions/s1/status") return json(status(busy, runningStep));
-    if (path === "/projects") return json([]);
-    return new Response(null, { status: 404 });
-  };
-  return renderPage(fetchImpl);
+  return renderPage(routes(steps, status(busy, runningStep)));
 }
 
 describe("SessionPage prompt box", () => {
@@ -256,5 +259,53 @@ describe("SessionPage session choice", () => {
       ),
     );
     expect(fetched).toContain("/sessions/s2");
+  });
+
+  it("says the token was rejected when the list answers 401", async () => {
+    serve([meta], { listing: 401 });
+    expect(
+      await screen.findByText(
+        "The token was rejected. Open the link that quarry serve printed.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "New session" })).toBeNull();
+  });
+});
+
+describe("SessionPage kernel banner", () => {
+  it("drops a replay failure once a later restart succeeds", async () => {
+    const replays = [
+      { replayed: 0, failed_step: 0, error: "boom" },
+      { replayed: 1, failed_step: null, error: null },
+    ];
+    // As on the server, the session needs a replay until one runs through.
+    let replayNeeded = true;
+    renderPage(async (path, init) => {
+      if (path === "/sessions/s1/restart" && init?.method === "POST") {
+        const report = replays.shift()!;
+        replayNeeded = report.failed_step !== null;
+        return json(report);
+      }
+      return routes([finished], {
+        ...status(false, null),
+        kernel: { status: "idle", pid: 1, replay_needed: replayNeeded },
+      })(path);
+    });
+    const restart = () =>
+      fireEvent.click(screen.getByRole("button", { name: "Restart kernel" }));
+    const needed = "The kernel restarted without this session's steps.";
+    await screen.findByText(needed);
+    restart();
+    expect(
+      await screen.findByText("Replay stopped at step 1: boom"),
+    ).toBeTruthy();
+    expect(screen.getByText(needed)).toBeTruthy();
+    restart();
+    // The banner leaves once the status poll, refetched by the restart, needs no replay.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Restart kernel" }),
+      ).toBeNull(),
+    );
   });
 });
