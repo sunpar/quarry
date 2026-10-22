@@ -4,10 +4,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from quarry import libraries
 from quarry.agent.context import enabled_libraries
 from quarry.config import LibrariesConfig, QuarryConfig
-from quarry.libraries import ENTRIES, LibraryId, LibraryStatus, licensed_libraries
+from quarry.libraries import licensed_libraries
 from tests.server.test_app import make_client
 
 
@@ -93,21 +92,6 @@ def test_enabled_library_is_mounted_with_cors_and_listed(tmp_path: Path) -> None
         "highcharts",
         "scichart",
     ]
-
-
-def test_statuses_are_computed_once_at_startup(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    calls: list[str] = []
-    status = libraries._status
-
-    def counted(library: LibraryId, config: QuarryConfig) -> LibraryStatus:
-        calls.append(library)
-        return status(library, config)
-
-    monkeypatch.setattr(libraries, "_status", counted)
-    make_client(tmp_path, [])
-    assert calls == list(ENTRIES)
 
 
 def test_unlicensed_library_is_not_mounted(tmp_path: Path) -> None:

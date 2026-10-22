@@ -39,6 +39,7 @@ def build(tmp_path: Path, provider: FakeProvider) -> tuple[SessionService, Proje
         runtime_factory=lambda _cfg: ApiRuntime(provider),
         library=ComponentLibrary([builtin_root()]),
         transpiler=NoopTranspiler(),
+        libraries=[],
     )
     projects = ProjectService(
         config=config,
