@@ -41,7 +41,7 @@ from quarry.kernel.datasets import (
 from quarry.kernel.datasets import describe as describe_dataset
 from quarry.kernel.lineage import CodeNames, analyze, dataset_reads
 from quarry.query.columns import check_columns, check_line_axes
-from quarry.query.polars_target import to_polars
+from quarry.query.polars_target import read_as_storage, to_polars
 from quarry.query.source_target import imported_names, result_names, to_source
 from quarry.query.spec import Json, QueryError, QuerySpec
 from quarry.query.sql_target import (
@@ -590,7 +590,8 @@ def _run_query(
     view = f"{relation_view(spec.dataset)}_{uuid.uuid4().hex[:8]}"
     sql = to_sql(sql_part, view, columns=rel.columns, reduction_stats=reduction_stats)
     try:
-        frame = relation_frame(rel.query(view, sql))
+        # As `to_polars` reads a frame. Not in `relation_frame`: describe keeps the extension type.
+        frame = read_as_storage(relation_frame(rel.query(view, sql)))
     finally:
         # `query` registers the view on the relation's connection, where it would pin the
         # relation's data for the kernel's lifetime.

@@ -406,6 +406,23 @@ them.
   extension column becomes its storage, converted the same way; and
   `large_string` is narrowed to `string`. Cost: decimals and large integers can
   lose precision in Arrow, so JSON rows stay the exact form.
+- **Queries read extension columns as their storage**: the kernel unwraps each
+  extension column with `.ext.storage()` where a query gets its frame:
+  `to_polars` before the spec runs, and a relation query on the frame its SQL
+  returns. "To code" source does the same. polars refuses to compare, sum or
+  cast an extension column, and returns null for some of its aggregates, such as
+  a grouped median or max. The result's schema, from which the pivot types
+  filters and default aggregates, then reports the storage type, such as
+  `Int64`. `describe` and snapshots keep the extension type. A polars frame
+  unwraps only its extension columns, by name through `pl.selectors.by_name`: a
+  projection over every column stopped parquet scans filtering rows as they read
+  them, `pl.col` reads a name like `^a.*$` as a regex, and positions picked the
+  wrong columns once a step reordered the frame. A relation's result is already
+  a frame, so its source unwraps every column when the dataset has an extension
+  column. Cost: a filter on an extension column itself runs after the scan, not
+  in it. A relation whose SQL returns an extension column its dataset lacks,
+  such as a HUGEINT sum under `arrow_lossless_conversion`, is unwrapped by the
+  kernel but not by its source.
 - **INTERVAL and UNION become text**: one helper projects these columns, at any
   depth, as VARCHAR before `.pl()` and reports them as String. `.pl()` rejects
   INTERVAL, nested INTERVAL panics, and polars' environment-variable import path
@@ -898,7 +915,15 @@ them.
   the schema came later. A restored state's queries are not reported, since that
   state is a snapshot already on record and a report would append a copy and fan
   `shared:` keys out again, and a replaced view reports nothing as its hooks let
-  go. Schemas come from the live kernel, as queries do, not from the step that
+  go. A restore also cancels a report still waiting, such as the one a view
+  sends 300 ms after it mounts, which would post the restored state as a new
+  latest and drop the scrubber's pick. So an edit made in the view within the
+  debounce before a restore is never recorded as a snapshot; the restore
+  replaced it. A restore within the debounce of a mount or a late schema also
+  drops that report's query refresh, so the latest snapshot keeps its old
+  queries, such as a placeholder, until the next edit, even when the latest is
+  picked again. A merge keeps the waiting report, which then carries the merged
+  keys. Schemas come from the live kernel, as queries do, not from the step that
   wrote the dataset.
 - **Mounted views refetch when kernel data may change**: the host sends
   `refresh` when a step finishes or the kernel's pid changes. The view's cache
@@ -1025,8 +1050,9 @@ them.
   a frame reload's too, starts the view from the latest snapshot the host holds
   as it sends the mount, and from `initial_state` only before it has one, so a
   page reload shows what the scrubber does, and the report the view then sends
-  with its queries replaces that snapshot instead of adding one. Each posted
-  snapshot goes into the cached session as the server answers it, by the
+  with its queries replaces that snapshot instead of adding one, unless a
+  restore cancels it: see "Snapshots record the queries a view holds". Each
+  posted snapshot goes into the cached session as the server answers it, by the
   server's rule of replacing a last snapshot of the same state, so new snapshots
   reach it during a visit without a refetch. The plan's scrubber read the count
   once, so a view that gained snapshots while mounted showed "1 of N". Cost: a

@@ -1,13 +1,18 @@
 from datetime import date
+from pathlib import Path
 
 import polars as pl
 import pytest
+from polars.testing import assert_frame_equal
 
 from quarry.query import Agg, AggFn, Filter, Json, Pivot, QueryError, QuerySpec, Sort
 from quarry.query.polars_target import CoercedLiteral, coerce_literal, to_polars
 from tests.query.fixtures import (
+    EXTENSION_IDS,
+    EXTENSION_SPECS,
     INT_SUM_IDS,
     INT_SUM_SPECS,
+    as_extensions,
     overflowing,
     past_decimal_38,
     trades,
@@ -242,3 +247,31 @@ def test_not_in_excludes_null_like_sql() -> None:
     spec = QuerySpec(dataset="trades", filters=[Filter(col="ret", op="not_in", value=[0])])
     out = to_polars(spec, trades()).collect()
     assert out["ret"].to_list() == [0.01, -0.02, 0.03]
+
+
+@pytest.mark.parametrize("spec", EXTENSION_SPECS, ids=EXTENSION_IDS)
+def test_extension_columns_query_as_their_storage(spec: QuerySpec) -> None:
+    expected = to_polars(spec, trades()).collect()
+    assert_frame_equal(to_polars(spec, as_extensions(trades())).collect(), expected)
+
+
+def test_extension_columns_are_found_by_their_literal_names() -> None:
+    # `pl.col` would read the name as a regex.
+    values = pl.Series([1]).ext.to(pl.Extension("test.v", pl.Int64))
+    frame = pl.DataFrame({"k": ["a"], "^v.*$": values})
+    out = to_polars(QuerySpec(dataset="frame"), frame).collect()
+    assert dict(out.schema) == {"k": pl.String, "^v.*$": pl.Int64}
+
+
+@pytest.mark.parametrize("beside_extension", [False, True], ids=["plain", "beside_extension"])
+def test_filter_still_pushes_into_a_parquet_scan(tmp_path: Path, beside_extension: bool) -> None:
+    frame = pl.DataFrame({"a": [1, 2, 3], "e": [4, 5, 6]})
+    if beside_extension:
+        frame = frame.with_columns(frame["e"].ext.to(pl.Extension("test.e", pl.Int64)))
+    path = tmp_path / "frame.parquet"
+    frame.write_parquet(path)
+    spec = QuerySpec(dataset="frame", filters=[Filter(col="a", op="gt", value=1)])
+    plan = to_polars(spec, pl.scan_parquet(path)).explain()
+    # The scan filters rows as it reads them, so no FILTER node sits above it.
+    assert "FILTER" not in plan
+    assert 'SELECTION: col("a") > 1' in plan
