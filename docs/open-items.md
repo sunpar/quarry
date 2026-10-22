@@ -356,15 +356,14 @@ one up when a researcher needs it.
   store or `del df["k"]`, which validation still catches; and
   `@types/d3-selection` resolves to 1.0.10 through Perspective, hidden by
   `skipLibCheck`.
-- Close Stage 5 web and browser test gaps: the Perspective cache-hit test
-  checks React's row count, not the viewer's table. `ViewHost.test.tsx` is at
-  240 lines with fixed 20 ms sleeps. `mount.queries.test` leaves roots mounted,
-  and two tests leave
-  `URL` patched. The ECharts browser assertion passes with zero points, and the
-  Plotly one depends on the plot's width. OHLC has no non-zero-offset or
-  microsecond case, and no browser test loads Highstock or SciChart. No
-  automated test loads an all-null, Float16 or extension column into
-  Perspective itself; `test_arrow.py` checks only the Arrow types.
+- Close Stage 5 web and browser test gaps: the Perspective cache-hit test checks
+  React's row count, not the viewer's table. `ViewHost.test.tsx` is at 240 lines
+  with fixed 20 ms sleeps. `mount.queries.test` leaves roots mounted, and two
+  tests leave `URL` patched. The ECharts browser assertion passes with zero
+  points, and the Plotly one depends on the plot's width. OHLC has no
+  non-zero-offset or microsecond case, and no browser test loads Highstock or
+  SciChart. No automated test loads an all-null, Float16 or extension column
+  into Perspective itself; `test_arrow.py` checks only the Arrow types.
 
 ## Open questions
 

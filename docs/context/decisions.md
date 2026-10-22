@@ -893,7 +893,10 @@ them.
   sends 300 ms after it mounts, which would post the restored state as a new
   latest and drop the scrubber's pick. So an edit made in the view within the
   debounce before a restore is never recorded as a snapshot; the restore
-  replaced it. A merge keeps the waiting report, which then carries the merged
+  replaced it. A restore within the debounce of a mount or a late schema also
+  drops that report's query refresh, so the latest snapshot keeps its old
+  queries, such as a placeholder, until the next edit, even when the latest is
+  picked again. A merge keeps the waiting report, which then carries the merged
   keys. Schemas come from the live kernel, as queries do, not from the step that
   wrote the dataset.
 - **Mounted views refetch when kernel data may change**: the host sends
@@ -1021,8 +1024,9 @@ them.
   a frame reload's too, starts the view from the latest snapshot the host holds
   as it sends the mount, and from `initial_state` only before it has one, so a
   page reload shows what the scrubber does, and the report the view then sends
-  with its queries replaces that snapshot instead of adding one. Each posted
-  snapshot goes into the cached session as the server answers it, by the
+  with its queries replaces that snapshot instead of adding one, unless a
+  restore cancels it: see "Snapshots record the queries a view holds". Each
+  posted snapshot goes into the cached session as the server answers it, by the
   server's rule of replacing a last snapshot of the same state, so new snapshots
   reach it during a visit without a refetch. The plan's scrubber read the count
   once, so a view that gained snapshots while mounted showed "1 of N". Cost: a

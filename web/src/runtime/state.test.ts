@@ -24,6 +24,7 @@ describe("ViewStateStore", () => {
     store.replace({ x: "y" });
     expect(listener).toHaveBeenCalled();
     expect(store.get("x")).toBe("y");
+    vi.runAllTimers();
     expect(onChange).not.toHaveBeenCalled();
   });
 

@@ -37,7 +37,7 @@ export class ViewStateStore {
     this.assign(state);
   }
 
-  /** Set `patch`'s keys and keep the rest; like a restore, it is not reported as a change. */
+  /** Set `patch`'s keys and keep the rest; the merge itself is not reported as a change. */
   merge(patch: JsonObject): void {
     // A pending edit still reports, now with the merged keys.
     this.assign({ ...this.cached, ...patch });
