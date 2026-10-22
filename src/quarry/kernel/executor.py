@@ -420,10 +420,11 @@ class Executor:
             ):
                 rows = cur.execute("SELECT json_serialize_sql(?)", [sql]).fetchall()
                 found |= _base_tables(json.loads(rows[0][0]))
-        # A replacement scan finds only the variable named exactly as written, but a registered
-        # view, like any catalog entry, answers to its name in another ASCII case (probed).
-        unmatched = {t.translate(_ASCII_LOWER) for t in found - before}
-        return {n for n in before if n in found or n.translate(_ASCII_LOWER) in unmatched}
+        # DuckDB looks in its catalog, where a registered view answers to any ASCII case, before
+        # its replacement scan finds the variable named exactly as written, so a name may read
+        # any dataset it equals ignoring ASCII case (probed); counting them all never misses one.
+        folded = {t.translate(_ASCII_LOWER) for t in found}
+        return {n for n in before if n.translate(_ASCII_LOWER) in folded}
 
     def _describe_write(self, name: str) -> tuple[DatasetMeta, ExecError | None]:
         """`_describe_guarded`, open to the step's interrupt; once the step is interrupted, its
