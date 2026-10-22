@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { Project } from "@/shared/api-types";
 import { useApi } from "../api/context";
 import {
   projectQuery,
@@ -26,7 +25,7 @@ export function ProjectRail({ sessionId, onOpen }: ProjectRailProps) {
     ...projectQuery(api, expanded ?? ""),
     enabled: expanded !== null,
   });
-  const projects: Project[] | undefined = metas.data?.map((meta) =>
+  const projects = metas.data?.map((meta) =>
     meta.slug === expanded && detail.data !== undefined
       ? detail.data
       : { meta, datasets: [], views: [] },
