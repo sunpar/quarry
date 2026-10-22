@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { Project } from "@/shared/api-types";
 import { useApi } from "../api/context";
 import {
   projectQuery,
@@ -26,7 +25,7 @@ export function ProjectRail({ sessionId, onOpen }: ProjectRailProps) {
     ...projectQuery(api, expanded ?? ""),
     enabled: expanded !== null,
   });
-  const projects: Project[] = (metas.data ?? []).map((meta) =>
+  const projects = metas.data?.map((meta) =>
     meta.slug === expanded && detail.data !== undefined
       ? detail.data
       : { meta, datasets: [], views: [] },
@@ -35,6 +34,7 @@ export function ProjectRail({ sessionId, onOpen }: ProjectRailProps) {
     <div className="flex flex-col gap-2">
       <ProjectBrowser
         projects={projects}
+        error={metas.error?.message ?? null}
         expanded={expanded}
         onToggle={(slug) => setExpanded(expanded === slug ? null : slug)}
         onOpen={onOpen}
