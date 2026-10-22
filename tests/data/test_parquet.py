@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import duckdb
@@ -47,13 +48,24 @@ def test_scan_layout_lists_an_unpartitioned_dataset_with_no_keys(tmp_path: Path)
     ]
 
 
+def test_scan_layout_leaves_out_a_dataset_whose_parquet_link_is_dangling(tmp_path: Path) -> None:
+    build_cache(tmp_path)
+    (tmp_path / "gone").mkdir()
+    (tmp_path / "gone" / "part.parquet").symlink_to(tmp_path / "gone" / "deleted.parquet")
+    layout = scan_layout(tmp_path)
+    assert [entry.dataset for entry in layout] == ["prices"]
+
+
 @root_ignores_modes
-def test_scan_layout_skips_an_unreadable_dataset(tmp_path: Path) -> None:
+def test_scan_layout_skips_an_unreadable_dataset_with_a_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     build_cache(tmp_path)
     write_frame(tmp_path / "locked" / "part.parquet")
-    with chmodded(tmp_path / "locked", 0o000):
+    with chmodded(tmp_path / "locked", 0o000), caplog.at_level(logging.WARNING):
         layout = scan_layout(tmp_path)
     assert [entry.dataset for entry in layout] == ["prices"]
+    assert "locked" in caplog.text
 
 
 @root_ignores_modes
