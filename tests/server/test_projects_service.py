@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from quarry.agent.context import enabled_libraries
 from quarry.agent.fake import FakeProvider
 from quarry.agent.runtime import ApiRuntime
 from quarry.agent.transpile import NoopTranspiler
@@ -39,6 +40,7 @@ def build(tmp_path: Path, provider: FakeProvider) -> tuple[SessionService, Proje
         runtime_factory=lambda _cfg: ApiRuntime(provider),
         library=ComponentLibrary([builtin_root()]),
         transpiler=NoopTranspiler(),
+        libraries=enabled_libraries([]),
     )
     projects = ProjectService(
         config=config,

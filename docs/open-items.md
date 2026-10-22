@@ -346,16 +346,14 @@ one up when a researcher needs it.
   in Firefox and Safari; the Playwright test runs Chromium only.
 - Review the chart built-ins' visuals and accessibility, which no Stage 5 review
   covered: table header sorts are mouse-only.
-- Tidy Stage 5 code: the library statuses are computed twice at startup
-  (`create_app` and `enabled_libraries`); `to_code` builds the importable
-  projection twice per relation and runs `_imported_names` twice per polars
-  spec, and `_imported_names` repeats the filter rendering's literal coercion;
-  the Arrow cache keeps both the base64 and the decoded buffer;
-  `PerspectiveViewer` writes `latest.current` during render, as the plan wrote
-  it; `tidy._binds` accepts a recipe whose only mention of `df` is an attribute
-  store or `del df["k"]`, which validation still catches; and
-  `@types/d3-selection` resolves to 1.0.10 through Perspective, hidden by
-  `skipLibCheck`.
+- Tidy Stage 5 code: `to_code` builds the importable projection twice per
+  relation and runs `_imported_names` twice per polars spec, and
+  `_imported_names` repeats the filter rendering's literal coercion; the Arrow
+  cache keeps both the base64 and the decoded buffer; `PerspectiveViewer` writes
+  `latest.current` during render, as the plan wrote it; `tidy._binds` accepts a
+  recipe whose only mention of `df` is an attribute store or `del df["k"]`,
+  which validation still catches; and `@types/d3-selection` resolves to 1.0.10
+  through Perspective, hidden by `skipLibCheck`.
 - Close Stage 5 web and browser test gaps: the Perspective cache-hit test
   checks React's row count, not the viewer's table. `ViewHost.test.tsx` is at
   240 lines with fixed 20 ms sleeps. `state.test.ts` uses fake timers without
