@@ -90,5 +90,6 @@ describe("ProjectBrowser", () => {
       expect(screen.queryByText(hint) !== null, hint).toBe(hint === shown);
     if (error !== null)
       expect(screen.getByText(error).className).toContain("text-destructive");
+    expect(screen.queryByText("Momentum") !== null).toBe(!!list?.length);
   });
 });
