@@ -58,19 +58,22 @@ function renderPage(
   return qc;
 }
 
+// A server with the one session, holding `steps` and reporting `current`.
+const routes =
+  (steps: Step[], current: SessionStatus) => async (path: string) => {
+    if (path === "/sessions") return json([meta]);
+    if (path === "/sessions/s1") return json({ meta, steps });
+    if (path === "/sessions/s1/status") return json(current);
+    if (path === "/projects") return json([]);
+    return new Response(null, { status: 404 });
+  };
+
 function setup(
   busy: boolean,
   runningStep: string | null = null,
   steps: Step[] = [],
 ) {
-  const fetchImpl = async (path: string) => {
-    if (path === "/sessions") return json([meta]);
-    if (path === "/sessions/s1") return json({ meta, steps });
-    if (path === "/sessions/s1/status") return json(status(busy, runningStep));
-    if (path === "/projects") return json([]);
-    return new Response(null, { status: 404 });
-  };
-  return renderPage(fetchImpl);
+  return renderPage(routes(steps, status(busy, runningStep)));
 }
 
 describe("SessionPage prompt box", () => {
@@ -262,20 +265,16 @@ describe("SessionPage kernel banner", () => {
     ];
     // Each restart answers once released, so the test sees it pending and then done.
     let release = () => {};
+    const page = routes([finished], {
+      ...status(false, null),
+      kernel: { status: "idle", pid: 1, replay_needed: true },
+    });
     renderPage(async (path, init) => {
-      if (path === "/sessions") return json([meta]);
-      if (path === "/sessions/s1") return json({ meta, steps: [finished] });
-      if (path === "/sessions/s1/status")
-        return json({
-          ...status(false, null),
-          kernel: { status: "idle", pid: 1, replay_needed: true },
-        });
       if (path === "/sessions/s1/restart" && init?.method === "POST") {
         await new Promise<void>((resolve) => (release = resolve));
         return json(replays.shift());
       }
-      if (path === "/projects") return json([]);
-      return new Response(null, { status: 404 });
+      return page(path);
     });
     const button = () =>
       screen.getByRole<HTMLButtonElement>("button", { name: "Restart kernel" });
