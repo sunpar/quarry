@@ -7,6 +7,7 @@ import builtins
 import contextlib
 import io
 import json
+import string
 import time
 import traceback
 import uuid
@@ -53,6 +54,8 @@ from quarry.query.sql_target import (
 
 TAIL_BYTES: Final = 4096
 _NOTHING_STORED: Final = CodeNames(frozenset(), frozenset(), frozenset())
+# DuckDB's catalog folds ASCII letters only: `RECENTä` finds `recentä`, `Ä` does not find `ä`.
+_ASCII_LOWER: Final = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
 
 Status = Literal["ok", "error", "interrupted"]
 # Whether a namespace value is still the object a name was bound to when the check was made.
@@ -417,7 +420,10 @@ class Executor:
             ):
                 rows = cur.execute("SELECT json_serialize_sql(?)", [sql]).fetchall()
                 found |= _base_tables(json.loads(rows[0][0]))
-        return found & before
+        # A replacement scan finds only the variable named exactly as written, but a registered
+        # view, like any catalog entry, answers to its name in another ASCII case (probed).
+        unmatched = {t.translate(_ASCII_LOWER) for t in found - before}
+        return {n for n in before if n in found or n.translate(_ASCII_LOWER) in unmatched}
 
     def _describe_write(self, name: str) -> tuple[DatasetMeta, ExecError | None]:
         """`_describe_guarded`, open to the step's interrupt; once the step is interrupted, its

@@ -1280,6 +1280,16 @@ def test_sql_local_table_names_are_reads() -> None:
     assert bad.status == "ok" and bad.reads == []
 
 
+def test_sql_table_names_match_datasets_as_duckdb_resolves_them() -> None:
+    # A registered view answers to its name in any ASCII case; a replacement scan finds only
+    # the variable named exactly as written, so `X` is not also a read of `x`.
+    ex = make()
+    ex.execute("recent = pl.DataFrame({'a': [1]})\nx = recent\nX = pl.DataFrame({'a': [2]})")
+    ex.execute("conn = _conn\nconn.register('recent', recent)")
+    result = ex.execute("top = _conn.sql('SELECT * FROM RECENT JOIN X USING (a)').pl()")
+    assert result.status == "ok" and result.reads == ["X", "recent"]
+
+
 def test_a_literal_duckdb_cannot_take_still_returns_the_step() -> None:
     # The step's parser makes a lone surrogate of the escape, which pybind11 cannot pass on.
     code = r"""y = pl.DataFrame({"a": [1]}) if True else _conn.sql("SELECT '\ud800'")"""

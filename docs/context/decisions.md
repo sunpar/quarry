@@ -366,7 +366,10 @@ them.
   TABLE AS) adds no reads, a CTE that shares a dataset's name counts as a read
   of it, a schema-qualified `main.prices` counts as `prices`, every statement of
   a multi-statement literal adds its reads, and SQL built at run time (an
-  f-string, a variable) is not read.
+  f-string, a variable) is not read. A name matches a dataset exactly, or else
+  every dataset it equals ignoring ASCII case: a replacement scan finds only the
+  exact variable, while a registered view, like DuckDB's whole catalog, ignores
+  ASCII case (probed).
 - **In-place assignment stores its root name**: at module level, assigning to or
   deleting an attribute or subscript (`df.columns = ...`, `df["k"] = ...`,
   `del df["k"]`, also as an unpacking, `for` or `with` target) stores the name
