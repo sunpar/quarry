@@ -3,7 +3,8 @@ import type { Project, RecallRequest } from "@/shared/api-types";
 import { ValidationBadge } from "./ValidationBadge";
 
 interface ProjectBrowserProps {
-  projects: Project[];
+  projects: Project[] | undefined;
+  error: string | null;
   expanded: string | null;
   onToggle: (slug: string) => void;
   onOpen: (slug: string) => void;
@@ -13,12 +14,21 @@ interface ProjectBrowserProps {
 
 export function ProjectBrowser({
   projects,
+  error,
   expanded,
   onToggle,
   onOpen,
   onRecall,
   onCreate,
 }: ProjectBrowserProps) {
+  // A failed refetch keeps the last list, so an empty one still shows the error.
+  const hint =
+    projects !== undefined && projects.length > 0
+      ? null
+      : (error ??
+        (projects === undefined
+          ? "Loading"
+          : "Create a project to save datasets and views into."));
   return (
     <section className="flex flex-col gap-2 border-t border-border pt-4">
       <div className="flex items-center justify-between">
@@ -27,13 +37,15 @@ export function ProjectBrowser({
           New project
         </Button>
       </div>
-      {projects.length === 0 && (
-        <p className="text-sm text-muted-foreground">
-          Create a project to save datasets and views into.
+      {hint !== null && (
+        <p
+          className={`text-sm ${hint === error ? "text-destructive" : "text-muted-foreground"}`}
+        >
+          {hint}
         </p>
       )}
       <ul className="flex flex-col gap-1">
-        {projects.map(({ meta, datasets, views }) => (
+        {projects?.map(({ meta, datasets, views }) => (
           <li key={meta.slug} className="flex flex-col gap-1">
             <div className="flex items-center gap-1">
               <button

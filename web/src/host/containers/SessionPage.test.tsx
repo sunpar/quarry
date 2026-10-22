@@ -117,6 +117,23 @@ describe("SessionPage prompt box", () => {
   });
 });
 
+describe("SessionPage project rail", () => {
+  it("shows why the projects did not load", async () => {
+    renderPage(async (path) => {
+      if (path === "/sessions") return json([]);
+      if (path === "/projects")
+        return new Response(JSON.stringify({ detail: "db locked" }), {
+          status: 500,
+        });
+      return new Response(null, { status: 404 });
+    });
+    expect(await screen.findByText("500: db locked")).toBeTruthy();
+    expect(
+      screen.queryByText("Create a project to save datasets and views into."),
+    ).toBeNull();
+  });
+});
+
 describe("SessionPage session choice", () => {
   const second: SessionMeta = { ...meta, id: "s2", title: "second" };
   const unlisted: SessionMeta = { ...meta, id: "s3", title: "unlisted" };
