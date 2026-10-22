@@ -47,11 +47,7 @@ function setup() {
       status: 404,
     });
   };
-  // jsdom has no object URLs and does not navigate, so the anchor's click is caught.
-  Object.assign(URL, {
-    createObjectURL: () => "blob:1",
-    revokeObjectURL: vi.fn(),
-  });
+  // jsdom does not navigate, so the anchor's click is caught.
   const saved: string[] = [];
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
     this: HTMLAnchorElement,

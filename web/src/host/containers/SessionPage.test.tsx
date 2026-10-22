@@ -242,4 +242,54 @@ describe("SessionPage session choice", () => {
     );
     expect(fetched).toContain("/sessions/s2");
   });
+
+  it("says the token was rejected when the list answers 401", async () => {
+    serve([meta], { listing: 401 });
+    expect(
+      await screen.findByText(
+        "The token was rejected. Open the link that quarry serve printed.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "New session" })).toBeNull();
+  });
+});
+
+describe("SessionPage kernel banner", () => {
+  it("drops a replay failure once a later restart succeeds", async () => {
+    const replays = [
+      { replayed: 0, failed_step: 0, error: "boom" },
+      { replayed: 1, failed_step: null, error: null },
+    ];
+    // Each restart answers once released, so the test sees it pending and then done.
+    let release = () => {};
+    renderPage(async (path, init) => {
+      if (path === "/sessions") return json([meta]);
+      if (path === "/sessions/s1") return json({ meta, steps: [finished] });
+      if (path === "/sessions/s1/status")
+        return json({
+          ...status(false, null),
+          kernel: { status: "idle", pid: 1, replay_needed: true },
+        });
+      if (path === "/sessions/s1/restart" && init?.method === "POST") {
+        await new Promise<void>((resolve) => (release = resolve));
+        return json(replays.shift());
+      }
+      if (path === "/projects") return json([]);
+      return new Response(null, { status: 404 });
+    });
+    const button = () =>
+      screen.getByRole<HTMLButtonElement>("button", { name: "Restart kernel" });
+    // A pending restart already hides the last report, so wait for this one to finish.
+    const restart = async () => {
+      fireEvent.click(button());
+      await waitFor(() => expect(button().disabled).toBe(true));
+      release();
+      await waitFor(() => expect(button().disabled).toBe(false));
+    };
+    await screen.findByRole("button", { name: "Restart kernel" });
+    await restart();
+    expect(screen.getByText("Replay stopped at step 1: boom")).toBeTruthy();
+    await restart();
+    expect(screen.queryByText("Replay stopped at step 1: boom")).toBeNull();
+  });
 });
