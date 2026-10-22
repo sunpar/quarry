@@ -180,6 +180,24 @@ SPECS: list[QuerySpec] = [
 ]
 
 
+# Every spec above and a line reduction, which checks its axes' dtypes. Over
+# `as_extensions(trades())` each must answer as over `trades()`.
+EXTENSION_SPECS: list[QuerySpec] = [
+    *SPECS,
+    QuerySpec.model_validate(
+        {"dataset": "trades", "line_reduce": {"time": "ts", "value": "volume", "max_rows": 4}}
+    ),
+]
+EXTENSION_IDS = [s.model_dump_json() for s in EXTENSION_SPECS]
+
+
+def as_extensions(frame: pl.DataFrame) -> pl.DataFrame:
+    """`frame` with each column an Arrow extension type over its own dtype."""
+    return pl.DataFrame(
+        [s.ext.to(pl.Extension(f"test.c{i}", s.dtype)) for i, s in enumerate(frame.iter_columns())]
+    )
+
+
 def overflowing(
     top: int = 2**62, dtype: pl.DataType | type[pl.DataType] = pl.Int64
 ) -> pl.DataFrame:
