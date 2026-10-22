@@ -148,11 +148,7 @@ function renderCanvas(
     </QueryClientProvider>
   );
   const { rerender, unmount } = render(page(shown));
-  return Object.assign(qc, {
-    puts,
-    unmount,
-    show: (p: Project) => rerender(page(p)),
-  });
+  return { qc, puts, unmount, show: (p: Project) => rerender(page(p)) };
 }
 
 // A layout write as `puts` records it.
@@ -161,7 +157,7 @@ const put = (cards: CanvasCard[]) =>
 
 describe("CanvasPage availability", () => {
   it("offers Load when the kernel no longer holds a dataset a step wrote", async () => {
-    const qc = renderCanvas([]);
+    const { qc } = renderCanvas([]);
     // Every query answers first: before the session loads, any card lacks its datasets.
     await waitFor(() => expect(qc.isFetching()).toBe(0));
     expect(screen.getByRole("button", { name: "Load" })).toBeDefined();
@@ -252,14 +248,16 @@ describe("CanvasPage failures", () => {
 });
 
 describe("CanvasPage layout writes", () => {
-  beforeEach(() =>
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }),
-  );
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    // So a drag reaches this test's grid, or fails when it has none.
+    grid.onLayoutChange = undefined;
+  });
   afterEach(() => vi.useRealTimers());
 
   const moved = (x: number) => project.meta.canvas.map((c) => ({ ...c, x }));
   const drag = (cards: CanvasCard[]) =>
-    act(() => grid.onLayoutChange?.(cardsToLayout(cards)));
+    act(() => grid.onLayoutChange!(cardsToLayout(cards)));
   // Runs the timers due by then, and the writes they start.
   const wait = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
 

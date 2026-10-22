@@ -296,7 +296,8 @@ one up when a researcher needs it.
 - Make `npm run dev` views work inside the null-origin frame: Vite's dev CORS
   allowlist and its inline React preamble are both blocked there, so views
   render only from a production build today.
-- Disable the view's "Fix this view" after a successful repair.
+- Disable the view's "Fix this view" after a successful repair, and clear a
+  replay-failure banner once a restart from another tab succeeds.
 - Restore, merge and refresh never clear a caught render error, so a view that
   threw on its state or data stays on the error until it mounts again.
 - The Lightweight Charts attribution link is inert under the sandbox (no
@@ -355,10 +356,10 @@ one up when a researcher needs it.
   checks React's row count, not the viewer's table. `state.test.ts` uses fake
   timers without `try/finally`, and `mount.queries.test` leaves roots mounted.
   The ECharts browser assertion passes with zero points, and the Plotly one
-  depends on the plot's width. OHLC has no non-zero-offset or
-  microsecond case, and no browser test loads Highstock or SciChart. No
-  automated test loads an all-null, Float16 or extension column into
-  Perspective itself; `test_arrow.py` checks only the Arrow types.
+  depends on the plot's width. OHLC has no non-zero-offset or microsecond case,
+  and no browser test loads Highstock or SciChart. No automated test loads an
+  all-null, Float16 or extension column into Perspective itself; `test_arrow.py`
+  checks only the Arrow types.
 
 ## Open questions
 

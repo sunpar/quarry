@@ -278,32 +278,34 @@ describe("SessionPage kernel banner", () => {
       { replayed: 0, failed_step: 0, error: "boom" },
       { replayed: 1, failed_step: null, error: null },
     ];
-    // Each restart answers once released, so the test sees it pending and then done.
-    let release = () => {};
-    const page = routes([finished], {
-      ...status(false, null),
-      kernel: { status: "idle", pid: 1, replay_needed: true },
-    });
+    // As on the server, the session needs a replay until one runs through.
+    let replayNeeded = true;
     renderPage(async (path, init) => {
       if (path === "/sessions/s1/restart" && init?.method === "POST") {
-        await new Promise<void>((resolve) => (release = resolve));
-        return json(replays.shift());
+        const report = replays.shift()!;
+        replayNeeded = report.failed_step !== null;
+        return json(report);
       }
-      return page(path);
+      return routes([finished], {
+        ...status(false, null),
+        kernel: { status: "idle", pid: 1, replay_needed: replayNeeded },
+      })(path);
     });
-    const button = () =>
-      screen.getByRole<HTMLButtonElement>("button", { name: "Restart kernel" });
-    // A pending restart already hides the last report, so wait for this one to finish.
-    const restart = async () => {
-      fireEvent.click(button());
-      await waitFor(() => expect(button().disabled).toBe(true));
-      release();
-      await waitFor(() => expect(button().disabled).toBe(false));
-    };
-    await screen.findByRole("button", { name: "Restart kernel" });
-    await restart();
-    expect(screen.getByText("Replay stopped at step 1: boom")).toBeTruthy();
-    await restart();
-    expect(screen.queryByText("Replay stopped at step 1: boom")).toBeNull();
+    const restart = () =>
+      fireEvent.click(screen.getByRole("button", { name: "Restart kernel" }));
+    const needed = "The kernel restarted without this session's steps.";
+    await screen.findByText(needed);
+    restart();
+    expect(
+      await screen.findByText("Replay stopped at step 1: boom"),
+    ).toBeTruthy();
+    expect(screen.getByText(needed)).toBeTruthy();
+    restart();
+    // The banner leaves once the status poll, refetched by the restart, needs no replay.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Restart kernel" }),
+      ).toBeNull(),
+    );
   });
 });
