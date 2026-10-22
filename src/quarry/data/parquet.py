@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import duckdb
 from pydantic import BaseModel
+
+log = logging.getLogger(__name__)
 
 
 class PartitionLayout(BaseModel):
@@ -30,7 +33,8 @@ class ParquetCatalog:
 
 def scan_layout(root: Path) -> list[PartitionLayout]:
     """The datasets under `root` with their partition keys, none for a dataset that has none.
-    Never raises: a directory that cannot be read is left out, so an unreadable `root` gives []."""
+    Never raises: a directory that cannot be read is logged and left out, so an unreadable
+    `root` gives []."""
     top = _read_dir(root)
     if top is None:
         return []
@@ -74,15 +78,18 @@ def _key(partition: Path) -> str:
 
 def _read_dir(path: Path) -> tuple[list[Path], list[Path]] | None:
     """The subdirectories and the parquet files directly in `path`, sorted; None when `path`
-    or anything in it cannot be read."""
+    or anything in it cannot be read, with a warning unless `path` does not exist."""
     dirs: list[Path] = []
     files: list[Path] = []
     try:
         for entry in sorted(path.iterdir()):
             if entry.is_dir():
                 dirs.append(entry)
-            elif entry.suffix == ".parquet":
+            elif entry.suffix == ".parquet" and entry.is_file():
                 files.append(entry)
-    except OSError:
+    except FileNotFoundError:
+        return None  # a root not made yet, or a directory removed during the scan
+    except OSError as exc:
+        log.warning("cannot read parquet cache directory: %s", exc)
         return None
     return dirs, files

@@ -120,10 +120,12 @@ Decisions already made are in [decisions.md](context/decisions.md).
 - **A loader that hangs at import hangs startup**: the server imports loaders to
   describe them to the agent, and each kernel imports them at start. Loud only
   through a stderr notice naming the loader after 10 s.
-- **Some cache layouts are hidden or misread**: `scan_layout` skips an
-  unreadable directory without a log line, and misses a dataset whose parquet
-  files sit only in nested directories not named `key=value`. A dangling
-  `*.parquet` symlink still lists its dataset. Silent.
+- **Some cache layouts are hidden or misread**: `scan_layout` misses a dataset
+  whose parquet files sit only in nested directories not named `key=value`. It
+  never reads a partitioned dataset's leaves, so it lists one whose parquet
+  files are all dangling links. On Python 3.14, which CI does not run,
+  `is_dir()` returns False rather than raising, so a dataset directory whose
+  entries cannot be stat'd is dropped without a warning. Silent.
 - **Empty or contradicting provider turns pass as a success**: an Anthropic
   reply whose content is empty or holds only block types the adapter does not
   know, or an OpenAI message with neither content nor tool calls, reads as an
