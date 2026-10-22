@@ -34,17 +34,21 @@ const prices: QueryHookResult = {
   arrow: null,
 };
 
+const ariaSort = (name: string) =>
+  screen.getByRole("columnheader", { name }).getAttribute("aria-sort");
+
 describe("data-table-tanstack built-in", () => {
-  it("renders header cells and rows, and pushes a header click into the sort state", () => {
+  it("renders header cells and rows, and pushes a header button into the sort state", () => {
     query.mockReturnValue(prices);
     render(<DataTableTanstack datasets={["df"]} />);
     expect(query).toHaveBeenCalledWith({ dataset: "df", limit: 500 });
-    expect(screen.getByRole("columnheader", { name: /px/ })).toBeTruthy();
+    expect(ariaSort("px")).toBe("none");
     // Numeric columns are right-aligned through the column meta.
     expect(screen.getByText("1.5").className).toContain("text-right");
     expect(screen.getByText("A").className).not.toContain("text-right");
     expect(screen.queryByText(/Showing the first/)).toBeNull();
-    fireEvent.click(screen.getByRole("columnheader", { name: /px/ }));
+    // A button, so the sort is reachable from the keyboard.
+    fireEvent.click(screen.getByRole("button", { name: "px" }));
     expect(setSort).toHaveBeenLastCalledWith({ col: "px", desc: false });
   });
 
@@ -58,12 +62,15 @@ describe("data-table-tanstack built-in", () => {
         limit: 500,
         sort: [{ col: "px", desc: false }],
       });
-      fireEvent.click(screen.getByRole("columnheader", { name: /px/ }));
+      expect(ariaSort("px")).toBe("ascending");
+      expect(ariaSort("sym")).toBe("none");
+      fireEvent.click(screen.getByRole("button", { name: "px" }));
       expect(setSort).toHaveBeenLastCalledWith({ col: "px", desc: true });
       unmount();
       saved.sort = { col: "px", desc: true };
       render(<DataTableTanstack datasets={["df"]} />);
-      fireEvent.click(screen.getByRole("columnheader", { name: /px/ }));
+      expect(ariaSort("px")).toBe("descending");
+      fireEvent.click(screen.getByRole("button", { name: "px" }));
       expect(setSort).toHaveBeenLastCalledWith(null);
     } finally {
       delete saved.sort;

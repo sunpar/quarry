@@ -113,12 +113,28 @@ export default function DataTableTanstack({ datasets }: Props) {
                     {group.headers.map((header) => (
                       <th
                         key={header.id}
-                        className="cursor-pointer border-b border-border px-2 py-1 text-left font-medium"
-                        onClick={() => onHeader(header.column.id)}
+                        className="border-b border-border px-2 py-1 text-left font-medium"
+                        aria-sort={
+                          sort?.col !== header.column.id
+                            ? "none"
+                            : sort.desc
+                              ? "descending"
+                              : "ascending"
+                        }
                       >
-                        <table.FlexRender header={header} />
-                        {sort?.col === header.column.id &&
-                          (sort.desc ? " ▼" : " ▲")}
+                        <button
+                          type="button"
+                          className="w-full cursor-pointer text-left"
+                          onClick={() => onHeader(header.column.id)}
+                        >
+                          <table.FlexRender header={header} />
+                          {/* aria-sort carries the direction, so the arrow stays out of the name. */}
+                          {sort?.col === header.column.id && (
+                            <span aria-hidden="true">
+                              {sort.desc ? " ▼" : " ▲"}
+                            </span>
+                          )}
+                        </button>
                       </th>
                     ))}
                   </tr>
