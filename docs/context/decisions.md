@@ -366,7 +366,12 @@ them.
   TABLE AS) adds no reads, a CTE that shares a dataset's name counts as a read
   of it, a schema-qualified `main.prices` counts as `prices`, every statement of
   a multi-statement literal adds its reads, and SQL built at run time (an
-  f-string, a variable) is not read.
+  f-string, a variable) is not read. A name reads every dataset it equals
+  ignoring ASCII case: DuckDB looks in its catalog, where a registered view
+  answers to any ASCII case, before its replacement scan finds the variable
+  named exactly as written (probed). Cost: an extra read, never a missed one;
+  `FROM X` also reads a dataset `x`, and a DuckDB table `RECENT` that is no
+  dataset reads dataset `recent`.
 - **In-place assignment stores its root name**: at module level, assigning to or
   deleting an attribute or subscript (`df.columns = ...`, `df["k"] = ...`,
   `del df["k"]`, also as an unpacking, `for` or `with` target) stores the name
@@ -441,12 +446,15 @@ them.
 - **A missing `mssql` extra says so**: `sql()` without `arrow_odbc` raises
   `ModuleNotFoundError` with the install command. Any other missing module
   re-raises unchanged.
-- **An unreadable cache path is skipped**: `scan_layout` never raises. It drops
-  an unreadable root or dataset, lists a directory holding parquet files
-  directly as `not partitioned`, and reads only the dataset directory and its
-  first-level partitions, taking the second key from the first readable one. An
-  unreadable cache had stopped `quarry serve`. Cost: an unreadable cache looks
-  empty to the agent, with no log line.
+- **An unreadable cache path is skipped with a warning**: `scan_layout` never
+  raises. It drops an unreadable root or dataset, logging a warning with the
+  error for each directory it cannot read but saying nothing of a root that
+  does not exist yet. It lists a directory holding parquet files directly as
+  `not partitioned`, and reads only the dataset directory and its first-level
+  partitions, taking the second key from the first readable one. An unreadable
+  cache had stopped `quarry serve`. Cost: an unreadable cache looks empty to
+  the agent, its warning goes only to the server's log, and it repeats on
+  every prompt.
 - **`sql()` keeps the schema on zero rows**: it reads arrow-odbc's pyarrow
   `RecordBatchReader` with `read_all()`, which carries the schema when no rows
   return. Parameters are sent as text, because arrow-odbc binds every parameter
@@ -788,8 +796,9 @@ them.
   case-sensitive, like tag search.
 - **Licensed library status lives in `quarry/libraries.py`**: `LibraryStatus`
   and `licensed_libraries` import only the config and pydantic, because
-  `enabled_libraries` in `quarry.agent` needs them and `quarry.server` already
-  imports `quarry.agent`. The plan put them in `quarry.server.libraries`.
+  `enabled_libraries` in `quarry.agent` takes `LibraryStatus` and
+  `quarry.server` already imports `quarry.agent`. The plan put them in
+  `quarry.server.libraries`.
   `create_app` computes the statuses once: it mounts each enabled library at
   `/libs/<id>`, serves the same list from `GET /libraries`, and logs one warning
   for each library with a key but no usable install, naming the setting, never

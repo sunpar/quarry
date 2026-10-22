@@ -90,7 +90,7 @@ def create_app(
         runtime_factory=runtime_factory,
         library=library,
         transpiler=transpiler,
-        libraries=enabled_libraries(config, runtime_libraries(static)),
+        libraries=enabled_libraries(licensed, runtime_libraries(static)),
     )
     projects = ProjectService(
         config=config,
