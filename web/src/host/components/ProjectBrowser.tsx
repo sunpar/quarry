@@ -21,14 +21,15 @@ export function ProjectBrowser({
   onRecall,
   onCreate,
 }: ProjectBrowserProps) {
-  // A failed refetch keeps the last list, so an empty one still shows the error.
+  // A failed refetch keeps the last list, so the error shows above it: the
+  // list may be missing a project just created.
   const hint =
-    projects !== undefined && projects.length > 0
-      ? null
-      : (error ??
-        (projects === undefined
-          ? "Loading"
-          : "Create a project to save datasets and views into."));
+    error ??
+    (projects === undefined
+      ? "Loading"
+      : projects.length === 0
+        ? "Create a project to save datasets and views into."
+        : null);
   return (
     <section className="flex flex-col gap-2 border-t border-border pt-4">
       <div className="flex items-center justify-between">
@@ -39,7 +40,8 @@ export function ProjectBrowser({
       </div>
       {hint !== null && (
         <p
-          className={`text-sm ${hint === error ? "text-destructive" : "text-muted-foreground"}`}
+          role="status"
+          className={`text-sm ${error !== null ? "text-destructive" : "text-muted-foreground"}`}
         >
           {hint}
         </p>

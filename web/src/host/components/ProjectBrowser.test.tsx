@@ -71,6 +71,7 @@ describe("ProjectBrowser", () => {
     ["the list fails", "boom", undefined, "boom"],
     // A failed refetch keeps the last list.
     ["a refetch fails", "boom", [], "boom"],
+    ["a refetch fails with some kept", "boom", [project], "boom"],
     ["there are none", createHint, [], null],
     ["there are some", null, [project], null],
   ])("when %s, says %s", (_, shown, list, error) => {
@@ -87,5 +88,7 @@ describe("ProjectBrowser", () => {
     );
     for (const hint of ["Loading", "boom", createHint])
       expect(screen.queryByText(hint) !== null, hint).toBe(hint === shown);
+    if (error !== null)
+      expect(screen.getByText(error).className).toContain("text-destructive");
   });
 });
