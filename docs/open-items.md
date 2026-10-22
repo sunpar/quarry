@@ -79,13 +79,12 @@ Decisions already made are in [decisions.md](context/decisions.md).
   result is used (`x = lst.pop()`), that runs inside an expression such as a
   comprehension kept for its effects, or that a statement calls on a dataset
   (`df.extend(other)`) or a module (`random.seed(0)`, so replay draws unseeded
-  values). Changes through aliases are under the entry above. A literal reading
-  `FROM RECENT` is not matched to dataset `recent`, though DuckDB's catalog
-  ignores case. A step that reads `__annotations__` depends on the step that
-  created it, not on later steps that annotated, since counting those would
-  chain every annotated step to every earlier one; Python 3.14, which
-  `requires-python` allows but CI does not run, binds `__annotate__` instead.
-  Silent: a saved recipe can miss a source step.
+  values). Changes through aliases are under the entry above. A step that reads
+  `__annotations__` depends on the step that created it, not on later steps
+  that annotated, since counting those would chain every annotated step to
+  every earlier one; Python 3.14, which `requires-python` allows but CI does not
+  run, binds `__annotate__` instead. Silent: a saved recipe can miss a source
+  step.
 - **Lineage approximations**: a failed step's in-place mutation is not a write.
   A successful step's store that never ran is a write or define, but the step
   then also reads the name, so the step that bound it before stays in the
