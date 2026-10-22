@@ -1,11 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ViewStateStore } from "./state";
 
+beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("ViewStateStore", () => {
   it("debounces onChange and reports the whole state", () => {
-    vi.useFakeTimers();
     const onChange = vi.fn();
     const store = new ViewStateStore({ a: 1 }, onChange, 300);
     store.set("b", 2);
@@ -28,7 +28,6 @@ describe("ViewStateStore", () => {
   });
 
   it("merge sets the given keys, keeps the rest and reports nothing", () => {
-    vi.useFakeTimers();
     const onChange = vi.fn();
     const store = new ViewStateStore(
       { "shared:k": 1, limit: 5 },
@@ -46,7 +45,6 @@ describe("ViewStateStore", () => {
   });
 
   it("a restore cancels a report still waiting", () => {
-    vi.useFakeTimers();
     const onChange = vi.fn();
     const store = new ViewStateStore({ a: 1 }, onChange, 300);
     store.queriesChanged(); // as a view's queries do when it mounts
@@ -59,7 +57,6 @@ describe("ViewStateStore", () => {
   });
 
   it("reports changed queries, except those a restored state brings", () => {
-    vi.useFakeTimers();
     const onChange = vi.fn();
     const store = new ViewStateStore({ a: 1 }, onChange, 300);
     store.queriesChanged();
