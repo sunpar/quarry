@@ -14,7 +14,7 @@ from typing import Final
 from pydantic import BaseModel
 
 from quarry.agent.anthropic_provider import AnthropicProvider
-from quarry.agent.context import SystemContext, build_summary, build_system, enabled_libraries
+from quarry.agent.context import SystemContext, build_summary, build_system
 from quarry.agent.loop import step_lineage
 from quarry.agent.openai_provider import OpenAIProvider
 from quarry.agent.runtime import AgentRuntime, ApiRuntime
@@ -107,7 +107,7 @@ class SessionService:
         runtime_factory: RuntimeFactory,
         library: ComponentLibrary,
         transpiler: Transpiler,
-        libraries: list[str] | None = None,
+        libraries: list[str],
     ) -> None:
         self._config = config
         self._store = store
@@ -115,7 +115,7 @@ class SessionService:
         self._runtime_factory = runtime_factory
         self._library = library
         self._transpiler = transpiler
-        self._libraries = libraries if libraries is not None else enabled_libraries(config)
+        self._libraries = libraries
         # A session in here has a running step, which its event cancels.
         self._running: dict[str, Step] = {}
         self._cancels: dict[str, threading.Event] = {}

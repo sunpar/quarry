@@ -47,6 +47,7 @@ describe("ProjectBrowser", () => {
     render(
       <ProjectBrowser
         projects={[project]}
+        error={null}
         expanded="p"
         onToggle={() => undefined}
         onOpen={onOpen}
@@ -62,5 +63,33 @@ describe("ProjectBrowser", () => {
     expect(onRecall).toHaveBeenCalledWith("p", "view", "table");
     fireEvent.click(screen.getByRole("button", { name: "Open Momentum" }));
     expect(onOpen).toHaveBeenCalledWith("p");
+  });
+
+  const createHint = "Create a project to save datasets and views into.";
+  it.each([
+    ["loading", "Loading", undefined, null],
+    ["the list fails", "boom", undefined, "boom"],
+    // A failed refetch keeps the last list.
+    ["a refetch fails", "boom", [], "boom"],
+    ["a refetch fails with some kept", "boom", [project], "boom"],
+    ["there are none", createHint, [], null],
+    ["there are some", null, [project], null],
+  ])("when %s, says %s", (_, shown, list, error) => {
+    render(
+      <ProjectBrowser
+        projects={list}
+        error={error}
+        expanded={null}
+        onToggle={() => undefined}
+        onOpen={() => undefined}
+        onRecall={() => undefined}
+        onCreate={() => undefined}
+      />,
+    );
+    for (const hint of ["Loading", "boom", createHint])
+      expect(screen.queryByText(hint) !== null, hint).toBe(hint === shown);
+    if (error !== null)
+      expect(screen.getByText(error).className).toContain("text-destructive");
+    expect(screen.queryByText("Momentum") !== null).toBe(!!list?.length);
   });
 });

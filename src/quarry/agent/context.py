@@ -8,10 +8,9 @@ from typing import Final
 
 from pydantic import BaseModel, Field
 
-from quarry.config import QuarryConfig
 from quarry.data.parquet import PartitionLayout
 from quarry.kernel.datasets import DatasetMeta
-from quarry.libraries import licensed_libraries
+from quarry.libraries import LibraryStatus
 from quarry.server.models import Step
 
 GUIDE_PATH: Final = Path(__file__).parent / "guide.md"
@@ -89,9 +88,10 @@ def runtime_libraries(static_dir: Path) -> list[str] | None:
     return [str(item) for item in data.get("libraries", [])]
 
 
-def enabled_libraries(config: QuarryConfig, available: list[str] | None = None) -> list[str]:
-    licensed = [s.id for s in licensed_libraries(config) if s.enabled]
-    wanted = [*ALWAYS_ON, *licensed]
+def enabled_libraries(
+    licensed: list[LibraryStatus], available: list[str] | None = None
+) -> list[str]:
+    wanted = [*ALWAYS_ON, *(s.id for s in licensed if s.enabled)]
     if available is None:
         return wanted
     return [lib for lib in wanted if lib in available]

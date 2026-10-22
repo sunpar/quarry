@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import duckdb
@@ -19,14 +20,31 @@ def build_cache(root: Path) -> None:
     (root / "notes.txt").write_text("ignored")
 
 
-def test_scan_layout_reports_partition_keys(tmp_path: Path) -> None:
+def warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == "quarry.data.parquet" and r.levelno == logging.WARNING
+    ]
+
+
+def test_scan_layout_reports_partition_keys(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     build_cache(tmp_path)
-    layout = scan_layout(tmp_path)
+    with caplog.at_level(logging.WARNING):
+        layout = scan_layout(tmp_path)
     assert [(entry.dataset, entry.keys) for entry in layout] == [("prices", ["year", "month"])]
+    assert warnings(caplog) == []
 
 
-def test_scan_layout_of_missing_root_is_empty(tmp_path: Path) -> None:
-    assert scan_layout(tmp_path / "missing") == []
+def test_scan_layout_of_missing_root_is_empty(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A configured root may not exist yet: that is no warning on every prompt.
+    with caplog.at_level(logging.WARNING):
+        assert scan_layout(tmp_path / "missing") == []
+    assert warnings(caplog) == []
 
 
 def write_frame(path: Path) -> None:
@@ -47,13 +65,29 @@ def test_scan_layout_lists_an_unpartitioned_dataset_with_no_keys(tmp_path: Path)
     ]
 
 
-@root_ignores_modes
-def test_scan_layout_skips_an_unreadable_dataset(tmp_path: Path) -> None:
+def test_scan_layout_leaves_out_a_dataset_whose_parquet_link_is_dangling(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     build_cache(tmp_path)
-    write_frame(tmp_path / "locked" / "part.parquet")
-    with chmodded(tmp_path / "locked", 0o000):
+    (tmp_path / "gone").mkdir()
+    (tmp_path / "gone" / "part.parquet").symlink_to(tmp_path / "gone" / "deleted.parquet")
+    with caplog.at_level(logging.WARNING):
         layout = scan_layout(tmp_path)
     assert [entry.dataset for entry in layout] == ["prices"]
+    assert warnings(caplog) == []
+
+
+@root_ignores_modes
+def test_scan_layout_skips_an_unreadable_dataset_with_a_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    build_cache(tmp_path)
+    write_frame(tmp_path / "locked" / "part.parquet")
+    with chmodded(tmp_path / "locked", 0o000), caplog.at_level(logging.WARNING):
+        layout = scan_layout(tmp_path)
+    assert [entry.dataset for entry in layout] == ["prices"]
+    [warning] = warnings(caplog)
+    assert warning.startswith("cannot read parquet cache directory:") and "locked" in warning
 
 
 @root_ignores_modes
@@ -102,15 +136,22 @@ def test_scan_layout_does_not_read_the_leaf_partitions(
 
 
 @root_ignores_modes
-def test_scan_layout_of_unreadable_root_is_empty(tmp_path: Path) -> None:
+def test_scan_layout_of_unreadable_root_is_empty(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     build_cache(tmp_path)
-    with chmodded(tmp_path, 0o000):
+    with chmodded(tmp_path, 0o000), caplog.at_level(logging.WARNING):
         assert scan_layout(tmp_path) == []
+    assert len(warnings(caplog)) == 1
 
 
-def test_scan_layout_of_a_file_root_is_empty(tmp_path: Path) -> None:
+def test_scan_layout_of_a_file_root_is_empty(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     (tmp_path / "cache").write_text("not a directory")
-    assert scan_layout(tmp_path / "cache") == []
+    with caplog.at_level(logging.WARNING):
+        assert scan_layout(tmp_path / "cache") == []
+    assert len(warnings(caplog)) == 1
 
 
 def test_pq_reads_an_unpartitioned_dataset_with_the_layout_glob(tmp_path: Path) -> None:

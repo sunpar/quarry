@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { QueryHookResult } from "@/runtime/hooks";
 
@@ -34,18 +35,25 @@ const prices: QueryHookResult = {
   arrow: null,
 };
 
+const ariaSort = (name: string) =>
+  screen.getByRole("columnheader", { name }).getAttribute("aria-sort");
+
 describe("data-table-tanstack built-in", () => {
-  it("renders header cells and rows, and pushes a header click into the sort state", () => {
+  it("renders header cells and rows, and pushes a header button into the sort state", async () => {
     query.mockReturnValue(prices);
     render(<DataTableTanstack datasets={["df"]} />);
     expect(query).toHaveBeenCalledWith({ dataset: "df", limit: 500 });
-    expect(screen.getByRole("columnheader", { name: /px/ })).toBeTruthy();
+    expect(ariaSort("px")).toBeNull();
     // Numeric columns are right-aligned through the column meta.
     expect(screen.getByText("1.5").className).toContain("text-right");
     expect(screen.getByText("A").className).not.toContain("text-right");
     expect(screen.queryByText(/Showing the first/)).toBeNull();
-    fireEvent.click(screen.getByRole("columnheader", { name: /px/ }));
+    // A button, so the sort is reachable from the keyboard.
+    fireEvent.click(screen.getByRole("button", { name: "px" }));
     expect(setSort).toHaveBeenLastCalledWith({ col: "px", desc: false });
+    screen.getByRole("button", { name: "sym" }).focus();
+    await userEvent.keyboard("{Enter}");
+    expect(setSort).toHaveBeenLastCalledWith({ col: "sym", desc: false });
   });
 
   it("sends a saved sort to the query and cycles it from ascending to descending to none", () => {
@@ -58,12 +66,15 @@ describe("data-table-tanstack built-in", () => {
         limit: 500,
         sort: [{ col: "px", desc: false }],
       });
-      fireEvent.click(screen.getByRole("columnheader", { name: /px/ }));
+      expect(ariaSort("px")).toBe("ascending");
+      expect(ariaSort("sym")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "px" }));
       expect(setSort).toHaveBeenLastCalledWith({ col: "px", desc: true });
       unmount();
       saved.sort = { col: "px", desc: true };
       render(<DataTableTanstack datasets={["df"]} />);
-      fireEvent.click(screen.getByRole("columnheader", { name: /px/ }));
+      expect(ariaSort("px")).toBe("descending");
+      fireEvent.click(screen.getByRole("button", { name: "px" }));
       expect(setSort).toHaveBeenLastCalledWith(null);
     } finally {
       delete saved.sort;
