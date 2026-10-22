@@ -442,12 +442,14 @@ them.
   `ModuleNotFoundError` with the install command. Any other missing module
   re-raises unchanged.
 - **An unreadable cache path is skipped with a warning**: `scan_layout` never
-  raises. It drops an unreadable root or dataset and logs a warning naming the
-  directory and the error, lists a directory holding parquet files directly as
+  raises. It drops an unreadable root or dataset, logging a warning with the
+  error for each directory it cannot read but saying nothing of a root that
+  does not exist yet. It lists a directory holding parquet files directly as
   `not partitioned`, and reads only the dataset directory and its first-level
   partitions, taking the second key from the first readable one. An unreadable
   cache had stopped `quarry serve`. Cost: an unreadable cache looks empty to
-  the agent, and its warning repeats on every prompt.
+  the agent, its warning goes only to the server's log, and it repeats on
+  every prompt.
 - **`sql()` keeps the schema on zero rows**: it reads arrow-odbc's pyarrow
   `RecordBatchReader` with `read_all()`, which carries the schema when no rows
   return. Parameters are sent as text, because arrow-odbc binds every parameter

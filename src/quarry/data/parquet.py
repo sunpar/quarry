@@ -77,8 +77,8 @@ def _key(partition: Path) -> str:
 
 
 def _read_dir(path: Path) -> tuple[list[Path], list[Path]] | None:
-    """The subdirectories and the parquet files directly in `path`, sorted; None, with a
-    warning, when `path` or anything in it cannot be read."""
+    """The subdirectories and the parquet files directly in `path`, sorted; None when `path`
+    or anything in it cannot be read, with a warning unless `path` does not exist."""
     dirs: list[Path] = []
     files: list[Path] = []
     try:
@@ -87,7 +87,9 @@ def _read_dir(path: Path) -> tuple[list[Path], list[Path]] | None:
                 dirs.append(entry)
             elif entry.suffix == ".parquet" and entry.is_file():
                 files.append(entry)
+    except FileNotFoundError:
+        return None  # a root not made yet, or a directory removed during the scan
     except OSError as exc:
-        log.warning("skipping parquet cache directory %s: %s", path, exc)
+        log.warning("cannot read parquet cache directory: %s", exc)
         return None
     return dirs, files
