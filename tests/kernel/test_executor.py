@@ -1105,6 +1105,16 @@ def test_relation_query_filters_an_interval_column_as_the_text_describe_gives() 
     assert ex.query(spec).rows == [{"gap": "1 day", "k": 1}]
 
 
+def test_query_reports_an_extension_column_as_its_storage() -> None:
+    ex = make()
+    ex.execute("df = pl.DataFrame({'a': pl.Series([1, 2]).ext.to(pl.Extension('t.a', pl.Int64))})")
+    out = ex.query(QuerySpec(dataset="df", filters=[Filter(col="a", op="gt", value=1)]))
+    assert [(c.name, c.dtype) for c in out.schema_] == [("a", "Int64")]
+    assert out.rows == [{"a": 2}]
+    # The dataset itself is described as it is.
+    assert [c.dtype for c in ex.describe("df").schema_] == ["Extension('t.a', Int64)"]
+
+
 def test_query_arrow_format() -> None:
     ex = make()
     ex.execute("df = pl.DataFrame({'a': [1]})")

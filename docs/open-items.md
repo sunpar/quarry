@@ -264,13 +264,6 @@ Decisions already made are in [decisions.md](context/decisions.md).
   renders a whole float of 1e16 or more through `repr` as `1e+16`, which DuckDB
   types as DOUBLE, so on a relation `== 1e16` against an integer column keeps
   10^16 + 1, which polars drops. Silent.
-- **Extension columns load into the pivot but not into its queries**: polars
-  refuses comparisons, `is_in`, sums, means, min, max and a string cast on an
-  extension column, so a pivot that filters, aggregates or splits on one shows
-  "This layout cannot run as a query". `toSpec` and `filters.ts` also read the
-  `Extension(...)` dtype string as non-numeric, so a default aggregate maps to
-  `count`. Unwrapping extension columns where the kernel takes a frame would
-  cover the queries, the schema and the transport at once. Loud.
 
 ## Deferred work
 

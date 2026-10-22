@@ -19,6 +19,10 @@ against a float column fails when run.
 `sum` depends on `schema` too. When it is given, an integer column of up to 64 bits sums as
 Decimal(38, 0), as in `to_polars`. Without it, the source sums plainly, so an Int64 sum can
 wrap on overflow.
+
+Extension columns depend on `schema` as well. When it is given, the polars source reads each
+one as its storage, as `to_polars` does. Without it, they stay extension columns, which polars
+cannot filter or aggregate.
 """
 
 from __future__ import annotations
@@ -38,6 +42,7 @@ from quarry.query.polars_target import (
     CoercedLiteral,
     CompareOp,
     coerce_literal,
+    extension_positions,
     sums_as_decimal,
 )
 from quarry.query.spec import (
@@ -100,12 +105,15 @@ def to_source(
     """
     require_identifier(spec.dataset, "dataset", spec)
     require_identifier(result_name, "result_name", spec)
+    extensions: list[int] = []
     if schema is not None:
+        extensions = extension_positions(schema)
+        schema = _storage_schema(schema)
         check_columns(spec, set(schema))
         if spec.line_reduce is not None:
             check_line_axes(spec.line_reduce, schema, dataset=spec.dataset)
     try:
-        return _render(spec, backing, result_name, schema, relation_projection)
+        return _render(spec, backing, result_name, schema, relation_projection, extensions)
     except (ValueError, TypeError) as exc:
         # The SQL target's literal checks raise plain errors; the caller sees one type.
         raise QueryError(str(exc), dataset=spec.dataset) from exc
@@ -117,8 +125,12 @@ def _render(
     result_name: str,
     schema: Schema | None,
     relation_projection: str | None,
+    extensions: list[int],
 ) -> str:
     if backing != "duckdb":
+        lazy = f"{spec.dataset}.lazy()"
+        # Each extension column read as its storage, as `to_polars` reads it.
+        unwrap = f".with_columns(pl.nth({py_literal(extensions)}).ext.storage())"
         if spec.line_reduce is not None:
             time, value = spec.line_reduce.time, spec.line_reduce.value
             axes = [time, value]
@@ -173,7 +185,7 @@ def _render(
             scope = ", ".join(
                 [
                     '"__builtins__": builtins.__dict__',
-                    f'"_frame": {spec.dataset}',
+                    f'"_frame": {lazy + unwrap if extensions else spec.dataset}',
                     '"pl": pl',
                     *(f"{py_literal(n)}: {n}" for n in _imported_names(spec, schema)),
                 ]
@@ -194,7 +206,7 @@ def _render(
                 spec,
                 result_name=result_name,
                 schema=schema,
-                head=f"{spec.dataset}.lazy()",
+                head=f"{lazy}\n{unwrap}" if extensions else lazy,
                 head_is_lazy=True,
             )
         imported = _imported_names(spec, schema)
@@ -248,7 +260,9 @@ def result_names(queries: Sequence[tuple[int, str]], taken: Container[str]) -> l
 def imported_names(spec: QuerySpec, backing: Backing, *, schema: Schema | None = None) -> list[str]:
     """The names `to_source(spec, backing, schema=schema)` binds with its import lines."""
     # Relation source imports nothing: its filters, the only literals, run in the SQL.
-    return [] if backing == "duckdb" else _imported_names(spec, schema)
+    if backing == "duckdb":
+        return []
+    return _imported_names(spec, None if schema is None else _storage_schema(schema))
 
 
 def filter_source(f: Filter, dtype: pl.DataType | None = None) -> str:
@@ -470,6 +484,13 @@ def _temporal_names(value: object) -> set[str]:
             return {"date"}
         case _:
             return set()
+
+
+def _storage_schema(schema: Schema) -> pl.Schema:
+    """`schema` with each extension column as its storage, the dtype `to_polars` queries."""
+    return pl.Schema(
+        {n: d.ext_storage() if isinstance(d, pl.BaseExtension) else d for n, d in schema.items()}
+    )
 
 
 def _dtype(schema: Schema | None, col: str) -> pl.DataType | None:

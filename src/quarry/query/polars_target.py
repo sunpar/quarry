@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Final, Literal
@@ -41,6 +42,11 @@ def to_polars(
 ) -> pl.LazyFrame:
     lf = frame.lazy()
     schema = lf.collect_schema()
+    if extensions := extension_positions(schema):
+        # Only these columns: a projection over every column would stop a parquet scan
+        # filtering rows as it reads them.
+        lf = lf.with_columns(pl.nth(extensions).ext.storage())
+        schema = lf.collect_schema()
     check_columns(spec, set(schema.names()))
     if spec.filters:
         lf = lf.filter(pl.all_horizontal([filter_expr(f, schema[f.col]) for f in spec.filters]))
@@ -87,6 +93,15 @@ def to_polars(
     if spec.select is not None:
         lf = lf.select(spec.select)
     return lf
+
+
+def extension_positions(schema: Mapping[str, pl.DataType]) -> list[int]:
+    """The positions of the extension columns, which a query reads as their storage.
+
+    polars refuses to compare, sum or cast an extension column, and its grouped median of one is
+    null. Positions, not names: `pl.col` reads a name like `^a.*$` as a regex.
+    """
+    return [i for i, dtype in enumerate(schema.values()) if isinstance(dtype, pl.BaseExtension)]
 
 
 def filter_expr(f: Filter, dtype: pl.DataType) -> pl.Expr:

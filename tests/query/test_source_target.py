@@ -6,6 +6,7 @@ from datetime import date, datetime
 import duckdb
 import polars as pl
 import pytest
+from polars.testing import assert_frame_equal
 
 from quarry.query import (
     Agg,
@@ -19,10 +20,12 @@ from quarry.query import (
     to_polars,
     to_source,
 )
-from quarry.query.source_target import py_literal
+from quarry.query.source_target import imported_names, py_literal
 from quarry.query.sql_target import relation_view
 from tests.query.fixtures import (
     BACKINGS,
+    EXTENSION_IDS,
+    EXTENSION_SPECS,
     INT_SUM_IDS,
     INT_SUM_SPECS,
     NAIVE_OFFSET_FILTERS,
@@ -31,6 +34,7 @@ from tests.query.fixtures import (
     ZONED_FILTERS,
     ZONED_IDS,
     TimeUnit,
+    as_extensions,
     assert_same_rows,
     bind,
     execute,
@@ -505,3 +509,22 @@ def test_py_literal_rejects_objects() -> None:
 @pytest.mark.parametrize("spec", EXTRA_SPECS, ids=[s.model_dump_json() for s in EXTRA_SPECS])
 def test_source_matches_polars_target_beyond_fixtures(spec: QuerySpec, backing: Backing) -> None:
     assert_matches_polars_target(spec, backing)
+
+
+@pytest.mark.parametrize("backing", ["polars", "polars_lazy"])
+@pytest.mark.parametrize("spec", EXTENSION_SPECS, ids=EXTENSION_IDS)
+def test_source_reads_extension_columns_as_their_storage(spec: QuerySpec, backing: Backing) -> None:
+    frame = as_extensions(trades())
+    source = to_source(spec, backing, schema=frame.schema)
+    actual = execute(source, {"trades": bind(frame, backing)})
+    assert_frame_equal(actual, to_polars(spec, trades()).collect())
+
+
+def test_source_unwraps_nothing_without_extension_columns() -> None:
+    schema = trades().schema
+    assert not any(".ext." in to_source(spec, "polars", schema=schema) for spec in EXTENSION_SPECS)
+
+
+def test_imported_names_read_extension_columns_as_their_storage() -> None:
+    spec = QuerySpec(dataset="trades", filters=[Filter(col="date", op="ge", value="2024-01-03")])
+    assert imported_names(spec, "polars", schema=as_extensions(trades()).schema) == ["date"]
